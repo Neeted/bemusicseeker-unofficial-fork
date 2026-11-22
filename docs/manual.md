@@ -82,6 +82,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Parse Errors](#parse-errors)
     - [Garbled Text Check](#garbled-text-check)
     - [Duplicate File Check](#duplicate-file-check)
+    - [Split Placement Check](#split-placement-check)
     - [Full Resource Scan](#full-resource-scan)
 - [Play Log](#play-log)
     - [Displayed History](#displayed-history)
@@ -248,9 +249,11 @@ See [Managing beatoraja Difficulty Tables](#managing-beatoraja-difficulty-tables
 
 Change settings related to themes and display.
 
-Font selects the font used for text in lists, menus, Settings, dialogs, and more, from the fonts installed on Windows. The default is Meiryo UI. Characters that the selected font does not contain are shown in Meiryo UI. Icons and special text such as the clear lamp and DJ LEVEL in lists are not affected.
+Use **App font** to choose the font for the tree, menus, settings, and dialogs. The default is Yu Gothic UI.
 
-The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The font size can be set in steps of 0.5.
+Under **List**, choose **Font** to change the headers, cells, and cell editors in the chart, playlist, and merge candidate lists. The default is Meiryo UI. You can also adjust the font size in steps of 0.5, the row height, and the header height.
+
+Both settings use fonts installed on Windows. Characters missing from the selected font use the default for that setting. Icons, clear lamps, and DJ LEVEL indicators use their own fonts.
 
 ### Playback
 
@@ -1280,6 +1283,8 @@ When the source folder contains subfolders, the confirmation also shows the numb
 
 BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.
 
+The merge is not performed and the reason is shown when any of the following is a symbolic link or junction: the folder being merged away and the files and folders inside it, the folder to keep itself, or a file or folder in the folder to keep at the same position as one in the folder being merged away. Remove the link and try again.
+
 #### Continuous Cleanup with `Ctrl + G`
 
 > [!CAUTION]
@@ -1296,6 +1301,121 @@ For duplicate-hash cleanup inside the same folder, one file is kept for each has
 After a two-folder merge or cleanup within one folder, the next duplicate group is selected if one remains. After a merge involving three or more folders, selection returns to the same group heading. Using `Ctrl + G` while checking from top to bottom lets you organize many duplicates with relatively few operations.
 
 For failed moves or merges, see [File Moving or Merging Fails](#file-moving-or-merging-fails).
+
+#### Organize Multiple Groups from Merge Candidates
+
+![Merge candidates](img/一覧_重複ファイルチェック_統合候補一覧.PNG)
+
+> [!CAUTION]
+> `Organize selected groups` moves the files in every folder other than `KEEP` into the `KEEP` folder and deletes the source folders. This cannot be undone. For same-name audio, BGA, and other files with different content, only one remains according to [Smart Overwrite](#smart-overwrite). Review groups whose `STATUS` is `Caution` or `Unchecked` before organizing them.
+
+Selecting `Merge candidates` at the top of the duplicate-file-check tree shows duplicate groups as a list of folders. Each row is one folder, and rows of the same group share a background color. You can check whether merging several groups looks safe and then organize them together.
+
+| Column | Description |
+| --- | --- |
+| `SELECT` | Check mark for the groups to verify or organize. One per group. |
+| `STATUS` | Result of the safety check. Hover to see the reasons and the files involved. |
+| `KEEP` | The folder to keep. Choose one per group. The default is the folder with the most charts. |
+| `PATH` / `FOLDER` | Folder path and folder name. |
+| `TITLE` / `ARTIST` | Representative title and artist of the folder. |
+
+The basic steps are as follows.
+
+1. Press `Select all shown`, or check the target groups in `SELECT`.
+2. Press `Verify selected groups`. When verification finishes, the result is shown in `STATUS` and the verified groups are unchecked.
+3. Check the groups to organize. To organize only the `Safe` groups, enter `status:Safe` in the search box to filter the list, then press `Select all shown`.
+4. Change `KEEP` if needed.
+5. Press `Organize selected groups`, review the confirmation dialog. If the selection includes a `Caution` or `Unchecked` group, check `Continue organizing caution or unchecked groups`. Press `OK` to proceed.
+
+`Verify selected groups` only reads and compares the contents of each folder; it does not change any file. The result is shown in `STATUS`.
+
+| `STATUS` | Meaning |
+| --- | --- |
+| `Unchecked` | Not verified yet. |
+| `Safe` | Nothing was found that gets in the way of merging. `Safe (.bmx/.txt collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. |
+| `Caution` | The group can be merged, but there is something you may want to review. |
+| `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
+
+The reasons are as follows. `STATUS` lists every applicable reason separated by commas, such as `Caution: parent directory reference, files with different content`.
+
+| Reason | Level | Description |
+| --- | --- | --- |
+| `parent directory reference` | `Caution` | A chart to be moved refers to audio or other files outside its folder with `..`. The reference may break after merging. |
+| `same audio name, different extension` | `Caution` | Audio files with the same name exist in different formats, such as `.wav` and `.ogg`, in different folders. Both remain after merging, and the audio used for playback may change. |
+| `files with different content` | `Caution` | Files with the same name have different content. The folders may be works that use different audio. |
+| `no identical files shared` | `Caution` | When folders that share a file with identical content are connected to each other, the folders in the group do not all connect and split into separate sets. Unrelated works may be mixed in. Folders that have no files other than charts and `.bmx`, `.pmx`, and `.txt` files are not considered. |
+| `chart folder inside` | `Caution` | A folder to be moved contains another folder with charts. That folder is moved as well. |
+| `contains a link` | `Cannot merge` | A folder contains a symbolic link or junction. |
+| `registered root` | `Cannot merge` | Two or more folders in the group are registered as BMS directories. When there is only one, that folder is fixed as `KEEP`. |
+| `nested folders` / `overlaps another group` | `Cannot merge` | Folders in the group, or a folder in another group, are in a parent-child relationship. |
+| `file/folder name conflict` | `Cannot merge` | The same name is a file in one folder and a folder in another. |
+| `unreadable items` | `Cannot merge` | Some items could not be checked because of permissions or read failures. Use `Verify this group` from the context menu to check again. |
+
+When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. `.bmx`, `.pmx`, and `.txt` files are compared in the same way.
+
+`Quick check for speed (treat files with the same size and modified time as identical without reading them)` is disabled by default. When you check it, files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster.
+
+> [!CAUTION]
+> Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While `Quick check for speed` is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.
+
+`Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
+
+A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.
+
+Other operations are as follows.
+
+- Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept `path:`, `folder:`, `title:`, `artist:`, and `status:`. `Select all shown`, `Verify selected groups`, and `Organize selected groups` apply only to the shown groups.
+- Clicking a column header sorts by group. Rows inside a group are always in path order.
+- When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
+- Double-clicking a row moves to that folder in the duplicate-file-check tree.
+- From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark. Clicking a `SELECT` or `STATUS` cell selects every row of that group.
+
+### Split Placement Check
+
+This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.
+
+> [!CAUTION]
+> The results are merge candidates. The check does not read the audio files and compares file names only, so different songs can appear as candidates. Before organizing, check the contents with `Verify selected groups` in the merge candidates list.
+
+Selecting `Split placement check` in the left tree starts the search. A progress dialog is shown during the search, and `Cancel` stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting `Split placement check` shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.
+
+Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 95% and 10 folders are the default values and can be changed in [Adjust the Search Conditions](#adjust-the-search-conditions).
+
+- Each folder has at least 10 audio files that are used for the comparison.
+- At least 95% of the audio names in the folder with fewer audio files also exist in the other folder.
+- The two folders have no chart in common. Use duplicate file check for folders that contain the same chart.
+
+Audio names are compared as the path relative to the folder, without the extension. `sound/kick.wav` and `sound/kick.ogg` are the same name; `kick.wav` and `sound/kick.wav` are different names. The following audio files are not used for the comparison.
+
+- `preview`, `_preview`, and `__preview` directly under the folder
+- Audio names that exist in more than 10 folders. This keeps folders that only share names used by many works, such as `01.wav`, out of the candidates.
+- Audio files inside a child folder that has its own charts
+
+When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the groups disappear from the tree. Click `Split placement check` again to search again.
+
+#### Merge Candidate Folders
+
+Folders are merged from `Merge candidates` at the top of the tree. Reading the list and using `Verify selected groups` and `Organize selected groups` work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. Only the following points differ.
+
+- Groups whose `STATUS` is `Unchecked` cannot be organized. If you press `Organize selected groups` while an `Unchecked` group is checked, a message asks you to verify first and nothing is organized. Run `Verify selected groups` before organizing.
+- When organizing finishes, the search runs again automatically. `KEEP` and the verification results of groups that were not affected are kept.
+- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, and the folders registered with `Preferred destinations...` are kept separately from the merge candidates list of duplicate file check.
+
+In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
+
+#### Adjust the Search Conditions
+
+When there are too many candidates, or a pair you expect does not become a candidate, change the search conditions above the operation buttons of the merge candidates list and search again. `Merge candidates` is shown even when there are no candidates.
+
+| Item | Default | Description |
+| --- | --- | --- |
+| `Share rate` | 95% | The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced. |
+| `Folder count treated as generic names` | 10 | Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group. |
+| `Share rate basis` | `Folder with fewer audio files` | With `Folder with fewer audio files`, a pair becomes a candidate when the share rate is met for the folder that has fewer audio files. With `Both folders`, the share rate must be met from both folders. Choose it to exclude pairs where a large folder merely contains the audio of a small folder. |
+
+Choosing a value does not change the result. Press `Search again` to search with the chosen values. While the chosen values are not applied yet, `Search again` is shown in bold. After searching again, the check marks, `KEEP`, and verification results are kept for groups whose folders and charts did not change.
+
+The applied values are kept until you exit the app and return to the defaults at the next start. Searches started from the left tree and the search after organizing also use the applied values.
 
 ### Full Resource Scan
 

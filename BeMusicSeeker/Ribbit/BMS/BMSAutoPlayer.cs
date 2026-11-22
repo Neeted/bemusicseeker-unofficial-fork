@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -17,6 +18,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     private IReadOnlyList<BmsAudioResource?> audioResourcesByIndex;
     private BassAudioSession? resourceSession;
     private BmsAudioFrameSchedule? audioSchedule;
+    private BmsDirectVoiceTable? directVoices;
     private BmsRealtimeAudioScheduler? realtimeScheduler;
     private readonly IBassScheduledMixerNativeBoundary realtimeMixerNative;
     private int playbackGeneration;
@@ -53,6 +55,12 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>譜面の発音scheduleを捕捉した実効mixer rateで取得します。</summary>
     internal BmsAudioFrameSchedule AudioSchedule =>
         audioSchedule ?? throw new InvalidOperationException("BMS audio resources have not been loaded.");
+
+    /// <summary>
+    /// 短い発音を直接合成するための変換済み波形の表を取得します。予約表(schedule、resource)と同じ寿命で、
+    /// <see cref="DisposeAudioSourcesAfterUse"/>で参照を外します。読込み前はnullです。
+    /// </summary>
+    internal BmsDirectVoiceTable? DirectVoices => directVoices;
 
     /// <summary>resourceとscheduleを作成したnative mixer sessionを取得します。</summary>
     internal BassAudioSession ResourceSession =>
@@ -167,7 +175,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                     Duration,
                     segmentStartFrame,
                     base.PlaybackRate,
-                    checked(playbackGeneration++));
+                    checked(playbackGeneration++),
+                    directVoices: directVoices);
                 session.SetCallbackOutputPaused(false);
             }
             catch
@@ -297,7 +306,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                     Duration,
                     songFrame,
                     base.PlaybackRate,
-                    checked(playbackGeneration++));
+                    checked(playbackGeneration++),
+                    directVoices: directVoices);
                 realtimeScheduler.ResetControlInterval();
                 if (resumeAfterSeek)
                 {
@@ -325,11 +335,20 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>再生に使う音源を事前に復号します。</summary>
     public override void LoadResources()
     {
-        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Chart, ResourceSourceGain));
+        LoadResources(CancellationToken.None);
+    }
+
+    /// <summary>再生に使う音源を、取消トークンを確認しながら事前に復号します。</summary>
+    /// <param name="cancellationToken">音源の探索・復号と短い発音の波形の作成の境界で確認します。取消時は <see cref="OperationCanceledException"/> を返し、曲の状態を採用しません。</param>
+    public void LoadResources(CancellationToken cancellationToken)
+    {
+        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Chart, ResourceSourceGain, cancellationToken), cancellationToken);
     }
 
     /// <summary>解析済み譜面とPCMを一回採用し、現在の実効出力レートでscheduleを構築します。</summary>
-    internal void AdoptPreparedSong(PreparedBmsSong prepared)
+    /// <param name="prepared">一回だけ採用できる準備結果です。</param>
+    /// <param name="cancellationToken">短い発音の波形の作成中に確認する取消トークンです。取消は音源障害へ包まず、そのまま返します。</param>
+    internal void AdoptPreparedSong(PreparedBmsSong prepared, CancellationToken cancellationToken = default)
     {
         if (!ReferenceEquals(base.Chart, prepared.Chart) && !(base.Bms != null && ReferenceEquals(base.Bms, prepared.Chart.Bms)))
         {
@@ -383,6 +402,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
 
         BassAudioSession session;
         BmsAudioFrameSchedule schedule;
+        BmsDirectVoiceTable voiceTable;
         try
         {
             using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
@@ -406,8 +426,14 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 session = currentSession;
                 schedule = BmsAudioFrameSchedule.Create(base.Chart, mixerInfo.Frequency, result.ResourcesByIndex);
             }
+            // 短い発音の変換済み波形は、予約表と同じ寿命で曲の準備時に一度だけ作る。通常の読込みと先読みの採用の両方がここを通る。
+            voiceTable = BmsDirectVoiceTable.Create(schedule, result.ResourcesByIndex, session, cancellationToken);
         }
         catch (AudioSourceFatalException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -422,6 +448,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         audioResourcesByIndex = Array.AsReadOnly(result.ResourcesByIndex);
         resourceSession = session;
         audioSchedule = schedule;
+        directVoices = voiceTable;
         durationProvider = () => base.MusicDuration;
         base.MusicDuration = base.Bms != null
             ? base.Bms.Measures.SelectMany(measure =>
@@ -461,6 +488,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
 
         audioResourcesByIndex = Array.AsReadOnly(Array.Empty<BmsAudioResource?>());
         audioSchedule = null;
+        directVoices = null;
         resourceSession = null;
     }
 

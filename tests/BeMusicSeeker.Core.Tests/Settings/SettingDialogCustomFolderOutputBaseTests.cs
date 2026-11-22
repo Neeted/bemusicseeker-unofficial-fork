@@ -290,7 +290,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         Assert.IsTrue(reopened.FilteredPlaylistOptions.Single(option => option.Table.PlaylistId == 101).IsSelected);
     }
 
-    /// <summary>親子と無関係な兄弟パスを混ぜ、親子だけを正しい方向で競合として返すことを確認します。</summary>
+    /// <summary>
+    /// 親子と無関係な兄弟、名前の先頭だけが共通する兄弟、存在しないパスを混ぜ、親子だけを正しい方向で競合として返すことを確認します。
+    /// 大文字化して末尾に区切りを付けた子も同じ子として扱い、文字列の前方一致・片方向だけの判定・大小文字や末尾の区切りの見落としを検出します。
+    /// </summary>
     [TestMethod]
     public void CollectNestedBmsSearchRootConflicts_DetectsParentChildOnly()
     {
@@ -298,13 +301,22 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         string parent = Path.Combine(root, "BMS");
         string child = Path.Combine(parent, "Child");
         string sibling = Path.Combine(root, "Sibling");
+        string prefixSibling = Path.Combine(root, "BMS2");
+        string missing = Path.Combine(root, "Missing", "Nowhere");
 
         IReadOnlyList<SettingsDialogViewModel.NestedBmsSearchRootConflict> conflicts =
-            SettingsDialogViewModel.CollectNestedBmsSearchRootConflicts([child, sibling, parent]);
+            SettingsDialogViewModel.CollectNestedBmsSearchRootConflicts([child, sibling, parent, prefixSibling, missing]);
 
         Assert.AreEqual(1, conflicts.Count);
         Assert.AreEqual(parent, conflicts[0].ParentPath);
         Assert.AreEqual(child, conflicts[0].ChildPath);
+
+        IReadOnlyList<SettingsDialogViewModel.NestedBmsSearchRootConflict> reversed =
+            SettingsDialogViewModel.CollectNestedBmsSearchRootConflicts([prefixSibling, parent, child.ToUpperInvariant() + Path.DirectorySeparatorChar]);
+
+        Assert.AreEqual(1, reversed.Count);
+        Assert.AreEqual(parent, reversed[0].ParentPath, ignoreCase: true);
+        Assert.AreEqual(child, reversed[0].ChildPath, ignoreCase: true);
     }
 
     /// <summary>旧通常出力先を追加出力へ転用する要求を、同一登録を示す採用確認対象として返すことを確認します。</summary>

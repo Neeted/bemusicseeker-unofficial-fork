@@ -6,6 +6,7 @@ using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.RegularChartListOwnerTestSupport;
 using DuplicateSupport = BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
+using Lists = BeMusicSeeker.TestSupport.Components.DuplicateMergeCandidateListTestSupport;
 using PendingSupport = BeMusicSeeker.TestSupport.Components.PendingPackageWorkflowOwnerTestSupport;
 using SelectedSupport = BeMusicSeeker.TestSupport.Components.SelectedChartMutationWorkflowOwnerTestSupport;
 
@@ -24,6 +25,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class AcceptedChangeDuplicatePreparationTests
 {
     private const string DuplicateMerge = "duplicate-merge";
+    private const string BatchOrganize = "batch-organize";
     private const string ChartMove = "chart-move";
     private const string PendingPackage = "pending-package";
     private const string FolderAutoRename = "folder-auto-rename";
@@ -39,6 +41,7 @@ public sealed class AcceptedChangeDuplicatePreparationTests
     /// </summary>
     [TestMethod]
     [DataRow(DuplicateMerge, DisplayName = "統合：store代替の統合本体で失効させ、requireGroups付きで準備する")]
+    [DataRow(BatchOrganize, DisplayName = "一括整理：store代替の整理本体で失効させ、統合候補一覧の文脈で重複選択する")]
     [DataRow(ChartMove, DisplayName = "譜面移動：store代替の移動本体で失効させ、変更適用通知の後に準備する")]
     [DataRow(PendingPackage, DisplayName = "保留の導入位置修復：store代替の修復本体で失効させる")]
     [DataRow(FolderAutoRename, DisplayName = "選択フォルダ自動改名：port代替の改名本体で失効させる")]
@@ -158,6 +161,7 @@ public sealed class AcceptedChangeDuplicatePreparationTests
         private Exception? releaseFailure;
         private bool? preparationTerminalAtAdmissionRelease;
         private FolderAutoRenameWorkflowOwner? autoRename;
+        private object? selectionParameter;
 
         internal Harness(string songDb, Exception? preparationFailure)
         {
@@ -189,7 +193,9 @@ public sealed class AcceptedChangeDuplicatePreparationTests
 
         internal void Run(string operation)
         {
-            Assert.IsTrue(regular.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected).GetAwaiter().GetResult(),
+            // 一括整理は統合候補一覧の画面にいる間の操作のため、重複選択も統合候補一覧の文脈で行う。
+            selectionParameter = operation == BatchOrganize ? DuplicateViewContext.ForCandidateList() : null;
+            Assert.IsTrue(regular.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected, selectionParameter).GetAwaiter().GetResult(),
                 "前提：変更前の重複選択を受理できません。");
             Assert.IsNotNull(library.DuplicateChartGroups, "前提：変更前の重複結果が準備されていません。");
             Assert.AreEqual(0, busyDialogs.Messages.Count);
@@ -276,6 +282,24 @@ public sealed class AcceptedChangeDuplicatePreparationTests
                         Task<DuplicateMaintenanceMutationResult> merge = owner.RunFolderMergeAsync(firstDirectory, secondDirectory,
                             new DuplicateGroup([first, second], [firstDirectory, secondDirectory]));
                         return (merge, () => merge.Result.Succeeded ? null : merge.Result.Failure ?? new AssertFailedException("統合が成功しませんでした。"));
+                    }
+                case BatchOrganize:
+                    {
+                        var events = new List<string>();
+                        var list = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => default);
+                        Lists.Adopt(list, library, [new DuplicateGroup([first, second], [firstDirectory, secondDirectory])]);
+                        list.SelectVisible();
+                        var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity,
+                            new DuplicateSupport.RecordingPresentation(events), DuplicateSupport.AcceptedDialogs(), () => false, _ => true,
+                            _ => new ExplorerOpenResult(), _ => null, new InvalidatingDuplicateStore(events, InvalidateInChange),
+                            candidateList: list);
+                        owner.WorkflowChanged += (_, change) =>
+                        {
+                            if (change is DuplicateMaintenanceRefreshSuppressionChangedEventArgs { IsSuppressed: false }) { OnSuppressionReleased(); }
+                        };
+                        Task<DuplicateBatchOrganizeRunResult> organize = owner.OrganizeSelectedGroupsAsync();
+                        return (organize, () => organize.Result.Status == DuplicateBatchOrganizeRunStatus.Completed
+                            ? null : organize.Result.Failure ?? new AssertFailedException("一括整理が完了しませんでした: " + organize.Result.Status));
                     }
                 case ChartMove:
                     {
@@ -370,7 +394,7 @@ public sealed class AcceptedChangeDuplicatePreparationTests
                 admissionHeldAtRelease = library.OperationAdmission.IsActive;
                 invalidationVersionAdvancedAtRelease = library.DuplicateChartGroupsInvalidationVersion > invalidationVersionBeforeChange;
                 registeredPreparation = regular.PrepareDuplicateDataAsync();
-                joinedSelection = regular.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected);
+                joinedSelection = regular.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected, selectionParameter);
             }
             catch (Exception exception) { releaseFailure = exception; }
             finally { releaseObserved.TrySetResult(); }
@@ -429,6 +453,21 @@ public sealed class AcceptedChangeDuplicatePreparationTests
             DuplicateMergeMaintenanceReceipt receipt = base.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId, notices);
             invalidate();
             return receipt;
+        }
+
+        /// <summary>一括整理本体の代替です。全グループを統合として完了させ、重複結果の失効を変更の中で行います。</summary>
+        public override DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+            BMSLibrary library, DuplicateBatchOrganizeRequest request, long operationId,
+            LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+        {
+            _ = base.OrganizeDuplicateGroups(library, request, operationId, notices, progress, cancellationToken);
+            invalidate();
+            return new DuplicateBatchOrganizeResult(
+                MergeFolderWithReceipt(library, string.Empty, string.Empty, operationId, notices),
+                request.Groups.Select(group => new DuplicateBatchOrganizeGroupResult(
+                    group.KeepDirectory, group.IsSingleFolder, DuplicateBatchOrganizeGroupStatus.Completed,
+                    DuplicateBatchOrganizeSkipReason.None, null, group.SourceDirectories, [], 0, 0)),
+                canceled: false, admitted: true);
         }
     }
 

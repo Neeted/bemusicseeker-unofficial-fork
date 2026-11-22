@@ -1,7 +1,10 @@
 using System.IO;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 
@@ -15,6 +18,69 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>
+    /// 移動元の配下の列挙が共有違反で失敗し、リンクの有無を確認できないグループは、一括整理がスキップ（確認できない理由）として移動元の譜面・DBを変えず、
+    /// 案内を出さず、独立した次のグループを完了します。確認できないものを成功として移す誤りと、次のグループまで止める誤りを検出します。
+    /// </summary>
+    /// <remarks>実際の共有違反は実Windowsのファイルハンドルでだけ再現できるため、Windows moduleで確認します。</remarks>
+    [TestMethod]
+    public void OrganizeDuplicateGroups_UncheckableSourceTree_SkipsTheGroupWithoutNoticesAndContinues()
+    {
+        BmsLibraryDuplicateServiceTestSupport.WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string keep1 = Path.Combine(root, "K1"), source1 = Path.Combine(root, "A"), blocked = Path.Combine(source1, "Blocked");
+            string keep2 = Path.Combine(root, "K2"), source2 = Path.Combine(root, "B");
+            ChartFile[] charts =
+            [
+                LibraryResourceIndexTestSupport.CreateChart(keep1, "k1.bms"), LibraryResourceIndexTestSupport.CreateChart(source1, "a.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(keep2, "k2.bms"), LibraryResourceIndexTestSupport.CreateChart(source2, "b.bms")
+            ];
+            Directory.CreateDirectory(blocked);
+            Dictionary<string, byte[]> original = charts.ToDictionary(chart => chart.Path, chart => File.ReadAllBytes(chart.Path));
+            var dialogs = new BmsLibraryDuplicateServiceTestSupport.RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new BmsLibraryDuplicateServiceTestSupport.TestFileMutationService(), dialogs,
+                settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = charts };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.UpsertSongs(charts);
+            try
+            {
+                var notices = new LibraryOperationNotices();
+                DuplicateBatchOrganizeResult result;
+                using (DirectoryEnumerationBlocker.HoldSharingViolation(blocked))
+                {
+                    result = library.OrganizeDuplicateGroups(
+                        new DuplicateBatchOrganizeRequest([new DuplicateBatchOrganizeGroup(keep1, [source1]), new DuplicateBatchOrganizeGroup(keep2, [source2])]),
+                        1, notices, null, CancellationToken.None);
+                }
+
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Skipped, result.Groups[0].Status);
+                Assert.AreEqual(DuplicateBatchOrganizeSkipReason.LinkCheckFailed, result.Groups[0].SkipReason);
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
+                Assert.AreEqual(0, notices.Snapshot().Count);
+                Assert.AreEqual(0, dialogs.Posted.Count);
+                Assert.IsFalse(result.Receipt.SessionReceipt.HasRequiredFailure);
+                foreach (string path in new[] { charts[0].Path, charts[1].Path })
+                {
+                    CollectionAssert.AreEqual(original[path], File.ReadAllBytes(path));
+                }
+                Assert.IsTrue(Directory.Exists(blocked));
+                Assert.IsFalse(Directory.Exists(source2), "次のグループは完了しています。");
+                Assert.IsTrue(File.Exists(Path.Combine(keep2, "b.bms")));
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                Assert.IsNotNull(db.Find<LR2SongDB.song>(charts[1].Path));
+                Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(keep2, "b.bms")));
+            }
+            finally
+            {
+                library.RequestShutdown("batch-uncheckable");
+            }
+        });
+    }
+
     /// <summary>
     /// 実解析の確定通知を保留した間は共通Lを保持し、利用者の明示的な実移動要求を未開始のまま受付使用中（Busy、失敗なし）として拒み、受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示します。
     /// 汎用の失敗（Msg_error_unexpected）への置換を出さず、通知完了後は解放され、元の譜面とDBを保ちます。

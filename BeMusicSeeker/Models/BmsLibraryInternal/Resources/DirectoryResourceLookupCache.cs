@@ -123,6 +123,12 @@ internal sealed class DirectoryResourceLookupCache
 
         public uint[] SelfOwnedMovieRelativePathHashArray => [.. selfOwnedMovieRelativePathHashArray];
 
+        /// <summary>
+        /// フォルダが自身で所有する音声キー（整列・重複排除済み）を、複製せずに読み取り専用で返します。
+        /// 大規模な走査で、フォルダごとの配列の複製を避けるための口です。呼出し側は内容を書き換えられません。
+        /// </summary>
+        internal ReadOnlyMemory<uint> SelfOwnedAudioRelativePathHashMemory => selfOwnedAudioRelativePathHashArray;
+
         public int AudioFileNameHashCount => audioRelativePathHashArray.Length;
 
         public int ImageFileNameHashCount => imageRelativePathHashArray.Length;

@@ -519,6 +519,13 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             zeroNoteLibraryProvider,
             packageCatalogLibraryProvider,
             showDuplicateFileCheckConfirmProvider,
+            // 衝突の説明は、統合の設定の捕捉と同じ現在の設定値を、読むたびに取得する。ツールチップの表示のたびに呼ばれるため、
+            // ファイルを確認する全項目の捕捉（BmsLibraryOptionsSnapshot.CreateCurrent）は作らず、必要な二つの値だけを読む。
+            () =>
+            {
+                Settings values = settingsEditSession.Values;
+                return new DuplicateMergeOverwriteSettings(values.EnableSmartComponentOverwrite, values.KeepSmartOverwriteProtectedFilesByRenaming);
+            },
             duplicateMaintenanceLibraryProvider,
             selectedChartMutationLibraryProvider,
             selectedChartResourceHealthLibraryProvider,
@@ -707,6 +714,7 @@ internal sealed class MainWindowChildComposition
     /// </summary>
     /// <param name="keywordSearchFavoritesSettingsStore">通常一覧・概要で共有するお気に入り設定の保存境界。</param>
     /// <param name="dialogService">再生・導入先・メンテナンス・選択譜面の操作など、画面寿命の担当が使う構成共通のダイアログ窓口。担当ごとの専用引数は持たず、すべてこの窓口へ接続します。例外として、フォルダ自動リネームは構成のファイル/DB変更の窓口（<paramref name="folderAutoRenameDialogService"/>）を使います。</param>
+    /// <param name="duplicateMergeOverwriteSettingsProvider">統合が使う現在の上書きの設定を返します。統合候補一覧が衝突の説明を読むたびに呼びます。</param>
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
@@ -747,6 +755,7 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
+        Func<DuplicateMergeOverwriteSettings> duplicateMergeOverwriteSettingsProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
@@ -798,7 +807,17 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
-        MaintenanceTree = new MaintenanceTreeViewModel();
+        MaintenanceTree = new MaintenanceTreeViewModel(uiScheduler);
+        ArgumentNullException.ThrowIfNull(duplicateMergeOverwriteSettingsProvider);
+        DuplicateMergeCandidateList = new DuplicateMergeCandidateListOwner(
+            LongPathFileSystem.DirectoryExists,
+            path => externalShellGateway.OpenDirectory(path),
+            duplicateMergeOverwriteSettingsProvider);
+        // 分裂配置の統合候補一覧は、重複と同じクラスの別のインスタンスで、状態を独立に持つ。
+        SplitPlacementMergeCandidateList = new DuplicateMergeCandidateListOwner(
+            LongPathFileSystem.DirectoryExists,
+            path => externalShellGateway.OpenDirectory(path),
+            duplicateMergeOverwriteSettingsProvider);
         PlayHistory = new PlayHistoryWorkflowOwner();
         // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
         Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
@@ -829,7 +848,11 @@ internal sealed class MainWindowChildComposition
             ChartMutationActivity,
             (IChartMutationPlaybackPort)PlaybackPanel,
             uiScheduler,
-            dialogService);
+            dialogService)
+        {
+            DuplicateCandidateList = DuplicateMergeCandidateList,
+            SplitPlacementCandidateList = SplitPlacementMergeCandidateList
+        };
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             dialogService,
             chartFileOperations,
@@ -907,7 +930,29 @@ internal sealed class MainWindowChildComposition
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
-            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
+            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync,
+            candidateList: DuplicateMergeCandidateList,
+            splitPlacementCandidateList: SplitPlacementMergeCandidateList,
+            splitPlacementCriteriaProvider: () => SplitPlacementSearch.AppliedCriteria);
+        ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
+        IDuplicateMergeSafetyInspector CreateMergeSafetyInspector()
+            => new DuplicateMergeSafetyInspector(
+                duplicateMaintenanceLibraryProvider() ?? throw new InvalidOperationException("The library is not available for duplicate merge verification."));
+        DuplicateMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
+            DuplicateMergeCandidateList,
+            CreateMergeSafetyInspector,
+            chartFileOperations,
+            dialogService);
+        SplitPlacementMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
+            SplitPlacementMergeCandidateList,
+            CreateMergeSafetyInspector,
+            chartFileOperations,
+            dialogService);
+        SplitPlacementSearch = new SplitPlacementSearchWorkflowOwner(
+            duplicateMaintenanceLibraryProvider,
+            chartFileOperations,
+            dialogService,
+            context => RegularChartListOwner.NavigateMaintenanceAsync(MainViewUpdateMode.SplitPlacementFilterSelected, context));
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
@@ -958,6 +1003,12 @@ internal sealed class MainWindowChildComposition
 
     internal MaintenanceTreeViewModel MaintenanceTree { get; }
 
+    /// <summary>統合候補一覧の状態と判断を持つ管理主体です。重複ツリーの先頭のノードで選ぶ画面が表示します。</summary>
+    internal DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
+
+    /// <summary>分裂配置の統合候補一覧の状態と判断を持つ管理主体です。重複の一覧とは独立で、分裂配置ツリーの先頭のノードで選ぶ画面が表示します。</summary>
+    internal DuplicateMergeCandidateListOwner SplitPlacementMergeCandidateList { get; }
+
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 
     internal PendingPackageWorkflowOwner PendingPackageWorkflow { get; }
@@ -981,6 +1032,15 @@ internal sealed class MainWindowChildComposition
     internal PackageCatalogWorkflowOwner PackageCatalogWorkflow { get; }
 
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; }
+
+    /// <summary>統合候補一覧の安全性確認の手順を管理します。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; }
+
+    /// <summary>分裂配置の統合候補一覧の安全性確認の手順を管理します。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner SplitPlacementMergeVerification { get; }
+
+    /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
+    internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 

@@ -39,7 +39,8 @@ internal static class ScheduledAudioFixture
             Assert.AreEqual(player.MusicDuration, adopted.MusicDuration);
             Assert.IsNotNull(session);
             using (var scheduler = new BmsRealtimeAudioScheduler(adopted.AudioSchedule, adopted.AudioResourcesByIndex,
-                session, new BassMixerSourceNativeBoundary(), adopted.Duration, expectedStarts[^1] + 240, 1f, 1))
+                session, new BassMixerSourceNativeBoundary(), adopted.Duration, expectedStarts[^1] + 240, 1f, 1,
+                directVoices: adopted.DirectVoices))
             {
                 var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
                 float[] sample = new float[2];

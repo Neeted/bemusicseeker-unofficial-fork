@@ -481,6 +481,117 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持側（統合先）に「既に所持」の記録があっても、その実ファイルが一件も実在しなければ、統合元の最後のコピーを消さずに統合を物理変更の前に見送ります。
+    /// 見送る場合は、統合元・統合先のファイルとバイト列・全DB行（欠落した行を含む）・所持を変えず、統合元の固有の譜面も移さず、専用の案内を一件だけ出し、
+    /// 汎用の統合失敗の案内・失敗の事実・確定を作りません。裏付けは、同じ主ハッシュの別名ファイル（欠落と実在の並びの順序によらず）・統合先以外のフォルダの実在でも成立し、
+    /// その場合は従来どおり統合して統合元を消します。統合元の配下の子フォルダにしか実在しないコピーは裏付けにしません。
+    /// DB行だけで所持を判定する誤り、移動元自身や配下のコピーを裏付けに数える誤り、一部だけ統合する誤り、最初の候補だけ・同名・統合先だけを確かめる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("bms-missing", false)]
+    [DataRow("bmson-missing", false)]
+    [DataRow("under-source-only", false)]
+    [DataRow("alias-in-keep", true)]
+    [DataRow("present-last", true)]
+    [DataRow("present-first", true)]
+    [DataRow("elsewhere-only", true)]
+    public void MergeChartDirectory_AlreadyOwnedWithoutActualFile_RefusesBeforeAnyChangeUnlessBackedByAFile(string scenario, bool expectApplied)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Library");
+            string source = Path.Combine(root, "Source"), keep = Path.Combine(root, "Keep");
+            bool bmson = scenario == "bmson-missing";
+            string ext = bmson ? ".bmson" : ".bms";
+            string Text(string id) => bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"" + id + "\",\"artist\":\"a\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}"
+                : "#PLAYER 1\r\n#TITLE T\r\n#BPM 120\r\n#COMMENT " + id + "\r\n#00111:01\r\n";
+            var registered = new List<string>();
+            var deleted = new List<string>();
+            void Add(string directory, string name, string id, bool exists = true)
+            {
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, name);
+                File.WriteAllText(path, Text(id));
+                registered.Add(path);
+                if (!exists) { deleted.Add(path); }
+            }
+            string? backing = null;
+            string alias = Path.Combine(keep, "alias" + ext), expectedChart = Path.Combine(source, "x" + ext);
+            switch (scenario)
+            {
+                case "alias-in-keep": Add(keep, "x" + ext, "X", exists: false); Add(keep, "alias" + ext, "X"); backing = alias; break;
+                case "present-last": Add(keep, "a" + ext, "X", exists: false); Add(keep, "b" + ext, "X"); backing = Path.Combine(keep, "b" + ext); break;
+                case "present-first": Add(keep, "a" + ext, "X"); Add(keep, "b" + ext, "X", exists: false); backing = Path.Combine(keep, "a" + ext); break;
+                case "elsewhere-only": Add(keep, "x" + ext, "X", exists: false); Add(Path.Combine(root, "Other"), "x" + ext, "X"); backing = Path.Combine(root, "Other", "x" + ext); break;
+                case "under-source-only": Add(keep, "x" + ext, "X", exists: false); Add(Path.Combine(source, "Sub"), "x" + ext, "X"); expectedChart = Path.Combine(source, "Sub", "x" + ext); break;
+                default: Add(keep, "x" + ext, "X", exists: false); break;
+            }
+            Add(source, "x" + ext, "X");
+            Add(source, "y" + ext, "Y");
+            File.WriteAllText(Path.Combine(source, "s.wav"), "source audio");
+            ChartFile[] charts = [.. registered.Select(path => bmson
+                ? ChartTestValues.ReadBmson(path)
+                : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)))];
+            ChartFile[] bmsCharts = [.. charts.Where(chart => chart.Kind == ChartFileKind.Bms)];
+            ChartFile[] bmsonCharts = [.. charts.Where(chart => chart.Kind == ChartFileKind.Bmson)];
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = root },
+                settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = bmsCharts, BmsonCharts = bmsonCharts };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.UpsertSongs(bmsCharts);
+            gateway.UpsertBmsonSongs(bmsonCharts);
+            LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
+            foreach (string path in deleted) { File.Delete(path); }
+            SortedDictionary<string, byte[]> TreeNow() => new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+            string[] RowsNow()
+            {
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                return [.. db.Table<LR2SongDB.song>().Select(row => row.path + "|" + row.hash)
+                    .Concat(db.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path + "|bmson"))
+                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)];
+            }
+            SortedDictionary<string, byte[]> treeBefore = TreeNow();
+            string[] rowsBefore = RowsNow();
+            string[] chartPathsBefore = [.. library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            var notices = new LibraryOperationNotices();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, keep, notices: notices, operationId: 1);
+
+                if (expectApplied)
+                {
+                    Assert.IsTrue(receipt.MergeApplied);
+                    // 統合先の欠落した行は確定後の保守が読み込めず、その既存の案内だけが出ます。見送りの案内や汎用の統合失敗の案内は出しません。
+                    Assert.IsTrue(notices.Snapshot().All(notice => deleted.Any(path => notice.MessageBoxText.Contains(path))), "裏付けがあれば、従来どおり統合します。");
+                    Assert.IsFalse(Directory.Exists(source), "統合元は消えます。");
+                    Assert.IsTrue(File.Exists(Path.Combine(keep, "y" + ext)), "固有の譜面は移ります。");
+                    Assert.IsNotNull(backing);
+                    CollectionAssert.AreEqual(treeBefore[backing], File.ReadAllBytes(backing), "裏付けのファイルは変わりません。");
+                    return;
+                }
+
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(0, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.IsNull(receipt.SessionReceipt.PrimaryFailure, "失敗の事実を持たない未適用です。");
+                Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
+                BMSLibrary.OperationDialogMessage notice = notices.Snapshot().Single();
+                Assert.AreEqual(string.Format(Resources.Warn_BmsFolderMergeOwnedChartFileMissing, source, expectedChart), notice.MessageBoxText);
+                CollectionAssert.AreEqual(treeBefore.Keys.ToArray(), TreeNow().Keys.ToArray(), "どちらのフォルダのファイルの集合も変わりません。");
+                foreach (KeyValuePair<string, byte[]> item in TreeNow()) { CollectionAssert.AreEqual(treeBefore[item.Key], item.Value, item.Key); }
+                Assert.IsFalse(File.Exists(Path.Combine(keep, "y" + ext)), "固有の譜面も部分的に移しません。");
+                CollectionAssert.AreEqual(rowsBefore, RowsNow(), "所持側の欠落した行を含む全DB行が変わりません。");
+                CollectionAssert.AreEqual(chartPathsBefore,
+                    library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray());
+            }
+            finally { library.RequestShutdown("merge-owned-file-missing"); }
+        });
+    }
+
     private static OwnedDuplicateChartRowSnapshot CreateDuplicateAnalysisSnapshot(
         IEnumerable<ChartFile> bmsFiles,
         IEnumerable<ChartFile> bmsonSongs)
@@ -653,6 +764,53 @@ public sealed class BmsLibraryDuplicateServiceTests
                 CollectionAssert.AreEquivalent(expected, reloaded.BmsCharts.Select(chart => chart.Path).ToArray());
             }
             finally { reloaded.RequestShutdown("ordinary-registered-child-reload"); }
+        });
+    }
+
+    /// <summary>
+    /// リンクのない統合は、隠しフォルダ・二階層の入れ子フォルダ・統合先の対応する通常ディレクトリを含んでも従来どおり成功し、
+    /// 配下を相対配置のまま統合先へ移して案内を出さない。リンクの検査が隠し属性の項目や通常のディレクトリを拒否する誤り、
+    /// 入れ子や既存の統合先を壊す誤り、成功する統合へ案内を出す誤りを検出する。
+    /// </summary>
+    /// <remarks>リンクを含む統合の拒否は、実リンクを作れる専用環境のsuiteが担当する。ここは日常検証でリンクのない通常の経路を保つ。</remarks>
+    [TestMethod]
+    public void MergeChartDirectory_HiddenAndNestedDirectoriesWithoutLinksMergeWithoutNotice()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(source, "unique.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms")];
+            string hidden = Path.Combine(source, ".hidden");
+            Directory.CreateDirectory(hidden);
+            File.WriteAllText(Path.Combine(hidden, "hidden.wav"), "hidden audio");
+            File.SetAttributes(hidden, File.GetAttributes(hidden) | FileAttributes.Hidden);
+            Directory.CreateDirectory(Path.Combine(source, "Nested", "Level2"));
+            File.WriteAllText(Path.Combine(source, "Nested", "Level2", "deep.wav"), "deep audio");
+            Directory.CreateDirectory(Path.Combine(destination, "Nested", "Level2"));
+            File.WriteAllText(Path.Combine(destination, "Nested", "Level2", "existing.wav"), "existing audio");
+            File.WriteAllText(Path.Combine(destination, "Nested", "existing.txt"), "existing text");
+            Settings settings = TestBmsFactory.CreateRootSettings([root]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), settings: settings)
+            { BmsCharts = charts };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
+            var notices = new LibraryOperationNotices();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, notices, reportAtTerminal: true);
+
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(0, notices.Snapshot().Count);
+                Assert.AreEqual("hidden audio", File.ReadAllText(Path.Combine(destination, ".hidden", "hidden.wav")));
+                Assert.AreEqual("deep audio", File.ReadAllText(Path.Combine(destination, "Nested", "Level2", "deep.wav")));
+                Assert.AreEqual("existing audio", File.ReadAllText(Path.Combine(destination, "Nested", "Level2", "existing.wav")));
+                Assert.AreEqual("existing text", File.ReadAllText(Path.Combine(destination, "Nested", "existing.txt")));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "unique.bms")));
+                Assert.IsFalse(Directory.Exists(source));
+            }
+            finally { library.RequestShutdown("hidden-nested-merge"); }
         });
     }
 
@@ -860,12 +1018,14 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow("duplicates")]
     [DataRow("noDuplicates")]
     [DataRow("subscriberThrows")]
+    [DataRow("reSearch")]
     public void SearchDuplicateChartGroups_DeliversGroupsChangeOnCallerAfterAllLocksBeforeReturn(string scenario)
     {
         WithTemporarySongDb(databaseScope, songDbPath =>
         {
             ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms");
             bool hasDuplicates = scenario != "noDuplicates";
+            bool? reSearchWasIncremental = null;
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
@@ -876,6 +1036,16 @@ public sealed class BmsLibraryDuplicateServiceTests
             {
                 BmsCharts = hasDuplicates ? [first, CreateFile(first.Md5, @"C:\BMS\DirB\b.bms")] : [first]
             };
+            if (scenario == "reSearch")
+            {
+                // 差分の再検索でも通知順を保つため、初回検索の後に所持集合を増分で変えて結果を失効させ、再検索を観測対象にする。
+                library.DuplicateAnalysisObserver = analysis => reSearchWasIncremental = analysis.IsIncremental;
+                library.SearchDuplicateChartGroups();
+                Assert.AreEqual(false, reSearchWasIncremental, "初回は全体解析");
+                OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library).Commit(state => state.UpsertCharts([CreateFile(first.Md5, @"C:\BMS\DirC\c.bms")]));
+                library.BmsonCharts = [ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\BMS\DirD\d.bmson", Md5 = new string('d', 32) }];
+                Assert.IsNull(library.DuplicateChartGroups, "再検索の前提として結果が失効している");
+            }
             string[] gateNames = ["rwlockBMSFilesInitializedMin", "rwlockBMSFiles", "rwlockDuplicateChartGroups"];
             var groupNotifications = new List<(int ThreadId, string[] Holds, List<DuplicateGroup>? Groups)>();
             var order = new List<string>();
@@ -896,6 +1066,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
             library.SearchDuplicateChartGroups();
 
+            if (scenario == "reSearch") { Assert.AreEqual(true, reSearchWasIncremental, "失効後の再検索は差分解析"); }
             var afterReturn = groupNotifications.ToList();
             List<DuplicateGroup>? groups = library.DuplicateChartGroups;
             Assert.IsTrue(afterReturn.Count >= 1, "SearchDuplicateChartGroupsの戻り前にグループ変更通知が配送されていません。");
@@ -2446,6 +2617,108 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
+    /// 統合先が所持中の正常な「extra.bmson」を、移動元の所持集合にない新しい壊れた「extra.bmson」が上書きしません。
+    /// 統合先のbytes・song行のMD5・所持集合の現在値（パスとMD5）は変わらず、壊れた側は「extra(1).bmson」へ入り、統合は適用済み・必須失敗なしで移動元が消費されます。
+    /// スマート上書きオン・保護改名オフで、譜面拡張子を保護拡張子へ足すだけの実装や日時だけで上書きする実装を検出します。
+    /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    [TestMethod]
+    public void MergeChartDirectory_UnownedBmsonDoesNotOverwriteOwnedDestinationBmson()
+    {
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
+        {
+            using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            string tempRootPath = Path.Combine(caseWorkspace.RootDirectory, "BeMusicSeeker_DuplicateMergeUnownedBmson_" + System.Guid.NewGuid().ToString("N"));
+            string srcDir = Path.Combine(tempRootPath, "Src");
+            string dstDir = Path.Combine(tempRootPath, "Dst");
+            string srcChartPath = Path.Combine(srcDir, "chart.bmson");
+            string dstChartPath = Path.Combine(dstDir, "chart.bmson");
+            string srcExtraPath = Path.Combine(srcDir, "extra.bmson");
+            string dstExtraPath = Path.Combine(dstDir, "extra.bmson");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(dstDir);
+            File.WriteAllText(srcChartPath, "{}");
+            File.WriteAllText(dstChartPath, "{}");
+            File.WriteAllText(dstExtraPath, "{ }");
+            File.WriteAllText(srcExtraPath, "{broken");
+            File.SetLastWriteTimeUtc(dstExtraPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            File.SetLastWriteTimeUtc(srcExtraPath, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            byte[] dstExtraBytes = File.ReadAllBytes(dstExtraPath);
+            byte[] dstChartBytes = File.ReadAllBytes(dstChartPath);
+            byte[] brokenBytes = File.ReadAllBytes(srcExtraPath);
+            string duplicateHash = ChartTestValues.ReadBmson(srcChartPath).Md5;
+            try
+            {
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = false,
+                        EnableSmartComponentOverwrite = true,
+                        KeepSmartOverwriteProtectedFilesByRenaming = false,
+                        DeletePendingPackageSourceAfterInstall = false
+                    });
+                ChartFile sourceSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = srcChartPath,
+                    Folder = srcDir,
+                    RawTitle = "src duplicate",
+                    Md5 = duplicateHash
+                };
+                ChartFile destinationSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = dstChartPath,
+                    Folder = dstDir,
+                    RawTitle = "dst duplicate",
+                    Md5 = duplicateHash
+                };
+                string extraMd5 = ChartTestValues.ReadBmson(dstExtraPath).Md5;
+                ChartFile destinationExtra = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = dstExtraPath,
+                    Folder = dstDir,
+                    RawTitle = "dst extra",
+                    Md5 = extraMd5
+                };
+                library.BmsonCharts = [sourceSong, destinationSong, destinationExtra];
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+                {
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(sourceSong), typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(destinationSong), typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(destinationExtra), typeof(LR2SongDBExtended.bmson_song));
+                }
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: new LibraryOperationNotices(), operationId: 1);
+
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
+                Assert.IsFalse(Directory.Exists(srcDir));
+                CollectionAssert.AreEqual(dstExtraBytes, File.ReadAllBytes(dstExtraPath));
+                CollectionAssert.AreEqual(dstChartBytes, File.ReadAllBytes(dstChartPath));
+                CollectionAssert.AreEqual(brokenBytes, File.ReadAllBytes(Path.Combine(dstDir, "extra(1).bmson")));
+                ChartFile ownedExtra = library.BmsonCharts.Single(chart => chart.Path == dstExtraPath);
+                Assert.AreEqual(extraMd5, ownedExtra.Md5);
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
+                {
+                    Assert.AreEqual(extraMd5, songDb.Find<LR2SongDBExtended.bmson_song>(dstExtraPath).md5);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    /// <summary>
     /// 対象譜面のない統合では実体と登録を保ち、冷えた索引の先行構築や温めた索引の無用な更新・再列挙を検出します。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
@@ -2819,6 +3092,396 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsTrue(
                 installedWork.Count(operation => operation == "installed_primary_hash_count_update") > 0,
                 "実mergeのinstalled lookup差分更新を観測できませんでした。");
+        });
+    }
+
+    private static string IncrementalHash(char value) => new(value, 32);
+
+    private static ChartFile IncrementalFile(char hash, string directory, string name)
+        => CreateFile(IncrementalHash(hash), Path.Combine(@"C:\BMS", directory, name));
+
+    private static ChartFile IncrementalBmson(char hash, string directory, string name)
+        => (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
+        {
+            Path = Path.Combine(@"C:\BMS", directory, name),
+            RawTitle = "bmson " + name,
+            Md5 = IncrementalHash(hash)
+        };
+
+    private static ChartFile CurrentChart(OwnedChartCollectionState state, string directory, string name)
+    {
+        string path = Path.Combine(@"C:\BMS", directory, name);
+        OwnedChartCollectionView view = state.CreateCollectionView();
+        return view.BmsCharts.Concat(view.BmsonCharts).Single(chart => chart.Path == path);
+    }
+
+    /// <summary>無関係な重複グループ二つと固有譜面を、全シナリオの背景として置きます。</summary>
+    private static List<ChartFile> IncrementalBackground() =>
+    [
+        IncrementalFile('u', "U1", "u.bms"), IncrementalFile('u', "U2", "u.bms"),
+        IncrementalFile('v', "V1", "v.bms"), IncrementalFile('v', "V2", "v.bms"), IncrementalFile('w', "V1", "sibling.bms"),
+        IncrementalFile('y', "W", "w1.bms"), IncrementalFile('z', "W", "w2.bms"),
+    ];
+
+    /// <summary>基底から現在までに所属が変わったハッシュを、スナップショットの行だけから独立に求め、影響する前回グループを返します。</summary>
+    private static HashSet<DuplicateGroup> FindAffectedPreviousGroups(
+        OwnedDuplicateChartRowSnapshot baseline, OwnedDuplicateChartRowSnapshot current, IReadOnlyList<DuplicateGroup> previous)
+    {
+        static Dictionary<string, HashSet<(OwnedChartToken Token, string Path)>> Membership(OwnedDuplicateChartRowSnapshot snapshot)
+        {
+            var result = new Dictionary<string, HashSet<(OwnedChartToken, string)>>(StringComparer.OrdinalIgnoreCase);
+            foreach (DuplicateChartRow row in snapshot.Rows)
+            {
+                if (string.IsNullOrWhiteSpace(row.LookupHash)) { continue; }
+                if (!result.TryGetValue(row.LookupHash, out HashSet<(OwnedChartToken, string)>? set)) { result[row.LookupHash] = set = []; }
+                set.Add((row.Chart.Token, row.Path));
+            }
+            return result;
+        }
+        Dictionary<string, HashSet<(OwnedChartToken Token, string Path)>> before = Membership(baseline);
+        Dictionary<string, HashSet<(OwnedChartToken Token, string Path)>> after = Membership(current);
+        var changed = before.Keys.Concat(after.Keys).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(hash => !before.TryGetValue(hash, out HashSet<(OwnedChartToken Token, string Path)>? b) || !after.TryGetValue(hash, out HashSet<(OwnedChartToken Token, string Path)>? a) || !b.SetEquals(a)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var directories = baseline.Rows.Concat(current.Rows)
+            .Where(row => !string.IsNullOrWhiteSpace(row.LookupHash) && changed.Contains(row.LookupHash))
+            .Select(row => row.DirectoryPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. previous.Where(group => group.Folders.Any(directories.Contains))];
+    }
+
+    /// <summary>差分の結果が全体解析の結果と、フォルダ・譜面の識別とパス・順序・重複警告の有無・並びで一致することを表明します。</summary>
+    private static void AssertSameAsFullAnalysis(IReadOnlyList<DuplicateGroup> actual, DuplicateAnalysisResult full, ISet<DuplicateGroup> retained)
+    {
+        Assert.AreEqual(full.DuplicateGroups.Count, actual.Count, "グループ数");
+        for (int i = 1; i < actual.Count; i++)
+        {
+            Assert.IsTrue(string.CompareOrdinal(actual[i - 1].Header, actual[i].Header) <= 0, "見出しの序数順");
+        }
+        List<DuplicateGroup> remaining = [.. full.DuplicateGroups];
+        foreach (DuplicateGroup group in actual)
+        {
+            DuplicateGroup? expected = remaining.FirstOrDefault(candidate => candidate.Folders.SequenceEqual(group.Folders, StringComparer.Ordinal));
+            Assert.IsNotNull(expected, "全体解析に無いフォルダ列のグループ: " + string.Join("|", group.Folders));
+            remaining.Remove(expected);
+            Assert.AreEqual(expected.ChartFiles.Count, group.ChartFiles.Count, "グループ内の譜面数");
+            for (int i = 0; i < group.ChartFiles.Count; i++)
+            {
+                Assert.AreSame(expected.ChartFiles[i].Token, group.ChartFiles[i].Token, "譜面の識別と順序");
+                Assert.AreEqual(expected.ChartFiles[i].Path, group.ChartFiles[i].Path, "譜面のパス");
+                Assert.AreEqual(HasDuplicateWarning(expected.ChartFiles[i]), HasDuplicateWarning(group.ChartFiles[i]), "重複警告の有無: " + group.ChartFiles[i].Path);
+            }
+            if (!retained.Contains(group))
+            {
+                Assert.AreEqual(expected.Header, group.Header, "再判定したグループの見出し");
+            }
+        }
+    }
+
+    private static bool HasDuplicateWarning(ChartFile chart) => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart);
+
+    /// <summary>
+    /// 保証：前回結果と基底からの差分解析は、同じ現在の所持集合の全体解析と同じグループ（フォルダ・譜面・順序・重複警告・並び）になり、
+    /// 影響範囲外の前回グループは同じインスタンスを保ち、影響したグループは作り直す。現在値の警告の付与・解除の対象は全体解析後の警告集合へ収束する。
+    /// 検出する誤り：分裂・結合・解消・存続・新規発生の取りこぼし、兄弟譜面だけの変更の見落とし、パス大小文字の変更の見落とし、
+    /// 重複でなくなった兄弟譜面の古い警告の持込み、無関係なグループの作り直し。
+    /// </summary>
+    /// <remarks>基底は FromCharts、現在は本番と同じ増分操作（Upsert・Remove・パス変更・ハッシュ変更）で作り、正解は現在の捕捉の全体解析とする。</remarks>
+    [TestMethod]
+    [DataRow("split")]
+    [DataRow("mergeByMove")]
+    [DataRow("mergeByAdd")]
+    [DataRow("resolve")]
+    [DataRow("survive")]
+    [DataRow("newGroup")]
+    [DataRow("unchanged")]
+    [DataRow("md5Change")]
+    [DataRow("bmsonJoin")]
+    [DataRow("siblingOnly")]
+    [DataRow("pathCaseOnly")]
+    [DataRow("retainedTitleOnly")]
+    [DataRow("staleSiblingWarning")]
+    public void IncrementalAnalysis_MatchesFullAnalysisAndKeepsUnaffectedGroups(string scenario)
+    {
+        List<ChartFile> charts = IncrementalBackground();
+        Action<OwnedChartCollectionState> mutate;
+        switch (scenario)
+        {
+            case "split":
+                charts.AddRange([IncrementalFile('a', "A1", "1.bms"), IncrementalFile('a', "A2", "1.bms"), IncrementalFile('b', "A2", "2.bms"),
+                    IncrementalFile('b', "A3", "1.bms"), IncrementalFile('c', "A3", "2.bms"), IncrementalFile('c', "A4", "1.bms")]);
+                mutate = state => state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "A3", "1.bms"))]);
+                break;
+            case "mergeByMove":
+                charts.AddRange([IncrementalFile('a', "B1", "1.bms"), IncrementalFile('a', "B2", "1.bms"), IncrementalFile('q', "B2", "2.bms"),
+                    IncrementalFile('b', "C1", "1.bms"), IncrementalFile('b', "C2", "1.bms")]);
+                mutate = state => state.ApplyPathChanges([new LibraryChartPathChange
+                {
+                    Chart = CurrentChart(state, "B2", "1.bms"),
+                    OldPath = Path.Combine(@"C:\BMS", "B2", "1.bms"),
+                    NewPath = Path.Combine(@"C:\BMS", "C1", "moved.bms")
+                }]);
+                break;
+            case "mergeByAdd":
+                charts.AddRange([IncrementalFile('a', "D1", "1.bms"), IncrementalFile('a', "D2", "1.bms"),
+                    IncrementalFile('b', "E1", "1.bms"), IncrementalFile('b', "E2", "1.bms")]);
+                mutate = state => state.UpsertCharts([IncrementalFile('b', "D1", "added.bms")]);
+                break;
+            case "resolve":
+                charts.AddRange([IncrementalFile('a', "F1", "1.bms"), IncrementalFile('a', "F2", "1.bms")]);
+                mutate = state => state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "F2", "1.bms"))]);
+                break;
+            case "survive":
+                charts.AddRange([IncrementalFile('a', "G1", "1.bms"), IncrementalFile('a', "G2", "1.bms"), IncrementalFile('a', "G3", "1.bms")]);
+                mutate = state => state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "G3", "1.bms"))]);
+                break;
+            case "newGroup":
+                mutate = state => state.UpsertCharts([IncrementalFile('n', "N1", "1.bms"), IncrementalFile('n', "N2", "1.bms")]);
+                break;
+            case "unchanged":
+                mutate = state => state.ApplyCurrentChartValue(CurrentChart(state, "W", "w1.bms") with { RawTitle = "changed title only" });
+                break;
+            case "md5Change":
+                charts.AddRange([IncrementalFile('a', "M1", "1.bms"), IncrementalFile('a', "M2", "1.bms"), IncrementalFile('a', "M3", "1.bms")]);
+                mutate = state =>
+                {
+                    ChartFile current = CurrentChart(state, "M2", "1.bms");
+                    state.ApplyDigestChanges([new LibraryChartDigestChange(ChartFileKind.Bms, current.Path, current.Md5, current.Sha256, IncrementalHash('k'), current.Sha256)]);
+                };
+                break;
+            case "bmsonJoin":
+                charts.AddRange([IncrementalFile('a', "H1", "1.bms"), IncrementalFile('a', "H2", "1.bms")]);
+                mutate = state => state.UpsertCharts([IncrementalBmson('a', "H3", "h.bmson")]);
+                break;
+            case "siblingOnly":
+                charts.AddRange([IncrementalFile('a', "J1", "1.bms"), IncrementalFile('a', "J2", "1.bms")]);
+                mutate = state => state.UpsertCharts([IncrementalFile('s', "J1", "sibling.bms")]);
+                break;
+            case "pathCaseOnly":
+                charts.AddRange([IncrementalFile('a', "P1", "1.bms"), IncrementalFile('a', "P2", "1.bms")]);
+                mutate = state => state.ApplyPathChanges([new LibraryChartPathChange
+                {
+                    Chart = CurrentChart(state, "P2", "1.bms"),
+                    OldPath = Path.Combine(@"C:\BMS", "P2", "1.bms"),
+                    NewPath = Path.Combine(@"C:\BMS", "p2", "1.bms")
+                }]);
+                break;
+            case "retainedTitleOnly":
+                charts.AddRange([IncrementalFile('a', "R1", "1.bms"), IncrementalFile('a', "R2", "1.bms"),
+                    IncrementalFile('b', "S1", "1.bms"), IncrementalFile('b', "S2", "1.bms")]);
+                mutate = state =>
+                {
+                    state.ApplyCurrentChartValue(CurrentChart(state, "R1", "1.bms") with { Title = "zzz changed after capture", RawTitle = "zzz changed after capture" });
+                    state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "S2", "1.bms"))]);
+                };
+                break;
+            case "staleSiblingWarning":
+                charts.AddRange([IncrementalFile('a', "K1", "1.bms"), IncrementalFile('a', "K2", "1.bms"), IncrementalFile('a', "K3", "1.bms"),
+                    IncrementalFile('s', "K1", "sibling.bms") with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart)] }]);
+                mutate = state => state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "K3", "1.bms"))]);
+                break;
+            default:
+                throw new InvalidOperationException(scenario);
+        }
+        var service = new BmsLibraryDuplicateService();
+        var state = OwnedChartCollectionState.FromCharts(charts);
+        OwnedDuplicateChartRowSnapshot baseline = state.CreateDuplicateChartRowSnapshot();
+        DuplicateAnalysisResult previous = service.Analyze(baseline);
+
+        mutate(state);
+        OwnedDuplicateChartRowSnapshot current = state.CreateDuplicateChartRowSnapshot();
+        DuplicateAnalysisResult incremental = service.AnalyzeIncremental(baseline, previous.DuplicateGroups, current, state.CreateDuplicateRowsInDirectory);
+        DuplicateAnalysisResult full = service.Analyze(current);
+
+        HashSet<DuplicateGroup> affected = FindAffectedPreviousGroups(baseline, current, previous.DuplicateGroups);
+        HashSet<DuplicateGroup> retained = [.. previous.DuplicateGroups.Where(group => !affected.Contains(group))];
+        Assert.IsTrue(incremental.IsIncremental);
+        AssertSameAsFullAnalysis(incremental.DuplicateGroups, full, retained);
+        foreach (DuplicateGroup group in previous.DuplicateGroups)
+        {
+            Assert.AreEqual(retained.Contains(group), incremental.DuplicateGroups.Any(result => ReferenceEquals(result, group)),
+                "影響範囲外の前回グループは同じインスタンスで維持し、影響したグループは作り直す: " + string.Join("|", group.Folders));
+        }
+        Assert.AreEqual(retained.Count, incremental.DuplicateGroups.Count(group => previous.DuplicateGroups.Contains(group)));
+
+        // 現在値の警告は、前回の警告集合から付与・解除の対象を反映すると全体解析後の集合になる。
+        HashSet<OwnedChartToken> tracked = [.. previous.DuplicateCharts.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Token)];
+        tracked.ExceptWith(incremental.WarningClearTokens);
+        tracked.UnionWith(incremental.DuplicateCharts.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Token));
+        HashSet<OwnedChartToken> expectedWarned = [.. full.DuplicateCharts.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Token)];
+        // 解除対象は現在の所持集合に生存する識別だけが対象で、消滅した識別は追跡集合から除かれるだけでよい。
+        Assert.IsTrue(tracked.SetEquals(expectedWarned), "警告の対象が全体解析後の集合へ収束しません。");
+        Assert.IsFalse(incremental.WarningClearTokens.Any(token => incremental.DuplicateCharts.Any(chart => ReferenceEquals(chart.Token, token))), "付与と解除の対象が重なります。");
+        if (scenario == "staleSiblingWarning")
+        {
+            DuplicateGroup group = incremental.DuplicateGroups.Single(candidate => candidate.Folders.Contains(Path.Combine(@"C:\BMS", "K1")));
+            Assert.IsFalse(HasDuplicateWarning(group.ChartFiles.Single(chart => chart.Path.EndsWith("sibling.bms", StringComparison.Ordinal))), "重複でなくなった兄弟譜面の古い警告をグループへ持ち込みました。");
+        }
+        if (scenario == "unchanged")
+        {
+            Assert.AreEqual(0, incremental.ChangedHashCount);
+            Assert.AreEqual(0, incremental.MaterializedChartCount);
+        }
+        if (scenario == "retainedTitleOnly")
+        {
+            DuplicateGroup keptGroup = previous.DuplicateGroups.Single(group => group.Folders.Contains(Path.Combine(@"C:\BMS", "R1")));
+            Assert.IsTrue(incremental.DuplicateGroups.Contains(keptGroup), "題名だけが変わったグループを維持します。");
+            Assert.AreNotEqual(full.DuplicateGroups.Single(group => group.Folders.Contains(Path.Combine(@"C:\BMS", "R1"))).Header, keptGroup.Header, "維持グループの見出しは捕捉時の値で、全体解析と異なることを許容します。");
+        }
+    }
+
+    /// <summary>
+    /// 保証：無関係な重複グループと固有譜面が大量にあっても、一件の変更の差分解析が具体化・取得するのは再判定の範囲のフォルダの譜面だけである。
+    /// 検出する誤り：全体解析をしてから同値のグループを再利用する実装、全所持譜面の走査・具体化。
+    /// </summary>
+    [TestMethod]
+    public void IncrementalAnalysis_WorkIsBoundedByRecheckRange()
+    {
+        List<ChartFile> charts = [];
+        for (int i = 0; i < 1000; i++)
+        {
+            charts.Add(CreateFile(i.ToString("x32"), Path.Combine(@"C:\BMS", "Solo" + i, "s.bms")));
+        }
+        for (int i = 0; i < 100; i++)
+        {
+            string hash = (100000 + i).ToString("x32");
+            charts.Add(CreateFile(hash, Path.Combine(@"C:\BMS", "Pair" + i + "a", "p.bms")));
+            charts.Add(CreateFile(hash, Path.Combine(@"C:\BMS", "Pair" + i + "b", "p.bms")));
+        }
+        var service = new BmsLibraryDuplicateService();
+        var state = OwnedChartCollectionState.FromCharts(charts);
+        OwnedDuplicateChartRowSnapshot baseline = state.CreateDuplicateChartRowSnapshot();
+        DuplicateAnalysisResult previous = service.Analyze(baseline);
+        Assert.AreEqual(100, previous.DuplicateGroups.Count);
+        Assert.AreEqual(200, previous.MaterializedChartCount, "全体解析は全グループの譜面を具体化する前提");
+
+        state.RemoveChartRequests([OwnedChartRemoveRequest.FromChart(CurrentChart(state, "Pair50b", "p.bms"))]);
+        OwnedDuplicateChartRowSnapshot current = state.CreateDuplicateChartRowSnapshot();
+        DuplicateAnalysisResult incremental = service.AnalyzeIncremental(baseline, previous.DuplicateGroups, current, state.CreateDuplicateRowsInDirectory);
+
+        Assert.AreEqual(1, incremental.ChangedHashCount);
+        Assert.AreEqual(1, incremental.RecheckedPreviousGroupCount);
+        Assert.IsTrue(incremental.RecheckedDirectoryCount <= 2, "再判定の範囲は変更したグループの二フォルダだけ: " + incremental.RecheckedDirectoryCount);
+        Assert.IsTrue(incremental.FetchedRowCount <= 2, "取得した現在行は範囲のフォルダの譜面だけ: " + incremental.FetchedRowCount);
+        Assert.IsTrue(incremental.MaterializedChartCount <= 2, "具体化した譜面は範囲のフォルダの譜面だけ: " + incremental.MaterializedChartCount);
+        Assert.AreEqual(99, incremental.DuplicateGroups.Count);
+        Assert.AreEqual(99, incremental.DuplicateGroups.Count(group => previous.DuplicateGroups.Contains(group)));
+    }
+
+    /// <summary>
+    /// 保証：実ライブラリの再検索は、初回は全体解析、以後は前回結果からの差分解析で、統合・削除・BMSON置換のいずれで失効した後も、
+    /// 全体解析と同じグループと現在値の警告集合になり、影響範囲外のグループと譜面の現在値は書き換えない。検索1で警告した影響外のグループを後で解消すると警告が外れる。
+    /// BMSの所持集合を全置換すると全体解析へ戻り、すべて新しいインスタンスになり、未追跡の警告も解除する。
+    /// 検出する誤り：差分解析が使われない経路、警告の追跡の取りこぼし、無関係な譜面の現在値の書換え、全置換後に古い基底を使う誤り。
+    /// </summary>
+    /// <remarks>実ファイル・SQLite・実ライブラリで統合・削除を行う。各段の正解は、再検索直前に捕捉した現在の所持集合の全体解析とし、経路は解析の観測口で判定する。</remarks>
+    [TestMethod]
+    public void SearchDuplicateChartGroups_ReSearchAfterLibraryChangesMatchesFullAnalysisAndRewritesOnlyChangedWarnings()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Library");
+            ChartFile[] charts =
+            [
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "A1"), "a.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "A2"), "a.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "A3"), "a.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "A1"), "sibling.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "B1"), "b.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "B2"), "b.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "U1"), "u.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "U2"), "u.bms"),
+                LibraryResourceIndexTestSupport.CreateChart(Path.Combine(root, "W"), "solo.bms"),
+            ];
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new InstallServiceComponentTestSupport.RealFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = charts };
+            try
+            {
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
+                LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
+                var analyses = new List<DuplicateAnalysisResult>();
+                library.DuplicateAnalysisObserver = analyses.Add;
+                var service = new BmsLibraryDuplicateService();
+                CatalogOwnedCollectionOwner owner = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                OwnedDuplicateChartRowSnapshot Capture() => owner.Collection.CreateDuplicateChartRowSnapshot();
+                HashSet<OwnedChartToken> Warned() => [.. library.BmsCharts.Where(HasDuplicateWarning).Select(chart => chart.Token)];
+                ChartFile Current(string directory, string name) => library.BmsCharts.Single(chart => chart.Path == Path.Combine(root, directory, name));
+
+                // 再検索の前後で、全体解析との一致、経路、インスタンスの維持、影響外の現在値の不変を確かめる。
+                void ReSearchAfter(string label, Action operation, bool expectIncremental, bool refsShared, params (string Directory, string Name)[] unrelated)
+                {
+                    OwnedDuplicateChartRowSnapshot baseline = Capture();
+                    List<DuplicateGroup> previous = library.DuplicateChartGroups ?? throw new AssertFailedException(label + ": 前回の結果がありません。");
+                    ChartFile[] unrelatedBefore = [.. unrelated.Select(item => Current(item.Directory, item.Name))];
+                    operation();
+                    Assert.IsNull(library.DuplicateChartGroups, label + ": 操作で結果が失効する前提");
+                    int count = analyses.Count;
+                    library.SearchDuplicateChartGroups();
+                    Assert.AreEqual(count + 1, analyses.Count, label);
+                    Assert.AreEqual(expectIncremental, analyses[^1].IsIncremental, label + ": 解析の経路");
+                    if (expectIncremental)
+                    {
+                        // 差分経路は全重複ハッシュの列（全ハッシュの走査と整列）を生成しない。全体解析を呼ぶ前に観測する。
+                        Assert.IsFalse(Capture().IsDuplicateBucketListMaterialized, label + ": 差分経路で全重複ハッシュの列を生成しました。");
+                        // 警告の確定後の捕捉を基底にするため、捕捉を作り直していない操作では内容比較の対象が変化分に限られる。
+                        if (refsShared) { Assert.IsTrue(analyses[^1].ContentComparedBucketCount <= analyses[^1].ChangedHashCount, label + ": 内容比較が変化分を超えました。 " + analyses[^1].ContentComparedBucketCount + " > " + analyses[^1].ChangedHashCount); }
+                    }
+                    OwnedDuplicateChartRowSnapshot current = Capture();
+                    DuplicateAnalysisResult full = service.Analyze(current);
+                    HashSet<DuplicateGroup> retained = expectIncremental
+                        ? [.. previous.Except(FindAffectedPreviousGroups(baseline, current, previous))] : [];
+                    AssertSameAsFullAnalysis(library.DuplicateChartGroups!, full, retained);
+                    foreach (DuplicateGroup group in previous)
+                    {
+                        Assert.AreEqual(retained.Contains(group), library.DuplicateChartGroups!.Contains(group), label + ": グループのインスタンス維持 " + string.Join("|", group.Folders));
+                    }
+                    Assert.IsTrue(Warned().SetEquals(full.DuplicateCharts.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Token)), label + ": 現在値の警告の集合");
+                    for (int i = 0; i < unrelated.Length; i++)
+                    {
+                        Assert.AreSame(unrelatedBefore[i], Current(unrelated[i].Directory, unrelated[i].Name), label + ": 影響外の現在値を書き換えました。");
+                    }
+                }
+
+                library.SearchDuplicateChartGroups();
+                Assert.IsFalse(analyses.Single().IsIncremental, "初回は全体解析");
+                Assert.IsTrue(Warned().SetEquals(service.Analyze(Capture()).DuplicateCharts.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Token)));
+                Assert.IsTrue(HasDuplicateWarning(Current("U1", "u.bms")), "検索1でUのグループへ警告を付ける");
+                Assert.IsFalse(HasDuplicateWarning(Current("A1", "sibling.bms")), "重複でない兄弟譜面に警告を付けない");
+
+                ReSearchAfter("統合でBのグループを解消", () =>
+                    Assert.IsTrue(library.MergeChartDirectory(Path.Combine(root, "B1"), Path.Combine(root, "B2"), 1, new LibraryOperationNotices()).MergeApplied),
+                    true, true, ("U1", "u.bms"), ("A1", "a.bms"), ("A1", "sibling.bms"));
+
+                ReSearchAfter("削除でAのグループが三フォルダから二フォルダへ存続", () =>
+                    library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(Current("A3", "a.bms"))]), false, [], new LibraryOperationNotices()),
+                    true, true, ("U1", "u.bms"));
+
+                ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Token = new OwnedChartToken(),
+                    Path = Path.Combine(root, "A9", "a9.bmson"),
+                    RawTitle = "a9",
+                    Md5 = Current("A1", "a.bms").Md5
+                };
+                ReSearchAfter("BMSONの置換でAのグループへ加入", () => library.BmsonCharts = [bmson], true, false, ("U1", "u.bms"));
+
+                // 検索1で警告し、その後の検索で影響外だったUのグループを解消すると、追跡した警告が外れる。
+                ReSearchAfter("統合でUのグループを解消し追跡した警告を外す", () =>
+                    Assert.IsTrue(library.MergeChartDirectory(Path.Combine(root, "U1"), Path.Combine(root, "U2"), 2, new LibraryOperationNotices()).MergeApplied),
+                    true, true, ("A1", "a.bms"));
+
+                // 公開setterでの外部設定は基底を捨て、その後に失効した再検索は全体解析へ戻る（失効にはBMSONの置換を使う）。
+                ReSearchAfter("結果の外部設定後", () =>
+                {
+                    library.DuplicateChartGroups = [new DuplicateGroup([], [@"C:\external"])];
+                    library.BmsonCharts = [];
+                }, false, false);
+
+                // BMSの所持集合の全置換は全体解析へ戻し、すべて新しいインスタンスになり、未追跡の古い警告も解除する。
+                ChartFile stale = IncrementalFile('q', "Z3", "stale.bms") with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
+                ReSearchAfter("BMSの全置換", () => library.BmsCharts = [IncrementalFile('p', "Z1", "1.bms"), IncrementalFile('p', "Z2", "1.bms"), stale], false, false);
+                Assert.IsFalse(HasDuplicateWarning(library.BmsCharts.Single(chart => chart.Path == stale.Path)), "未追跡の古い警告を全体解除します。");
+            }
+            finally { library.RequestShutdown("duplicate-research"); }
         });
     }
 

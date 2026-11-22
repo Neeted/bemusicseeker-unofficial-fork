@@ -339,7 +339,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         return componentPlan;
     }
 
-    /// <summary>同じ型検査を通した捕捉済み候補・実譜面先と固定optionsから、一計画の最終component先と消費元を決めます。通常先・必要directory・譜面先・生成先を空き名に使わず、実在同内容の省略は保持します。参照探索や候補の再列挙は行いません。</summary>
+    /// <summary>同じ型検査を通した捕捉済み候補・実譜面先と固定optionsから、一計画の最終component先と消費元を決めます。通常先・必要directory・譜面先・生成先を空き名に使わず、実在同内容の省略は保持します。譜面拡張子（.bms/.bme/.bml/.pms/.bmson）の同梱ファイルは、スマート上書き・保護改名の設定や更新日時によらず宛先の既存同名ファイルを上書きせず、同内容なら省略、異なれば空き名へ採番します。参照探索や候補の再列挙は行いません。</summary>
     internal (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) BuildFinalComponentMovePlan(
         IReadOnlyList<ComponentMovePlanItem> componentCandidates,
         IReadOnlyList<KeyValuePair<string, string>> chartDestinationPaths,
@@ -371,7 +371,20 @@ internal sealed partial class BmsLibraryPackageInstallService
                 throw new FileNotFoundException(Resources.Error_FileNotFound, component.SourcePath);
             }
             string finalPath = component.DestinationPath;
-            if (options?.EnableSmartComponentOverwrite == true)
+            if (IsUnownedChartExtensionCollision(component.SourcePath, finalPath))
+            {
+                // 所持・導入対象として扱われない譜面拡張子のファイルは、スマート上書き・保護改名の設定や更新日時に関わらず
+                // 宛先の同名ファイルを上書きしません。内容が同じなら宛先を保ち、違えば空き名へ置いて双方のbytesを残します。
+                FileCollisionResolutionResult chartResolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(
+                    component.SourcePath, finalPath, null, "chart_extension_collision", logInstallPerformance, unavailableDestinations.Contains);
+                if (chartResolution.DuplicateMatched)
+                {
+                    sourceCleanupFiles.Add(component.SourcePath);
+                    continue;
+                }
+                finalPath = chartResolution.FinalPath;
+            }
+            else if (options?.EnableSmartComponentOverwrite == true)
             {
                 bool samePath = IsSamePath(component.SourcePath, finalPath);
                 ComponentMoveDecision decision = samePath ? ComponentMoveDecision.SkipSame : DecideComponentMove(component.SourcePath, finalPath);
@@ -405,6 +418,14 @@ internal sealed partial class BmsLibraryPackageInstallService
             result.Add(new ComponentMovePlanItem { SourcePath = component.SourcePath, DestinationPath = finalPath });
         }
         return (result, sourceCleanupFiles);
+    }
+
+    /// <summary>一般の同梱ファイルとして扱う譜面拡張子（.bms/.bme/.bml/.pms/.bmson）のファイルが、宛先の既存の通常ファイルと衝突するかを返します。保護拡張子の集合（<see cref="IsSmartOverwriteProtectedExtension"/>）とは別の規則で、設定に依存しません。宛先がない・ディレクトリ・同一pathは対象外（型の衝突は事前検査が拒否）です。</summary>
+    private bool IsUnownedChartExtensionCollision(string sourcePath, string destinationPath)
+    {
+        return ChartFileKindResolver.IsSupportedChartFilePath(sourcePath)
+            && !IsSamePath(sourcePath, destinationPath)
+            && LongPathFileSystem.FileExists(destinationPath);
     }
 
     /// <summary>既知の配置pathから必要directoryをrootまで辿り、未存在の親をfile採番で奪わないようにします。FS列挙・存在確認は行いません。</summary>
@@ -2183,8 +2204,10 @@ internal sealed partial class BmsLibraryPackageInstallService
             IReadOnlyList<string> independentDirectories = independentlyOwnedLookup?.GetDistinctDirectoriesByPrimaryHash(lookupKey) ?? [];
             bool hasOwnedContentInsideCleanupBoundary = independentDirectories
                 .Any(directory => IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
-            bool hasIndependentInstalledCopy = independentDirectories
-                .Any(directory => !IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
+            // DB上の所持だけでは、入力元の残存物を消してよい根拠にしません。所持側の実ファイルの存在まで確かめます。
+            // 今回の配置先に同じ譜面があれば結果は変わらないため、所持側の実ファイルの存在確認は省きます。
+            bool hasIndependentInstalledCopy = !hasPlannedDestinationCopy
+                && HasExistingOwnedChartFile(independentlyOwnedLookup, lookupKey, cleanupBoundaryDirectories);
             if (hasOwnedContentInsideCleanupBoundary
                 && sourceCleanupPolicy != PackageSourceCleanupPolicy.MergeOwnedSourceContents)
             {
@@ -2217,15 +2240,87 @@ internal sealed partial class BmsLibraryPackageInstallService
     }
 
     /// <summary>
+    /// 主ハッシュを持つ所持譜面の実ファイルが、指定した範囲の外に少なくとも一件実在するかを返します。
+    /// 所持索引が持つ候補パスの存在確認だけを行い、実在する一件が見つかれば止めます。再ハッシュ・走査・列挙順への依存はありません。
+    /// モデルのロックを保持した状態では呼びません（ファイルの存在確認を含むため）。
+    /// </summary>
+    /// <param name="ownership">所持譜面のパスを引く所持索引。</param>
+    /// <param name="lookupHash">確認する主ハッシュ。</param>
+    /// <param name="excludedBoundaryDirectories">削除され得る範囲。配下にあるコピーは裏付けにしません。</param>
+    internal static bool HasExistingOwnedChartFile(
+        IInstalledChartLookupIndex ownership,
+        string lookupHash,
+        IEnumerable<string> excludedBoundaryDirectories)
+    {
+        foreach (string path in ownership?.GetPathsByPrimaryHash(lookupHash) ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(path)
+                && !IsPathWithinAnyCleanupBoundary(path, excludedBoundaryDirectories)
+                && LongPathFileSystem.FileExists(path))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 「既に所持」を理由に移動を省く主ハッシュのうち、実ファイルの裏付けが取れないものがある移動元の譜面を探します。
+    /// 見つかれば、その移動元は物理変更の前に見送る必要があります（移動元の最後のコピーを、実体のない所持の記録を根拠に削除しないため）。
+    /// 主ハッシュごとに裏付けを一度だけ確認します。
+    /// </summary>
+    /// <param name="sourceCharts">移動元から移す予定の譜面。</param>
+    /// <param name="existingHashes">既に所持している主ハッシュの判定（移動元の譜面を除いたもの）。</param>
+    /// <param name="ownership">所持譜面のパスを引く所持索引。</param>
+    /// <param name="excludedBoundaryDirectories">この操作で削除され得る移動元。配下にあるコピーは裏付けにしません。</param>
+    /// <returns>裏付けが取れなかった移動元側の譜面のうち、絶対パスの昇順（大文字小文字を無視）で先頭のパス。すべて裏付けがあれば null。</returns>
+    internal static string FindUnverifiedAlreadyOwnedChartPath(
+        IEnumerable<ChartFile> sourceCharts,
+        IPrimaryHashLookup existingHashes,
+        IInstalledChartLookupIndex ownership,
+        IEnumerable<string> excludedBoundaryDirectories)
+    {
+        if (existingHashes == null)
+        {
+            return null;
+        }
+        string[] boundaries = [.. excludedBoundaryDirectories ?? []];
+        var verifiedByHash = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        string first = null;
+        foreach (ChartFile chart in sourceCharts ?? [])
+        {
+            string hash = ChartLookupKey.GetPrimaryHash(chart);
+            if (string.IsNullOrWhiteSpace(hash)
+                || string.IsNullOrWhiteSpace(chart?.Path)
+                || !existingHashes.ContainsPrimaryHash(hash))
+            {
+                continue;
+            }
+            if (!verifiedByHash.TryGetValue(hash, out bool verified))
+            {
+                verifiedByHash[hash] = verified = HasExistingOwnedChartFile(ownership, hash, boundaries);
+            }
+            if (!verified && (first == null || StringComparer.OrdinalIgnoreCase.Compare(chart.Path, first) < 0))
+            {
+                first = chart.Path;
+            }
+        }
+        return first;
+    }
+
+    /// <summary>
     /// operation 開始時 snapshot に、同じ install session で実際に physical success した chart だけを重ねる lookup です。
     /// 未実行予約や failed/skipped package は追加しません。
+    /// 保留導入に加えて、重複グループの一括整理が、全予定移動元を除いた基準へ同じ操作で成功した譜面だけを重ねるために使います。
     /// </summary>
-    private sealed class SessionSuccessOwnershipOverlay : IInstalledChartLookupIndex
+    internal sealed class SessionSuccessOwnershipOverlay : IInstalledChartLookupIndex
     {
         private readonly IInstalledChartLookupIndex ownershipBaseline;
         private readonly IPrimaryHashLookup hashBaseline;
         private readonly PrimaryHashSetLookup successfulPrimaryHashes = new();
         private readonly Dictionary<string, HashSet<string>> successfulDirectoriesByHash =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, HashSet<string>> successfulPathsByHash =
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>operation 開始時 snapshot に physical-success facts だけを重ねる lookup を作成します。</summary>
@@ -2269,6 +2364,19 @@ internal sealed partial class BmsLibraryPackageInstallService
             return [.. directories];
         }
 
+        /// <summary>baseline の所持譜面のパスに、この操作で配置に成功した譜面のパスを加えて返します。</summary>
+        public IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
+        {
+            IReadOnlyList<string> baselinePaths = ownershipBaseline?.GetPathsByPrimaryHash(lookupHash) ?? [];
+            if (string.IsNullOrWhiteSpace(lookupHash)
+                || !successfulPathsByHash.TryGetValue(lookupHash, out HashSet<string> successfulPaths))
+            {
+                return baselinePaths;
+            }
+            return [.. baselinePaths.Union(successfulPaths, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        }
+
         public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
         {
             int baselineCount = ownershipBaseline?.GetUniquePrimaryHashCountByDirectory(directoryPath) ?? 0;
@@ -2295,6 +2403,14 @@ internal sealed partial class BmsLibraryPackageInstallService
                     continue;
                 }
                 successfulPrimaryHashes.AddPrimaryHash(lookupHash);
+                if (!string.IsNullOrWhiteSpace(chart?.Path))
+                {
+                    if (!successfulPathsByHash.TryGetValue(lookupHash, out HashSet<string> paths))
+                    {
+                        successfulPathsByHash.Add(lookupHash, paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                    }
+                    paths.Add(chart.Path);
+                }
                 string chartDirectory = string.IsNullOrWhiteSpace(chart?.Path)
                     ? null
                     : Path.GetDirectoryName(chart.Path);
@@ -2315,7 +2431,7 @@ internal sealed partial class BmsLibraryPackageInstallService
     }
 
     /// <summary>operation 開始時 snapshot に success overlay を重ねた install lookup を作成します。</summary>
-    internal IInstalledChartLookupIndex CreateSessionSuccessOwnershipOverlay(
+    internal SessionSuccessOwnershipOverlay CreateSessionSuccessOwnershipOverlay(
         IInstalledChartLookupIndex ownershipBaseline,
         IPrimaryHashLookup hashBaseline = null)
     {
@@ -3603,7 +3719,11 @@ internal sealed partial class BmsLibraryPackageInstallService
         return result;
     }
 
-    private static FileDbMutationReceipt RecordUnexpectedInstallSessionFailure(
+    /// <summary>
+    /// 予期しない例外を物理失敗の証票として変更セッションへ記録し、残りの対象を未処理として止めます。
+    /// 保留導入と重複グループの一括整理が、同じ形で停止を記録するために使います。
+    /// </summary>
+    internal static FileDbMutationReceipt RecordUnexpectedInstallSessionFailure(
         LibraryMutationOwner.LibraryMutationSession mutationSession,
         string sourcePath,
         string destinationPath,

@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-譜面、プレイリスト詳細、履歴、プレイリスト一覧で使う `CustomTableView` と、その行を供給する一覧の管理主体の契約を定めます。表示・選択・キー操作・セル編集・スクロールと、大規模な一覧を可視範囲だけで扱うための入力の捕捉・局所更新・採用の境界を扱います。
+譜面、プレイリスト詳細、履歴、プレイリスト一覧、[統合候補一覧](../library/duplicate-files.md#統合候補一覧)で使う `CustomTableView` と、その行を供給する一覧の管理主体の契約を定めます。表示・選択・キー操作・セル編集・スクロールと、大規模な一覧を可視範囲だけで扱うための入力の捕捉・局所更新・採用の境界を扱います。
 
 列の保存値と既定値は[列と既定値](table-columns.md)、データの正本と更新は[譜面モデル](../library/chart-model.md)と[データと索引](../core/data-and-indexes.md)、プレイリストの保存は[保存仕様](../playlist/storage-and-export.md)、外観の共通部品は[外観](appearance.md)に従います。
 
@@ -27,14 +27,15 @@
 
 ### 表示の構成
 
-`CustomTableView` は可視範囲をコードで描画する表です。表示面（`CustomTableSurface`）は、背景・見出し・行・挿入線の全面を、物理画素の寸法の描画先へDirect2D・DirectWriteで描き、WPFへ一枚の画像として置きます。画像はGPU合成（Direct3D 11の共有テクスチャを D3DImage へ渡す）を基本とし、GPUが使えない環境ではCPU側のビットマップ（WriteableBitmap）で置きます。経路の選択と復旧は[表示経路の選択と復旧](#表示経路の選択と復旧)に従います。画面には次の二つの表があり、表示先に応じて切り替えます。
+`CustomTableView` は可視範囲をコードで描画する表です。表示面（`CustomTableSurface`）は、背景・見出し・行・挿入線の全面を、物理画素の寸法の描画先へDirect2D・DirectWriteで描き、WPFへ一枚の画像として置きます。画像はGPU合成（Direct3D 11の共有テクスチャを D3DImage へ渡す）を基本とし、GPUが使えない環境ではCPU側のビットマップ（WriteableBitmap）で置きます。経路の選択と復旧は[表示経路の選択と復旧](#表示経路の選択と復旧)に従います。画面には次の三つの表があり、表示先に応じて切り替えます。
 
 | 表 | 行 | 列設定 |
 | --- | --- | --- |
 | メインの `customTableView` | `MainChartList.Rows` | `MainChartList.ColumnsSettings` |
 | プレイリスト一覧の `customTablePlaylistSummary` | `PlaylistSummaryView` | 専用の列設定 |
+| [統合候補一覧](../library/duplicate-files.md#統合候補一覧)の `customTableDuplicateCandidates` | `DuplicateMergeCandidateListOwner.Rows`（[行グループ](#行グループとチェックラジオボタンのセル)の提供元を兼ねる） | 専用の列設定。起動中だけ保持し、設定へ保存しない |
 
-行の高さは19、見出しは22、文字サイズは11が既定です。外観設定は両方の表へ反映します。通常の文字と見出しのフォントは[表示フォント](appearance.md#表示フォント)に従います。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
+行の高さは19、見出しは22、文字サイズは11が既定です。外観設定（行の高さ、見出しの高さ、文字サイズ）はすべての表へ反映します。通常の文字と見出しのフォントは[表示フォント](appearance.md#表示フォント)に従います。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
 
 表示面の描画は、再描画の要求ごとに `OnRender` の中で同期的に完結します。表示経路の用意、Direct2Dでの全面の描画、描画の終端（`EndDraw`）、WPFが読める状態への反映、画像の配置を順に行い、窓のない表（`Measure` と `Arrange` だけ）でも配置の確定（`UpdateLayout`）で描けます。描画の内容は経路によらず同じ描画先（`ID2D1RenderTarget`）への呼出しで、経路ごとに複製しません。`CompositionTarget.Rendering` の購読や非同期の描画は使いません。当たり判定・セル編集欄・スクロールバー・ツールチップ・ドラッグ・UI Automationは、従来どおりWPFの要素が受け持ちます。
 
@@ -47,7 +48,7 @@
 | GPUのデバイス（Direct3D 11のデバイスとコンテキスト、Direct2Dのデバイス、Direct3D 9Exの本体とデバイス） | `CustomTableGpuDevices`（プロセスで一組を共有する静的クラス。UIスレッドだけで使い、世代を持つ） | 最初に面が必要になったときに作り、プロセスの終了まで保つ。終了専用の解放は持たない。消失のときだけ、検出した表が手放して世代を進める |
 | 文字のレイアウト | `CustomTableTextLayoutCache`。`CustomTableSurface` が表ごとに所有する | 追い出すとき、全体の破棄のとき、上と同じ解放の経路で `Dispose` する |
 
-並べ替え状態は、通常一覧と履歴で共通の `MainChartList.SortParameters`（`MainChartListSortPresentation`）として公開し、表示先（通常一覧・プレイリスト詳細、履歴）ごとに設定します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
+並べ替え状態は、通常一覧と履歴で共通の `MainChartList.SortParameters`（`MainChartListSortPresentation`）として公開し、表示先（通常一覧・プレイリスト詳細、履歴）ごとに設定します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。統合候補一覧は `DuplicateMergeCandidateListOwner` の `SortColumnName` と `SortDirection` を使い、グループ単位の並べ替えは一覧の管理主体が行います。
 
 #### 表示経路の選択と復旧
 
@@ -226,7 +227,64 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 コードで描画する部分は、`CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマを変更すると描画色と文字のレイアウトを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースに従い、一覧用の不透明な背景は `ScrollBar.TrackBackgroundBrush` の切替に追随します。表・行・列を作り直さず、選択・現在セル・スクロール位置・編集中の入力を保ちます。
 
-一覧の見出しの上端には `Table.HeaderGridLineBrush` による1 DIPの線（[行と見出しの高さの丸め](#行と見出しの高さの丸め)の幅）を表示幅全体に描きます。線は上端の内側に置き、端で欠けないようにします。通常一覧とプレイリスト一覧とも、保留・プレイログの追加のツールバーや、表示列・データ行の有無によらず上枠を表示し、追加のツールバー側には下枠を重ねません。データ行の罫線・行の高さ・スクロールの計算は変えません。
+一覧の見出しの上端には `Table.HeaderGridLineBrush` による1 DIPの線（[行と見出しの高さの丸め](#行と見出しの高さの丸め)の幅）を表示幅全体に描きます。線は上端の内側に置き、端で欠けないようにします。上枠は表示面が表の種類によらず同じ処理で描き、通常一覧・プレイリスト一覧・統合候補一覧とも、保留・プレイログ・統合候補一覧の追加のツールバーや、表示列・データ行の有無によらず表示します。追加のツールバー側には下枠を重ねません。データ行の罫線・行の高さ・スクロールの計算は変えません。
+
+### 行グループとチェック・ラジオボタンのセル
+
+表は任意で行グループを扱えます。`ItemsSource` が `ICustomTableRowGroupSource`（行番号から、グループの先頭行番号・行数・グループの序数（0始まり）を返す提供元）を実装する表だけが、グループ単位の交互背景、同一列の縦結合、無効セルの操作を持ちます。提供元は行集合と同じ一覧が持つため、行集合の差替えでグループの境界だけが古いまま残りません。提供元を持たない表（既存の全用途）の描画・操作・UI Automationは変わりません。グループの並べ替え・検索と、グループ内の値の一致は行の供給側が担います。
+
+- グループは連続した行です。提供元の返値が不整合な場合は契約外で、表は検査も保証もしません。
+- 提供元への問合せは、描画の一回ごとに、表示範囲に現れるグループの数だけです。表示範囲の最初の行と、グループの終端の次の行だけを問い合わせ、グループの範囲を一行ずつ走査しません。問合せ回数と行の読取りは、同じ画面なら、グループの大きさと総行数に依存しません。
+
+#### グループの背景と結合列
+
+背景は[保持範囲と文字のレイアウトの再利用](#保持範囲と文字のレイアウトの再利用)の優先（選択、警告、交互色）のまま、交互色だけをグループの序数の偶奇で決めます。偶数は `RowBackground`、奇数は `AlternatingRowBackground` です。スクロール後も先頭からの序数を使い、表示中の先頭行や画面上の位置から数え直しません。
+
+列定義の `mergesRowGroup` が真の列（グループ結合列）は、グループの全行にまたがる一つのセルとして描きます。
+
+| 項目 | 契約 |
+| --- | --- |
+| 値 | 値・チェック状態・ツールチップ・操作可否をグループ内の全行で一致させることは行の供給側の責任です。表は各行の値をそのまま使い、描画には表示中の範囲にあるそのグループの最初の行の値を使います。グループの先頭行が画面外でも、先頭行を別に読み込みません。 |
+| 罫線 | グループの内部の横罫線をその列には描かず、グループの下端の罫線は描きます。右の縦罫線は各行が描き、途切れません。他の列の罫線は行ごとのままです。 |
+| 内容 | 文字・チェックボックス・ラジオボタンを、グループの範囲のうち表示中の部分の縦中央に一度だけ描きます。グループの下端が見えるときは、下端の罫線を除いた範囲の中央です。先頭行が画面外のときも、グループが表示行数より大きいときも、最後の行が部分表示のときも同じです。 |
+| 背景と色 | 行ごとの選択色は塗りません。グループの全行が選択済みのとき（画面外の行を含めて判定します）だけ、表示中の結合セル全体を選択色で塗り、行の境目に隙間を作りません。一部の行だけが選択されたグループの結合セルは、グループの交互色のままです。現在セルが結合列にあるときは、結合セル全体を現在セルの強調で塗ります。列のセル背景の選択子は使いません。警告行の背景は結合列では使いません。文字は、塗りの状態（現在セル、全選択）に応じた前景色（`CurrentCellForeground`、`SelectedForeground`）で描き、塗りと同じ色で消えません。色付きの区間は自身の色を使います。チェックボックスとラジオボタンの印の色は[印の色](#チェックボックスとラジオボタン)に従います。結合列以外の列は、行ごとに選択の背景と現在セルの強調を描きます。 |
+| 編集・キー | セル編集の対象外です。選択とキー操作は[結合列の選択](#結合列の選択)に従います。 |
+
+コピー・TSV・ツールチップの内容は行×列のモデルを保ち、結合列でもクリックした行・選択した行の値を使います。結合列のツールチップは、グループの範囲全体で一つの当たり判定を持ちます。同じ結合セルの中で別の行へマウスを動かしても、閉じず出し直さず、同じツールチップを保ちます。別のグループの結合セルや別の列へ移ったときは出し直します。提供元を持たない表は行ごとに出し直します。
+
+#### 結合列の選択
+
+行グループの提供元を持つ表だけに適用します。提供元を持たない表と、結合列以外の列は、行単位の選択のままです。グループの全行の選択は、行を一件ずつ扱わず、一つの区間として行います。提供元への問合せはグループの端を求める数回だけで、問合せ回数と行の読取りは、グループの大きさに依存しません。通知のために主行以外の行を実体化しません。
+
+| 操作（結合列のセル） | 結果 |
+| --- | --- |
+| 通常クリック | 選択をそのグループの全行へ置き換える。主行・現在セル・範囲基点はクリックした行。マウスを離しても一行へ絞らない。 |
+| Ctrl+クリック | そのグループの全行が選択済みなら全行を外し、そうでなければ全行を加える。全行を外した場合の主行と現在セルは、通常のCtrlの解除と同じ規則（残りの末尾の行へ押した列を引き継ぎ、選択が空なら解除）。 |
+| Shift+クリック | 範囲の基点とクリックした行の両端を、それぞれの行のグループの境界まで広げて選ぶ。主行はクリックした行で、基点は保つ。 |
+| 右クリック | そのグループの全行が選択済みなら選択集合と基点を保ち、主行だけをクリックした行へ移す。そうでなければグループの全行へ置き換える。選択の通知が先で、その後にメニューを要求する。 |
+| チェックボックスのクリック | 修飾なしの単クリックは、操作の要求（`CellActionRequested`）を一度送り、選択は右クリックと同じ規則。ダブルクリックは要求二回で `RowActivated` を送らない。修飾キー付きは要求を送らず、Ctrl・Shiftの規則で選ぶ。 |
+| 文字セルのダブルクリック | クリックした行で `RowActivated` を一回送る。 |
+| 上下キー（現在セルが結合列） | 隣のグループへ移り、移動先のグループの全行を選ぶ。主行と現在セルは、方向によらず移動先のグループの先頭行。Shift付きは、基点と移動先を、それぞれのグループの境界まで広げ、基点を保つ（主行は広げた先のグループの先頭行）。先頭のグループの上と末尾のグループの下では動かず、通知しない。 |
+| 左右キーで結合列へ入る | 現在の行のグループを右クリックと同じ規則で選ぶ（全行が選択済みなら集合を保つ）。結合列から出るときは、選択・主行・基点を保ち、通知しない。 |
+
+結合列以外の操作セル（チェックボックス・ラジオボタンなど）の修飾なしのクリックは、提供元を持つ表では、押した行だけを選びます（結合列で選んだグループの全行を残しません）。結合列を右クリックして「エクスプローラで開く」を選ぶと、利用先の規則どおり、選択したグループの全フォルダが対象になります。Enterは主行で `RowActivated` を送ります。選択の通知は一入力につき一回で、変化がなければ送りません。
+
+#### チェックボックスとラジオボタン
+
+ラジオボタン（`CustomTableCellKind.RadioButton`）は、trueを選択済み（円の輪郭と中央の塗りの円）、falseを未選択（円の輪郭）で描き、nullは何も描きません。大きさと色はチェックボックスと同じパレットです。
+
+チェックボックスのチェックとラジオボタンの中央の塗りは、行の選択・現在セルかどうか、行グループの提供元の有無、結合列かどうかによらず、有効なら `CustomTablePalette.CheckBoxCheck`、無効なら `CheckBoxDisabledCheck` の色（印の色）で描きます。列の前景色と、行や現在セルの強調で使う文字色（選択時・現在セルの前景色）は印へ適用しません。ライト系のテーマで、セルを選んだときに印が背景と同化して消えないようにするためです。枠と内側の背景は従来どおりパレットの色です。
+
+列定義の `enabledSelector`（操作可否）がfalseを返す行では、チェックボックスとラジオボタンを同じ図形のまま、背景を塗らず、枠とチェック（ラジオボタンは中央の塗り）を無効色で描きます。無効色は `CustomTablePalette.CheckBoxDisabledBorder` と `CheckBoxDisabledCheck` で、テーマの `Table.SubtleTextBrush` から導きます。無効のセルのクリックは `CellActionRequested` を送りません。`enabledSelector` は、行グループの提供元の有無によらず、描画とクリックの判定に効きます。選択子のない列は常に操作できます。
+
+| 操作 | 提供元を持つ表 | 提供元を持たない表（現行の挙動） |
+| --- | --- | --- |
+| 当たり判定 | クリックした行のその列のセル全体。結合列では、図形の有無によらずグループ内のどの行のセルでも同じで、クリックした行と列を伴う。 | セル全体。 |
+| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。修飾キー付きのクリックは要求を送らない。行の選択は、結合列では[結合列の選択](#結合列の選択)、結合列以外の列では押した行だけ（複数行の選択中でも押した行だけへ絞る）。 | `CellActionRequested` を一度送る（修飾キー付きは送らない）。行の選択は通常のクリックと同じ規則で、複数行の選択中に操作できるセルを押しても、選択を押した行だけへ絞らない。 |
+| ダブルクリック | 操作できるチェックボックス・ラジオボタンのセルは、二回目の押下も `CellActionRequested` を送り（合計二回）、`RowActivated` を送らない。無効または値なしのセルは、通常どおり `RowActivated` を送る。 | `CellActionRequested` 一回の後に `RowActivated`。 |
+| UI Automation | チェックボックスのセルは `Toggle`（ControlTypeはCheckBox）、ラジオボタンのセルは `SelectionItem`（ControlTypeはRadioButton）を公開する。操作は `CellActionRequested` を一度送り、値や選択を直接変えない。無効のセルは `IsEnabled=false` で、操作は `ElementNotEnabledException` になり要求を送らない。値なしのセルの操作は `InvalidOperationException` になる。ラジオボタンの `RemoveFromSelection` は `InvalidOperationException` になる。 | セルは `Value` だけを公開し、トグルを公開しない。 |
+
+行×列のUI Automationのモデルは保ち、各行のセルがその行の値を公開します。
 
 ### 選択とキー操作
 
@@ -239,6 +297,8 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 | Shift+クリック | 範囲選択 |
 | 右クリック | 対象行を選択へ含めてメニューを要求する。選択済みの行なら、選択集合と範囲基点を保ち、主行だけを対象行へ移す。 |
 | 空白・スクロールバーの操作 | 選択と現在セルを変えない。 |
+
+[行グループの結合列](#結合列の選択)のセルは、上の規則をグループの全行を単位として適用します。
 
 画面の状態は `CustomTableSelectionModel` と双方向の `SelectedIndex` で同期します。
 
@@ -296,7 +356,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 | キー | 操作 |
 | --- | --- |
-| 上下 | 行の移動 |
+| 上下 | 行の移動。現在セルが行グループの結合列にあるときはグループの移動（[結合列の選択](#結合列の選択)） |
 | Enter | 現在行の操作 |
 | F2・文字入力 | 編集の開始 |
 | Ctrl+A | 全選択 |
@@ -315,7 +375,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 - 非表示の列を飛ばします。現在行に対応する現存の列の現在セルがなければ、右は先頭の列、左は末尾の列から始めます。古い行のセルは起点にせず、列・データの差替えを越えて現在の列を復元する状態は持ちません。
 - 端から外向きの左右は受理しますが、折り返しやスクロールをしません。端のセルが手動のスクロールで画面外にあっても再表示しません。
 - 未選択・0行・0表示列では受理せず、現在セルとスクロールを変えません。
-- 行の選択集合・主行・`SelectedIndex`・範囲基点を保ち、`SelectionChanged` を送りません。
+- 行の選択集合・主行・`SelectedIndex`・範囲基点を保ち、`SelectionChanged` を送りません。ただし行グループの結合列へ入るときは、[結合列の選択](#結合列の選択)に従い、そのグループを選びます。
 
 上下・Shift+上下は行の選択を行い、移動前の列が現存すればその列を引き継ぎ、なければ先頭の表示列へ戻ります。0表示列では現在セルを設定しません。手動のスクロールでは現在セルの識別を保ち、次の左右の起点にします。実際に別の列へ移る場合は現在行も可視範囲へ戻します。描画・単一セルのコピー・F2と文字入力による編集は同じ現在セルを参照します。
 
@@ -484,6 +544,7 @@ FOLDERの変更不要の判定と改名の反映は、[ライブラリ変更](..
 - 「推定」「インストール」「クリア」は、中央の一覧の現在の選択だけを対象とし、Ctrl／Shiftによる複数選択や、ボタンへのフォーカスの移動でも対象を保ちます。未選択なら3ボタンを無効にし、差替え・空化・操作後の選択解除にも追随します。
 - ボタンの有効・無効は選択の有無だけで決め、ライブラリ操作の受付（L）の使用中や物理変更の実行中も無効にしません。これは意図した挙動で、押下時の拒否と案内は[明示要求の競合の案内](../core/operation-concurrency-policy.md#明示要求の競合の案内)に従います。物理変更の活動中の押下は受付の前の入力の抑止として何もせず、それ以外でLが使用中なら各操作の受付が拒否して案内します。
 - 実行時にも区分・選択・変更の実行状態を再確認し、左のツリーの選択パッケージで補いません。ツールチップとアクセシブル名には各操作の正式名称を使います。
+- ボタンは共通の省スペースボタンのスタイル（`App.Canonical.CompactButtonStyle`）を継承し、画面内では余白と、選択の有無による有効条件だけを足します。配色・ホバー・押下・無効・フォーカスの見た目とテーマ追従は共通スタイルに任せ、画面内で個別の配色・テンプレート・無効時の不透明度を持ちません。
 - メニュー固有の配置元の検査と、イベントを処理済みにする時点を保ったまま、選択対象を取得した後の実行処理をメニューと共有します。
 
 操作内容は[導入先推定](../library/install-estimation.md)、受付とBusyは[操作の競合ポリシー](../core/operation-concurrency-policy.md)に従います。
@@ -996,7 +1057,7 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 一覧用スクロールバーの接続と見え方 | `CustomTableView` のバー生成、`ScrollBarChrome`、共通ScrollBarテンプレート | [外観仕様の対応表](appearance.md#実装とテストの対応)の一覧用スクロールバーの行に従い、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) が実体化した両軸の矩形・不透明・hit-test・テーマ切替を確認する。 |
 | オーバーレイのバー上入力と背後の表操作の分離 | `CustomTableView` のPreview右押下・MouseMove、`IsDescendantOfScrollChrome` | バー自身と子孫を同じ除外へ接続し、Preview右押下では背後の`HitTestTable`へ到達せず、表が入力を消費しないことを静的に確認する。hoverは進行中のresize/reorder/rowdrag継続を先に扱い、その後のバー除外でCursorとtooltipを解除して背後のHitTestへ進まないことを確認する。`InputHitTest`がバー自身・子孫を選ぶ入力領域とSource/`OriginalSource`からPreview入口へ至る接続、バー外の既存経路、capture中の操作継続、`HitTestTable`全体へ除外を混ぜないことも静的確認に含める。自動回帰は既存のNavigation・SelectionModel・Editing、Phase6のtooltip内容、MainWindowPlayHistoryのAppsキーメニュー接続、共通バーの標準操作へ分担する。通常のマウス入力から通知・tooltip表示への接続と実capture操作は自動検証の保証に含めない。 |
 | バーの手前への最終セルの露出 | `CustomTableView.EnsureColumnVisible` / `EnsureRowVisible` | [`CustomTableNavigationTests.Navigation_RevealsLastColumnAndRowBeforeOverlayBars`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableNavigationTests.cs) は幅100・高さ120・見出し/行高20・二列各60・六行で実キー受付から最後の列右端x84と最終行の完全表示容量4を確認する。選択・編集・購読は既存Navigation/Editing/SelectionModel/RowChangeTracker系列を維持する。 |
-| 保留操作バーの表示・現在選択・共通入口・言語とテーマ | [`MainChartListViewModel.IsPendingInstallViewActive`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartListViewModel.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[`MainWindow.cs`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowPackageMaintenanceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPendingInstallBarWpfTests.cs) の `PendingInstallBar_TracksPresentedSectionAndCollapsesOutsidePending` は実区分確定から配置・排他表示、`PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest` は実Rows Binding・複数選択・クリックから要求と導入完了後の選択plan、`PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes` は6言語の実切替とLight/Darkの意味brushを確認する。辞書整合は `LocalizationResourceParityTests` に分担する。 |
+| 保留操作バーの表示・現在選択・共通入口・言語とテーマ | [`MainChartListViewModel.IsPendingInstallViewActive`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartListViewModel.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[`MainWindow.cs`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowPackageMaintenanceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPendingInstallBarWpfTests.cs) の `PendingInstallBar_TracksPresentedSectionAndCollapsesOutsidePending` は実区分確定から配置・排他表示、`PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest` は実Rows Binding・複数選択・クリックから要求と導入完了後の選択plan、`PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes` は6言語の実切替、バー自身の背景のLight/Darkの意味brush、ボタンが共通の省スペースボタンスタイルを継承してテンプレートと配色を上書きしないことを確認する（ボタンの配色のテーマ追従は共通スタイルの既存テストが分担する）。辞書整合は `LocalizationResourceParityTests` に分担する。 |
 | 準備優先度の対象列・順序と非実体化 | [`ChartListOrder`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListOrder.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`ChartListVirtualViewTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListVirtualViewTests.cs)、[`ChartListVirtualViewTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/ChartListVirtualViewTests.cs) の `VirtualOrderPrewarmDescriptors_SelectExplicitPriorityColumnsAndRejectInvalidBounds` が明示列集合・優先度内順・0/8/42/78件・各昇降順・別名の重複なし・-1/4拒否、`AllVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization` が全78件の行生成処理の呼出し0を確認する。 |
 | 対象外列の要求時ソート・キャッシュ再利用・更新失効 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`RegularChartViewBuildAndOrderingTests.VirtualOrderPrewarm_UnpreparedColumnsRemainDemandSortedAndInvalidated`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) は実際の通常一覧管理主体と小DBを使い、0/1/2/3で対象外の `Title`/`ChartNotes`/`mode`/`level`を昇降順へ要求し、結果・要求列方向のキャッシュ登録と再利用とカタログ更新失効を確認する。0はソート入力行も順序も準備せず最初の通常要求で新規生成になる。比較規則の細部と他一覧のsortは既存系列へ分担する。 |
 | 初回BMSON正規化後の表示順・選択と次の局所更新 | [`NormalLibraryViewOrder`](../../../BeMusicSeeker/ViewModels/ChartList/NormalLibraryViewOrder.cs)、[`RegularChartListOwner.CatalogChanges`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.CatalogChanges.cs) | [`RegularChartNormalLibraryRefreshTests.FirstBmsInstall_NormalizesExistingBmsonViewOrderAndKeepsSelection`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は実BMS導入・DB・配送から順序と選択、旧snapshotと構築中候補、次更新を確認する。参照変更併存時は新hashの捕捉境界後の変更も含める。 |
@@ -1039,6 +1100,25 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 概要STATUS列とtooltipの言語追従 | `PlaylistSummaryRow.Status` / `StatusDetail`、`PlaylistSyncRuntimeStatus`、`PlaylistSyncStatusMapper`、`CustomTableView.ResourceServicePropertyChanged` | [`CustomTablePhase6CacheTests.ColumnHeaderLanguage_AdditionalDictionaryRoundTripKeepsColumnsRowsAndEdit`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の概要では、Http404と未読込みの行について、追加辞書を含む往復の明示的な描画失効なしにSTATUSセル値とtooltipが現在値になることを確認する。[`PlaylistWorkspacePresentationStateTests.PlaylistSummaryStatusLanguage_SameRowsAndRawCacheReuseFollowLanguageWithoutRebuild`](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) は実の概要buildを通した同じ行で、読込み済み・未読込み・状態なしの言語往復、raw cache再利用と整列後の現在語、buildとデータ世代の不変を確認する。 |
 
 導入済み現在値の局所通知は [`PackageLifecycleOwner.CurrentCharts`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageLifecycleOwner.CurrentCharts.cs)、[`NormalLibraryRefreshPublisher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/NormalLibraryRefreshPublisher.cs)、`RegularChartListOwner` と `MainViewRefreshDecisionService` が担当します。[`OwnedChartCollectionRefreshTests`](../../../tests/BeMusicSeeker.Windows.Tests/Catalog/OwnedChartCollectionRefreshTests.cs) は正式適用結果からの先行依存保持、[`RegularChartNormalLibraryRefreshTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs)、[`RegularChartNormalLibraryRefreshTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は条件表・一表示要求・Title順の最終表示を確認します。[`MainWindowPackageMaintenanceWpfTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の混在純移転は実DB・current・索引・entryから行・選択・編集の保持まで、[`MainWindowTreePresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) はcompiled headerの解放後更新を確認します。
+
+### 行グループとチェック・ラジオボタンのセル
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| グループの序数による交互背景、選択・警告の優先、スクロール後 | `ICustomTableRowGroupSource`、`CustomTableSurface.DrawRows` | [`CustomTableRenderingTests.RowGroups_AlternateBackgroundByGroupOrdinalWithSelectionAndWarningPriority`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) は大きさ [2,1,3,2,1,3,2,1,3] で行番号と序数の偶奇が食い違う行の背景と、選択・警告の優先を、先頭行0・2・5の各スクロール位置で確認する。 |
+| 結合列は一グループ一セル（内部罫線なし、下端罫線あり、内容は表示中の部分の縦中央に一度） | `CustomTableColumn.MergesRowGroup`、`CustomTableSurface.DrawMergedCells`・`FillRowBottomBorder`・`DrawRowCells` | 同クラスの `RowGroups_MergedColumnsDrawOneCellPerGroupCenteredOnTheVisiblePart` は倍率1.0と1.25で、罫線の有無、文字とチェックボックスの縦中央（±1画素）、先頭行が画面外・1000行のグループの中ほど・最後の行が部分表示の各場合を確認する。 |
+| 結合セルの選択・現在セルの強調（全選択のときだけ結合セル全体を選択色、一部選択は交互色、現在セルは結合セル全体、画面外の行を含む全選択の判定、行の境目の隙間なし、罫線の保持、文字が消えない） | `CustomTableSurface.DrawRows`・`DrawMergedCells`、`CustomTableView.IsRowSpanSelected`・`GetCurrentCellColumnInRange` | `CustomTableRenderingTests.MergedColumns_PaintSelectionAndCurrentCellOverTheWholeMergedCell` は倍率1.0と1.25で、全選択で現在セルが結合列以外、一部選択、先頭行が画面外のまま表示中の行だけを選んだ場合（塗らない）と画面外を含め全行を選んだ場合（塗る）、全選択・一部選択で現在セルが結合列の各場面について、結合列の全画素の色、下端の罫線と右の縦罫線、通常の列の行ごとの色、文字の色を確認する。 |
+| ラジオボタンの図形、無効色 | `CustomTableSurface.DrawRadioButton`・`DrawCheckBox`、`CustomTablePalette.CheckBoxDisabledBorder`・`CheckBoxDisabledCheck` | 同クラスの `Icons_AreDrawnPerKindInsideTheCell` は、既存の表明に加え、ラジオボタンの true・false・null の図形、チェックボックスとの形の違いと大きさ、オンのチェックと選択済みラジオボタンの中央がパレットのチェックの色（列の前景色ではない）であること、無効のチェックボックス・ラジオボタンが有効時と異なる画素で無効色を使うことを確認する。 |
+| 印の色（行の選択・現在セルでも変わらない、結合列を含む、提供元の有無によらない） | `CustomTableSurface.ResolveCheckMark` | `CustomTableRenderingTests.CheckAndRadioMarks_UseThePaletteColorInEverySelectionState` は提供元の有無と有効・無効を切り替え、未選択・行の選択・現在セルで、ラジオボタンの中心画素と印の画素がパレットの色で、枠の内側が未選択と画素単位で一致することを、選択時・現在セルの文字色が印の色と異なる前提とともに確認する。 |
+| クリック・ダブルクリック、当たり判定、行の選択、提供元のない表の対照 | `CustomTableView.HandleCellMouseDown`・`IsActionCell` | [`CustomTableNavigationTests.ActionCells_ClickAndDoubleClickFollowTheRowGroupContract`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableNavigationTests.cs) はデータ駆動で、結合列の先頭でない行のクリックとダブルクリックの要求の行・列・回数、`RowActivated`、選択（結合列はグループの全行、主行はクリックした行）、無効・値なしのセル、提供元のないチェックボックス列（要求の後に `RowActivated`）を確認する。 |
+| 結合列のクリックの選択（置換・Ctrl・Shift・右クリック・チェックボックスの単クリックとダブルクリックと修飾付き・文字セルのダブルクリック・マウスを離しても絞らない、結合列以外と提供元のない表の行単位、操作セルの選択） | `CustomTableView.HandleCellMouseDown`・`ApplyMouseSelection`・`ApplyMergedColumnMouseSelection`・`SelectGroupAlignedRange`、`CustomTableSelectionModel` の区間の操作 | `CustomTableNavigationTests.MergedColumnClicks_SelectWholeGroupsAndOtherColumnsStayRowWise` は、グループ [2,4,2] で、選択された行、選択の通知の回数と値、操作の要求、`RowActivated`、メニュー要求の順序を操作ごとに確認する。`CustomTableSelectionModelTests.SpanOperations_MergeSplitAndReportChangesAsIntervals` は区間の置換・併合・重なり・分割・全選択の判定・変化の有無を確認する。統合候補一覧での接続は `MainWindowDuplicateCandidateListWpfTests.CandidateList_CellsKeyMenuAndToolbarActOnGroupsAndExplorerOpensExistingFoldersOnce` が、SELECTのクリック後はグループの全行、KEEPのクリック後はその行だけであることを確認する。 |
+| 結合列のキー操作（上下、Shift+上下、端、左右で結合列へ入る・出る、結合列以外は行単位、Enter） | `CustomTableView.MoveKeyboardSelection`・`MoveGroupSelection`・`MoveCurrentCellHorizontally` | `CustomTableNavigationTests.MergedColumnKeys_MoveAndExtendByGroupAndOtherColumnsStayRowWise` が、移動先の主行・現在セル・通知・端の無通知・Enterの行を確認する。 |
+| 結合列のツールチップ・コピー・TSV | `CustomTableView.ResolveCellToolTip`・`UpdateCellToolTip`、`CustomTableDataTransfer` | 同クラスの `MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow` は、先頭でない行の値が出ることを確認する。`MergedColumnToolTip_StaysOpenInsideOneCellAndReopensForAnotherCell` は窓ありの枠組みで、マウスの移動が使う入口へ明示したヒットを渡し、同じ結合セルの中の移動で閉じず出し直さないこと、別のグループ・別の列で出し直すこと、内容、提供元のない表が行ごとであることを確認する。 |
+| UI Automationのトグル・選択・有効状態、結合列の値と編集不可、提供元のない表の不変 | `CustomTableView.Automation.cs` の `CustomTableCellAutomationPeer`、`CustomTableView.CanEditAutomationCell` | [`CustomTableAutomationPeerTests.RowGroupCells_ExposeToggleSelectionAndEnabledStateOfTheirOwnRow`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableAutomationPeerTests.cs) は先頭でない行のセルの値・トグル状態・選択状態・有効状態、操作後の要求の回数・行・列、無効のセル、提供元のない表の公開内容を確認する。 |
+| 問合せ回数と行の読取りがグループの大きさに依存しない | `CustomTableSurface.DrawRows` | [`CustomTablePhase6CacheTests.RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は20万行の中ほどで、グループの大きさ1,000と199,990の問合せ回数と行の読取り回数が等しく、結合列の値の取得が一回であることを確認する。 |
+| 結合列の選択でも問合せ回数と行の読取りがグループの大きさに依存しない、通知の選択行数、列挙しない | `CustomTableView.TryGetRowGroupSpan`・`MoveGroupSelection`、`CustomTableSelectionModel` の区間の操作 | `CustomTablePhase6CacheTests.RowGroupSelection_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize` は同じ20万行の入力で、クリック・Ctrl・Shift・再描画・通常の列から右で結合列へ入る操作・下・Shift+上の各操作について、問合せ回数が大きさによらず等しく少数であること、行の読取り回数が等しいこと（先頭へ戻る距離が大きさで異なる Shift+上 だけは上限で確認する）、通知の選択行数がグループの大きさと等しいこと、行集合を列挙しないことを確認する。 |
+
+提供元を持たない表の不変は、既存の表示・操作・UI Automationのテストを変えずに通すことで確認します。
 
 ## 関連資料
 

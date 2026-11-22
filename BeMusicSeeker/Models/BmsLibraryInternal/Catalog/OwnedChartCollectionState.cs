@@ -51,10 +51,100 @@ internal sealed class OwnedDuplicateChartRowSnapshot
         [.. buckets.Where(pair => pair.Value.Count > 1)
             .Select(pair => new { pair.Key, Rows = pair.Value.Values.OrderBy(value => value.Order).ToArray() })
             .OrderBy(pair => pair.Rows[0].Order)
-            .Select(pair => new DuplicateHashBucket(pair.Key, [.. pair.Rows.Select(value => value.Row)]))];
+            .Select(pair => new DuplicateHashBucket(pair.Key, [.. pair.Rows.Select(value => value.Row)], pair.Rows[0].Order))];
+
+    /// <summary>全重複ハッシュの列を生成済みか。差分解析がその遅延生成（全ハッシュの走査と整列）を起こさないことの観測に使います。</summary>
+    internal bool IsDuplicateBucketListMaterialized => duplicateBuckets != null;
 
     internal int DuplicateHashCount => DuplicateHashBuckets.Count;
     internal int DuplicateHashRowCount => DuplicateHashBuckets.Sum(bucket => bucket.Rows.Count);
+
+    /// <summary>指定ハッシュが重複（所属2件以上）かを、全ハッシュの列挙なしに返します。</summary>
+    internal bool IsDuplicateHash(string hash)
+        => !string.IsNullOrWhiteSpace(hash) && buckets.TryGetValue(hash, out ImmutableDictionary<OwnedChartToken, OrderedRow> bucket) && bucket.Count > 1;
+
+    /// <summary>
+    /// 指定ハッシュが重複なら、全体解析の <see cref="DuplicateHashBuckets"/> と同じ行順のバケットを返します。
+    /// 差分解析が、再判定の範囲に現れたハッシュだけを引くために使います。
+    /// </summary>
+    internal bool TryGetDuplicateBucket(string hash, out DuplicateHashBucket duplicateBucket)
+    {
+        duplicateBucket = null;
+        if (!IsDuplicateHash(hash))
+        {
+            return false;
+        }
+        OrderedRow[] rows = OrderRows(buckets[hash]);
+        duplicateBucket = new DuplicateHashBucket(hash, [.. rows.Select(value => value.Row)], rows[0].Order);
+        return true;
+    }
+
+    /// <summary>
+    /// 基底から現在までに、所属する譜面の「所持項目の識別とパスの組」が変わったハッシュを返します。
+    /// ハッシュ別バケットの辞書を一巡し、バケットの参照が同じなら変化なしとして内容を比べません。
+    /// 参照が異なるバケットだけ、識別・パスと行順を比べます。識別・ハッシュ・パスが同じで値だけが変わった更新は、変化に数えません。
+    /// </summary>
+    /// <param name="baseline">前回の検索が使った捕捉。</param>
+    /// <param name="contentComparedCount">参照が異なり、内容を比べたバケットの数。</param>
+    internal IReadOnlyList<DuplicateHashChange> FindChangedHashes(OwnedDuplicateChartRowSnapshot baseline, out int contentComparedCount)
+    {
+        contentComparedCount = 0;
+        var changes = new List<DuplicateHashChange>();
+        int sharedHashCount = 0;
+        foreach (KeyValuePair<string, ImmutableDictionary<OwnedChartToken, OrderedRow>> pair in buckets)
+        {
+            if (!baseline.buckets.TryGetValue(pair.Key, out ImmutableDictionary<OwnedChartToken, OrderedRow> previous))
+            {
+                changes.Add(new DuplicateHashChange(pair.Key, [], [.. OrderRows(pair.Value).Select(value => value.Row)]));
+                continue;
+            }
+            sharedHashCount++;
+            if (ReferenceEquals(previous, pair.Value))
+            {
+                continue;
+            }
+            contentComparedCount++;
+            OrderedRow[] previousRows = OrderRows(previous);
+            OrderedRow[] currentRows = OrderRows(pair.Value);
+            if (!HaveSameMembers(previousRows, currentRows))
+            {
+                changes.Add(new DuplicateHashChange(pair.Key,
+                    [.. previousRows.Select(value => value.Row)], [.. currentRows.Select(value => value.Row)]));
+            }
+        }
+        if (sharedHashCount < baseline.buckets.Count)
+        {
+            foreach (KeyValuePair<string, ImmutableDictionary<OwnedChartToken, OrderedRow>> pair in baseline.buckets)
+            {
+                if (!buckets.ContainsKey(pair.Key))
+                {
+                    changes.Add(new DuplicateHashChange(pair.Key, [.. OrderRows(pair.Value).Select(value => value.Row)], []));
+                }
+            }
+        }
+        return changes;
+    }
+
+    private static OrderedRow[] OrderRows(ImmutableDictionary<OwnedChartToken, OrderedRow> bucket)
+        => [.. bucket.Values.OrderBy(value => value.Order)];
+
+    /// <summary>識別（参照）とパス（序数）が同じで、行順も同じかを返します。</summary>
+    private static bool HaveSameMembers(OrderedRow[] previous, OrderedRow[] current)
+    {
+        if (previous.Length != current.Length)
+        {
+            return false;
+        }
+        for (int i = 0; i < previous.Length; i++)
+        {
+            if (!ReferenceEquals(previous[i].Row.Chart.Token, current[i].Row.Chart.Token)
+                || !string.Equals(previous[i].Row.Path, current[i].Row.Path, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /// <summary>影響したハッシュの要素だけを置換し、既存のsequenceを共有して捕捉します。</summary>
     internal OwnedDuplicateChartRowSnapshot Change(ChartFile chart, bool add,
@@ -93,15 +183,34 @@ internal sealed class OwnedDuplicateChartRowSnapshot
 
 internal sealed class DuplicateHashBucket
 {
-    internal DuplicateHashBucket(string lookupHash, IReadOnlyList<DuplicateChartRow> rows)
+    internal DuplicateHashBucket(string lookupHash, IReadOnlyList<DuplicateChartRow> rows,
+        OwnedChartCanonicalOrderKey order = default)
     {
         LookupHash = lookupHash;
         Rows = rows as DuplicateChartRow[] ?? [.. rows ?? []];
+        Order = order;
     }
 
     internal string LookupHash { get; }
 
     internal IReadOnlyList<DuplicateChartRow> Rows { get; }
+
+    /// <summary>先頭行の正規順。バケット間の並びを、全体解析と同じ先頭行の順序にそろえるために使います。</summary>
+    internal OwnedChartCanonicalOrderKey Order { get; }
+}
+
+/// <summary>
+/// 基底と現在で所属が変わった一つのハッシュです。両側の行は正規順で、存在しない側は空です。
+/// </summary>
+internal sealed class DuplicateHashChange(string lookupHash, IReadOnlyList<DuplicateChartRow> baseRows, IReadOnlyList<DuplicateChartRow> currentRows)
+{
+    internal string LookupHash { get; } = lookupHash;
+
+    /// <summary>基底での所属行（捕捉時の値）。</summary>
+    internal IReadOnlyList<DuplicateChartRow> BaseRows { get; } = baseRows;
+
+    /// <summary>現在の所属行。値は更新で古くなり得るため、グループへ入れる値は現在値から作り直します。</summary>
+    internal IReadOnlyList<DuplicateChartRow> CurrentRows { get; } = currentRows;
 }
 
 /// <summary>所持集合の共通現在値を捕捉します。保存行への参照は公開しません。</summary>
@@ -959,6 +1068,35 @@ internal sealed class OwnedChartCollectionState
             }
         }
         return new OwnedDuplicateChartRowSnapshot(rows, [.. rows.Where(row => row.ChartKind == ChartFileKind.Bms).Select(row => row.Chart)], GetCurrentDuplicateOrder);
+    }
+
+    /// <summary>
+    /// 指定フォルダ直下の現在行を、全体解析が使う所持集合全体の行列と同じ正規順で返します。
+    /// 既存の実パス索引（フォルダ別の参照）を引き、所持集合全体を走査しません。
+    /// </summary>
+    /// <param name="directory">重複行の <see cref="DuplicateChartRow.DirectoryPath"/> と同じ表記のフォルダ。大小文字は区別しません。</param>
+    internal IReadOnlyList<DuplicateChartRow> CreateDuplicateRowsInDirectory(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return [];
+        }
+        List<(OwnedChartCanonicalOrderKey Order, DuplicateChartRow Row)> rows = [];
+        foreach (LibraryChartRef chartRef in CreateLibraryChartRefIndexSnapshot().GetDirectChartRefsInRealPaths([directory]))
+        {
+            ChartFile chart = ResolveCurrentChart(chartRef);
+            if (chart == null || !HasCurrentOwnedIdentity(chart))
+            {
+                continue;
+            }
+            DuplicateChartRow row = CreateDuplicateChartRow(chart);
+            if (row != null && string.Equals(row.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase))
+            {
+                rows.Add((GetCurrentDuplicateOrder(chart), row));
+            }
+        }
+        rows.Sort((left, right) => left.Order.CompareTo(right.Order));
+        return [.. rows.Select(value => value.Row)];
     }
 
     private OwnedChartCanonicalOrderKey GetCurrentDuplicateOrder(ChartFile chart)

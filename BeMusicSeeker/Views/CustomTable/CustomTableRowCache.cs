@@ -96,7 +96,7 @@ internal readonly struct CustomTableTextRunStyle
 
 internal readonly struct CustomTableCellValue
 {
-    private CustomTableCellValue(string text, Brush foreground, Brush background, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked)
+    private CustomTableCellValue(string text, Brush foreground, Brush background, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked, bool isEnabled = true)
     {
         Text = text ?? string.Empty;
         Foreground = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
@@ -106,6 +106,7 @@ internal readonly struct CustomTableCellValue
         TextStyle = textStyle ?? CustomTableTextStyle.Normal;
         Alignment = alignment;
         IsChecked = isChecked;
+        IsEnabled = isEnabled;
     }
 
     internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, [], CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null);
@@ -128,6 +129,9 @@ internal readonly struct CustomTableCellValue
 
     internal bool? IsChecked { get; }
 
+    /// <summary>チェックボックス・ラジオボタンを操作できるかです。falseなら無効色で描き、操作を受け付けません。</summary>
+    internal bool IsEnabled { get; }
+
     internal static CustomTableCellValue Create(object row, CustomTableColumn column)
     {
         string text = column.GetText(row);
@@ -141,7 +145,8 @@ internal readonly struct CustomTableCellValue
             column.CellKind,
             column.TextStyle,
             column.Alignment,
-            column.GetChecked(row));
+            column.GetChecked(row),
+            column.GetEnabled(row));
     }
 
     private static IReadOnlyList<CustomTableTextRunStyle> NormalizeTextRuns(string text, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind)

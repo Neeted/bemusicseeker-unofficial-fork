@@ -105,7 +105,7 @@ public sealed class PlaybackPanelViewModelTests
                         Rect thumbBounds = track.Thumb.TransformToAncestor(layout).TransformBounds(new Rect(track.Thumb.RenderSize));
                         Assert.AreEqual(railBounds.Top + railBounds.Height / 2, thumbBounds.Top + thumbBounds.Height / 2, 0.01);
                     }
-                    Assert.IsNull(slider.FocusVisualStyle);
+                    FocusVisualAssert.AssertKeyboardFocusRing(slider);
                     Assert.IsTrue(slider.Focusable && slider.IsTabStop && slider.IsEnabled);
                     slider.SetCurrentValue(Slider.ValueProperty, 37d);
                     Assert.AreEqual(37, panel.PlayerVolume);
@@ -776,7 +776,7 @@ public sealed class PlaybackPanelViewModelTests
                     slider.ApplyTemplate();
                     window.UpdateLayout();
                     var track = (Track)slider.Template.FindName("PART_Track", slider);
-                    Assert.IsNull(slider.FocusVisualStyle);
+                    FocusVisualAssert.AssertKeyboardFocusRing(slider);
                     Assert.IsTrue(slider.Focusable && slider.IsTabStop && slider.IsEnabled);
                     Assert.IsFalse(Stylus.GetIsPressAndHoldEnabled(slider));
                     BindingExpression binding = slider.GetBindingExpression(Slider.ValueProperty)
@@ -1612,7 +1612,8 @@ public sealed class PlaybackPanelViewModelTests
                     Assert.AreEqual(Color.FromArgb(51, 0, 0, 0), ((SolidColorBrush)statisticsText.Background).Color);
                     Assert.IsNull(statisticsText.Effect);
                     var play = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
-                    Assert.IsNull(play.FocusVisualStyle);
+                    FocusVisualAssert.AssertKeyboardFocusRing(play);
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(play);
                     Assert.IsTrue(play.Focusable && play.IsTabStop);
                     Assert.AreEqual(((SolidColorBrush)view.FindResource("Playback.ControlForegroundBrush")).Color, ((SolidColorBrush)play.Foreground).Color);
                 }

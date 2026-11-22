@@ -26,13 +26,13 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 
 ### 表示フォント
 
-`Settings.Default.AppearanceFontFamily` は、通常の文字に使うフォントファミリー名を一つ保存します。空文字は既定を表し、既定のフォントは `Meiryo UI` です。保存時に前後の空白を除き、nullは空文字にします。フォントの存在は保存時に検査せず、保存値を別の名前へ書き換えません。文字サイズは、この設定では変えません。
+通常UIは既存の `Settings.Default.AppearanceFontFamily`、譜面・プレイリスト・統合候補の一覧は `Settings.Default.CustomTableFontFamily` にフォント名を個別に保存します。空文字は各用途の既定を表します。通常UIの既定は `Yu Gothic UI`、一覧の既定は `Meiryo UI` です。保存時に前後の空白を除き、nullは空文字にします。フォントの存在は保存時に検査せず、保存値を別の名前へ書き換えません。文字サイズは、この設定では変えません。
 
-`AppFontService` は、保存値から実際に使うフォントを求め、アプリのリソース `App.UiFontFamily` を置き換えます。起動時はテーマの適用と同じ時点で、設定画面では保存の成功後に適用します。
+`AppFontService` は、保存値から実際に使うフォントを求め、用途に応じてアプリのリソース `App.UiFontFamily` または `App.TableFontFamily` を置き換えます。起動時はテーマの適用と同じ時点で、設定画面では保存の成功後に適用します。
 
 - 選択されたフォントを第一候補、既定のフォントを代替候補にします。選択されたフォントがインストールされていない場合と、選択されたフォントに字形がない文字は、既定のフォントで表示します。
 - 保存値が空の場合は、既定のフォントだけを使います。
-- どのフォントでも行の寸法が同じになるよう、行の高さと基線の位置を固定した合成フォント（WPFの `FontFamily` の `LineSpacing` と `Baseline`）として作ります。行の高さは文字サイズの1.27倍（既定のフォントと同じ）です。基線は、第一候補のフォントの大文字の高さが行の上下中央に来る位置です。大文字の高さを得られないフォントでは、既定のフォントの大文字の高さを使います。これにより、フォントを変えても、文字の上下の位置、部品の高さ、一覧の行内の位置が変わりません。
+- どのフォントでも行の寸法が同じになるよう、行の高さと基線の位置を固定した合成フォント（WPFの `FontFamily` の `LineSpacing` と `Baseline`）として作ります。行の高さは文字サイズの1.27倍です。基線は、第一候補のフォントの大文字の高さが行の上下中央に来る位置です。大文字の高さを得られないフォントでは、既定のフォントの大文字の高さを使います。これにより、フォントを変えても、文字の上下の位置、部品の高さ、一覧の行内の位置が変わりません。
 - 標準のメニューなど、WPFの標準スタイルがシステムのフォント（`SystemFonts` のメニュー・状態表示・メッセージ用のキー）を指定する部品にも同じフォントを渡すため、アプリのリソースで同じキーを置き換えます。ツールチップの型スタイルと共通のコンテキストメニューのスタイルは、`App.UiFontFamily` を明示して参照します。
 - 置換の対象はアプリのリソースの直下で、テーマの切替で入れ替える配色辞書には置きません。
 
@@ -46,7 +46,7 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 | 対象 | 接続 |
 | --- | --- |
 | メイン画面と、`ThemedWindow` を使うすべてのウィンドウ | ウィンドウの `FontFamily` が `App.UiFontFamily` を動的に参照し、内部の部品は継承する。通常の文字へ個別のフォントを指定しない。 |
-| 一覧の通常の文字、見出し、セルの編集欄、省略の判定 | `CustomTableView.TextFontFamily` が `App.UiFontFamily` を動的に参照する。指定がない場合は既定のフォントを使う。 |
+| 一覧の通常の文字、見出し、セルの編集欄、省略の判定 | `CustomTableView.TextFontFamily` が `App.TableFontFamily` を動的に参照する。指定がない場合は既定のフォントを使う。 |
 | リリースノートの本文 | 文書の `FontFamily` が `App.UiFontFamily` を動的に参照する。 |
 
 文字の描画方式は、アプリ全体でWPFの既定（`TextFormattingMode.Ideal`）を使い、一覧の通常の文字だけを、画素に合わせる方式（`TextFormattingMode.Display`）にします。
@@ -58,7 +58,7 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 
 一覧のセルと見出しの文字は一行で描き、幅に収まらない部分は省略記号にします。行の高さに余裕があっても折り返しません。
 
-一覧は、フォントが変わると文字のレイアウトを破棄して描き直します。行のデータ、並び順、選択、スクロール位置、列の設定は変えません。編集中のセルは、文字サイズの変更と同じく確定します。
+一覧は、一覧用のフォントが変わると文字のレイアウトを破棄して描き直します。行のデータ、並び順、選択、スクロール位置、列の設定は変えません。編集中のセルは、文字サイズの変更と同じく確定します。
 
 次の文字は、役割ごとの専用フォントを保ち、この設定の対象に含めません。
 
@@ -95,11 +95,21 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 
 設定画面は、`SettingsControls` から共通辞書へ接続します。設定画面の既存キーは、`BasedOn` で対応する共通スタイルを参照し、設定画面内にだけ既定のスタイルを置きます。そのほかの独自ダイアログは、共通辞書を直接使います。辞書やテンプレートを、画面ごとに複製しません。
 
-ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、上部ナビゲーション、折りたたみ、メニューと区切り、一覧、スクロールなどを共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
+ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、タブ、折りたたみ、メニューと区切り、一覧、スクロールなどを共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
 
 共通Expanderの見出しは、通常の背景に `App.ControlBackgroundBrush`、1 DIPの枠に `App.BorderBrush` を使い、表示中のテーマ切替に追随します。折畳み・展開の矢印は見出しの文字色と揃え、通常は `App.TextBrush`、無効時は `App.DisabledTextBrush` に追随します。開閉の双方向の結び付け、内容の表示、アクセシビリティ、ホバーとフォーカスの表示、余白を保ちます。
 
 検証の対象は、同一ウィンドウ内で実際に適用された役割とテンプレート、および採用していない部品へ影響が及ばないことです。別々に読み込んだ辞書のオブジェクト同一性、ソース文字列、子要素の順序、固定座標は、契約にしません。
+
+### タブ
+
+ページを切り替える上部・縦のタブは、`TabControl` と `TabItem` で作り、一覧（`ListBox`）や選択番号による表示切替で代用しません。上部のタブは共通の `App.Canonical.TopTab*` スタイル、設定画面の縦のタブは `SettingsTab*` スタイルを使います。
+
+- 画面を開いている間は、有効なタブがちょうど一つ選ばれ、その内容を表示します。選択中のタブへのCtrl+クリック、Ctrl+Space、UIオートメーションの選択解除要求では、選択・見出し・本文・本文のスクロール位置を変えません。
+- クリック、矢印（上部は左右、縦は上下）、Home/Endで選択とキーボードフォーカスを移します。Home/Endはタブ項目にフォーカスがあるときだけ扱い、ページ内の操作から上がったキーではタブを切り替えません。フォーカスがタブ列かページ内容にあれば、Ctrl+Tab／Ctrl+Shift+Tabで次・前の有効なタブへ循環して選択します。フォーカスは、タブ項目から押した場合は新しいタブ項目へ、ページ内容から押した場合は新しいページ内の最初のフォーカス可能な要素へ移します。無効なタブは選べず、移動で飛ばします。
+- UIオートメーションでは、ナビゲーションをタブ、各項目をタブ項目として公開し、単一選択かつ選択必須とします。タブのテンプレートに置いた見出しや下部の操作も、UIオートメーションの木から辿れるようにします。設定画面のページ見出しは、支援技術が使うコントロールビューにも一つだけ現れ、名前は選択中のタブ項目の名前と一致します。テンプレート内の `TextBlock` は標準ではコントロールビューから外れるため、見出しには `SettingsPageHeaderText` を使います。
+- 設定画面のページを組み立てる囲みの部品（`SettingsSection`、`SettingsField`、`SettingsListEditor`、`SettingsOptionRow`、`SettingsPathPicker`、`SettingsStatusBanner`、`SettingsCheckBoxOption`）は、フォーカスを受けず、Tabの停止位置にもしません。ページ内からCtrl+Tabで切り替えたときや、Tabで移動したときのフォーカスは、見えない囲みではなく、ページ内の操作部品へ移ります。
+- 上部のタブは選択項目だけに下端の線と選択背景を、縦のタブは左端の帯と選択背景を出します。無効なタブは無効色で示します。項目のフォーカス枠は共通の `App.FocusVisualStyle` を使い、角丸を使いません。内容領域は枠を描かず、本文の余白を一回だけ適用します。
 
 ### 部品の形状
 
@@ -121,7 +131,7 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 
 `CompactButtonStyle`、`CompactComboBoxStyle`、`CompactSliderStyle` は、それぞれの `App.Canonical` の通常スタイルから、寸法だけを変更します。描画テンプレート、意味色、ホバー・押下・無効状態、表示中のテーマ変更を共有します。文字サイズは縮めず、最小寸法と余白で省スペースにします。ComboBoxの候補項目は、通常の共通項目スタイルを維持します。
 
-再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択は、省スペース版を明示して採用します。選択欄自身が枠と背景を所有し、外側に装飾用のBorderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。ランプの切替は、RadioButtonによる相互排他、選択時の強調色、左右間の境界線を保ち、隣接する「最新」と同じ最小高24 DIP・Padding 8,2を使います。別の用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括では変更しません。
+再生メニューの文字ボタン、ランプビューアの「最新」、プレイログの表示対象選択、保留譜面の操作バーと統合候補一覧のツールバーのボタンは、省スペース版を明示して採用します。二つのツールバーのボタンは、共通の省スペース版のスタイルを継承し、余白・Margin・有効条件だけを足して、配色・テンプレート・無効時の不透明度を画面内で上書きしません（文字サイズも縮めません）。統合候補一覧のツールバーのチェックボックスは共通のチェックボックスのスタイル（`App.Canonical.CheckBoxStyle`）を使い、チェックのアイコンとラベルの間隔は設定ウィンドウのチェックボックスと同じです。選択欄自身が枠と背景を所有し、外側に装飾用のBorderを重ねません。再生帯のアイコン操作とランプの「割合／曲数」は、それぞれの役割のスタイルを保ちます。ランプの切替は、RadioButtonによる相互排他、選択時の強調色、左右間の境界線を保ち、隣接する「最新」と同じ最小高24 DIP・Padding 8,2を使います。別の用途が残る旧Button／ComboBoxの暗黙スタイルは維持し、全画面を一括では変更しません。
 
 設定と再生のすべてのSliderは、通常版・省スペース版とも、同じ軌道とつまみを使います。
 
@@ -135,7 +145,7 @@ XAMLは原則として `DynamicResource` を使います。コードで描画す
 
 軌道とつまみには輪郭線を付けず、つまみの部品寸法を描画寸法に揃えて、周囲に透明な余白を設けません。用途固有の時刻は、共通のつまみに表示を差し込む方法で扱い、Trackを複製しません。
 
-すべてのSliderは、縦横とも `FocusVisualStyle=null` とし、テンプレートにも、外周のフォーカス枠やフォーカストリガーを持たせません。フォーカス、Tab移動、方向キー、Home／End、PageUp／PageDown、個別の刻み・値のBinding・反転・目盛を維持します。枠を抑止するために、フォーカスを移動・解除しません。
+すべてのSliderは、縦横とも[フォーカスの表示](#フォーカスの表示)の共通のフォーカス枠を使い、テンプレートにはフォーカスを条件とする専用の描画を持たせません。フォーカス、Tab移動、方向キー、Home／End、PageUp／PageDown、個別の刻み・値のBinding・反転・目盛を維持します。
 
 ### 日付部品の表示
 
@@ -202,7 +212,23 @@ WPFの日付部品は言語の変更で表示を整形し直さず、文字列�
 
 #### フォーカスの表示
 
-WPF既定の点線のフォーカス飾りは使いません。表は選択と現在セル、ツリーは選択背景と文字、入力欄は `App.InputFocusBorderBrush`、その他の部品は選択・重ね合わせ・押下の状態で示します。分割線はTab移動の対象外にし、ドラッグによるサイズ変更を保ちます。
+キーボード操作の位置を示すフォーカス枠と、文字入力の対象を示す入力状態の枠を分けます。マウスによる重ね合わせ・押下・選択の表示は、どちらとも独立して従来どおり示します。
+
+フォーカス枠は、キーボード操作でフォーカスが移ったときだけ表示します。
+
+- Tab・方向キーなどでフォーカスが移ったとき、およびキーボード操作を起点にプログラムがフォーカスを移したときに表示します。マウスのクリックでフォーカスが移ったときは表示しません。
+- 表示と消去の時機は、WPFの `FocusVisualStyle` の判定に従い、アプリで入力機器を独自に追跡しません。そのため、フォーカスが移らないクリック（フォーカスを受け取らない部分のクリックなど）では、表示中の枠は残ります。OSの設定でキーボードの手がかりを常に表示する場合（`SystemParameters.KeyboardCues`）は、マウス操作でも表示します。
+- 枠は共通の `App.FocusVisualStyle` で、部品の内側に直角の二重線として描きます。外側の2 DIPは `App.InputFocusBorderBrush`、その内側の1 DIPは強調色と3:1以上の明暗差を持つ `App.AccentFocusRingBrush` です。通常の背景では外側の線が、強調色で塗った部品（強調ボタン、選択中の日付や切替）では内側の線が見えるため、背景ごとに枠のスタイルを分けません。外側に描かないのは、スクロール領域やペインの端で切り取られるためです。
+- 対象は、フォーカスを受け取るボタン、トグル、チェックボックス、ラジオボタン、非編集型のComboBox、一覧・ナビゲーションの項目、Expanderの見出し、Slider、再生パネルの操作などです。各スタイルは `FocusVisualStyle` を上の共通スタイルへ明示的に設定し、`{x:Null}` やWPF既定の点線を使いません。テンプレートとスタイルには、`IsKeyboardFocused` / `IsKeyboardFocusWithin` / `IsFocused` を条件に枠や色を変えるトリガーを持たせません。一覧・ナビゲーションの外枠は、内部のフォーカスで強調しません。
+- ツリーの項目は、展開中は子孫の項目を含む大きさになるため、`FocusVisualStyle` を使わず、見出しの行に同じ見た目の枠を描きます。[`TreeViewItemFocusCue`](../../../BeMusicSeeker/Views/TreeViewItemFocusCue.cs) が、項目自身がフォーカスを得た時点でWPFと同じ条件（最後の入力機器がキーボード、またはキーボードの手がかりを常に表示する設定）を読んで表示を決め、フォーカスを失うと消します。Altキーや移動先のないTabによる再表示は行いません。選択背景と文字の表示は変えません。選択項目のないツリーへTabで移ると、ツリー本体がフォーカスを受けるため、ツリー本体は共通の `App.FocusVisualStyle` を使います。項目がフォーカスを持つ間は、見出し行の枠だけが出ます。
+- 文書内のリンク（`Hyperlink`）は、文章の行に沿って枠を描く必要があるため、WPF既定の文章用のフォーカス表示を使います。表示の時機は他の部品と同じく、キーボード操作でフォーカスが移ったときだけです。
+- 表（`CustomTableView`）は、現在セルと選択でフォーカスの位置を示し、フォーカス枠を描きません。メニュー項目とComboBoxの候補は、強調表示で位置を示し、フォーカス枠を使いません。
+- 分割線はTab移動の対象外にし、ドラッグによるサイズ変更を保ちます。
+
+入力状態の枠は、操作の方法によらず表示します。
+
+- TextBox、編集型のComboBox、日付部品、検索エディターは、内部にキーボードフォーカスがある間、枠を `App.InputFocusBorderBrush` にします。マウスのクリックで入力を始めた場合も表示します。
+- これらの入力欄と表のセル編集欄には、フォーカス枠を重ねません（`FocusVisualStyle=null`）。表のセル編集欄は、現在セルの位置に表示する編集欄そのもので入力先を示します。
 
 ### 内容余白と間隔
 
@@ -252,7 +278,7 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 
 #### 再生パネルとの境界
 
-再生パネルは、操作専用の独立したテーマリソースと同梱画像を使います。操作帯、画像上の文字、seekと音量の共通Slider、操作ボタンのフォーカス装飾の除去は、[再生パネル](playback-panel.md#テーマ画像とフラットな操作表示)に従います。
+再生パネルは、操作専用の独立したテーマリソースと同梱画像を使います。操作帯、画像上の文字、seekと音量の共通Slider、操作ボタンのフォーカス枠は、[再生パネル](playback-panel.md#テーマ画像とフラットな操作表示)に従います。
 
 再生パネルと、その下の左サイドバー・一覧との境界には、下側領域の上端の全幅に、1 DIPの線を重ねます。色は左右のペイン間と同じ `App.SeparatorBrush` を使い、テーマ変更に追従します。表示専用として入力を受け取らず、既存の領域寸法とSplitterの操作領域を維持します。ツールバーと一覧ヘッダーの境界は、[一覧側の上枠](table-view.md#外観の更新)が所有します。
 
@@ -279,13 +305,13 @@ WPFの仮想化は、項目の入れ物を再利用するとき選択状態を�
 
 一般ページのLR2パス設定の説明文は、LR2ディレクトリ設定の「詳細」内で、個別パスより前に表示します。文字色は、設定画面の説明文と同じ `App.DisabledTextBrush` を動的に参照します。
 
-設定画面は、左のカテゴリ一覧、見出し、本文、下部の操作から成り、上部のタブは使いません。カテゴリ、見出し、下部の操作を固定し、選択中の本文だけを、一つの縦ScrollViewerでスクロールします。横スクロールは使わず、長い翻訳のラベルや選択文は折り返します。
+設定画面は、左の縦のタブ（カテゴリ）、見出し、本文、下部の操作から成り、上部のタブは使いません。カテゴリはウィンドウ本文の上端から下端まで並べます。カテゴリ、見出し、下部の操作を固定し、選択中の本文だけを、一つの縦ScrollViewerでスクロールします。横スクロールは使わず、長い翻訳のラベルや選択文は折り返します。
 
 カテゴリは、直角の選択背景と左端の強調線で選択を示し、マウス、キーボード、無効の状態も識別できるようにします。大きな節を入れ子のカードにせず、節の間と内部は、共通の内容余白と間隔に揃えます。
 
 テーマは、`AppearanceThemeOptions` の表示名と識別子を、表示領域の幅に広がる単一の選択欄で扱い、`AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して、結び付けを壊しません。選択時にテーマだけを保存して即時に適用し、閉じても保存済みの選択を保ちます。保存に失敗した場合は、元の確定値と配色を保ちます。
 
-フォントは、テーマの次の区画に置く単一の選択欄で、`AppearanceFontOptions` の表示名と保存する名前を扱い、`AppearanceFontFamily` の双方向の結び付けで選択します。
+テーマの次の「アプリのフォント」で通常UIの書体を、「一覧」の文字サイズの上にある「フォント」で一覧の書体を選びます。
 
 - 先頭の候補は既定で、保存値は空文字です。表示名には既定のフォント名を添えます。
 - 続けて、Windowsにインストールされているフォントファミリーを、表示言語の名前（なければフォントの基本の名前）の順に並べます。保存する名前は、フォントの基本の名前です。
@@ -298,7 +324,7 @@ WPFの仮想化は、項目の入れ物を再利用するとき選択状態を�
 - 選択時にフォントだけを保存して即時に適用します。保存に失敗した場合は、元の確定値と表示中のフォントを保ち、選択欄の表示も元の候補へ戻します。
 - 候補の入替えなどで選択欄が一時的に未選択になっても、保存済みのフォントを既定へ戻しません。
 
-一覧の文字サイズと、行・見出しの高さは、スライダーのドラッグまたはキー操作の完了時に、その項目だけを保存し、`MainWindowViewSettingsStore` と実際のメインの表へ反映します。別の固定データの見本表は置きません。文字サイズは8から18までを0.5刻みで選び、値は表示倍率に依存しない論理ピクセルです。画面には `px` を添えて表示します。初期化は、三つの値を既定値として保存し、閉鎖時にも保存済みの表示を保ちます。
+一覧の文字サイズと、行・見出しの高さは、スライダーのドラッグまたはキー操作の完了時に、その項目だけを保存し、`MainWindowViewSettingsStore` と実際のメインの表へ反映します。別の固定データの見本表は置きません。文字サイズは8から18までを0.5刻みで選び、値は表示倍率に依存しない論理ピクセルです。画面には `px` を添えて表示します。「一覧設定を初期値に戻す」は、一覧のフォントと三つの寸法を既定値として保存し、閉鎖時にも保存済みの表示を保ちます。
 
 ### 設定用の表示部品
 
@@ -321,7 +347,7 @@ WPFの仮想化は、項目の入れ物を再利用するとき選択状態を�
 
 - 通常設定と初期環境設定は、同じ表示を使い、最小ウィンドウ幅でも横スクロールを生じません。
 - 背景を含む全表面と標準のキー入力から、既存の `Click` による確認へ、一回接続します。
-- 選択はラジオマークとテーマ対応の枠・背景、フォーカスは入力フォーカス色の枠、無効時は薄い表示で示します。
+- 選択はラジオマークとテーマ対応の枠・背景（枠は選択中に `App.AccentBrush`、それ以外は `App.BorderBrush`）、キーボード操作のフォーカスは[共通のフォーカス枠](#フォーカスの表示)、無効時は薄い表示で示します。
 - 既存の一方向の選択Binding、有効条件、確認の取消や失敗による復元を保持します。
 
 状態表示は、空または空白の文字列を畳み、構造を持つ内容と呼出元の非表示指定を保ちます。内容が戻れば表示を回復します。メッセージの全文をアクセシビリティ名、意味を `ItemStatus`、更新を控えめな通知として公開し、装飾アイコンを重複して読み上げません。音声機器の利用不可の理由やテスト結果などの長文だけは、専用の複数行スタイルで、幅に合わせて折り返します。
@@ -335,7 +361,7 @@ ComboBoxは、非編集型では、選択内容・中央・矢印の全体で開
 | 通常の下部の操作 | 「閉じる」だけを置く。 |
 | BMS・BMT・環境・recordの確定と取消 | 各セクションに置く。環境は、適用できる差分があるときだけ確定を強調し、差分がなければ確定も取消も無効にする。 |
 | スコア・音声・再生方式・画像の有効な選択 | 自動で保存するため、確定の操作を置かない。失敗したときだけ必要な再試行を表示する。 |
-| 初回の「この環境で開始」 | 強調色の系列を使い、フォーカスの枠は各強調色と3:1以上の明暗差を持たせる。 |
+| 初回の「この環境で開始」 | 強調色の系列を使い、[共通のフォーカス枠](#フォーカスの表示)の内側の線が、強調色の上で見える。 |
 
 設定画面の中に進捗行は置きません。危険な操作とアイコンの操作も共通の状態の表示を使い、命令や有効条件を変えません。スライダーは縦横とすべての目盛の位置を保ち、目盛は `App.SliderTickBrush` で描きます。
 
@@ -368,7 +394,7 @@ OSや属性が非対応の場合、APIが存在しない場合、HRESULTが失�
 
 リリースノートの右クリックは、標準の `ContextMenuService` に任せ、コピーと全選択を含む標準の役割を維持します。アプリ独自のメニューや文言を追加せず、選択・クリップボード・物理カーソルを横取りしません。
 
-プレイリストのプロパティの上部は、「全般」「フォルダ」「カスタムフォルダ」の単一選択です。共通の上部ナビゲーションを明示的に使い、標準の選択・項目選択のアクセシビリティとキー操作を保ちます。選択は下線で示し、ページ全体を囲むカードは作りません。
+プレイリストのプロパティの上部は、「全般」「フォルダ」「カスタムフォルダ」の共通の上部のタブです。選択とキー操作、アクセシビリティは[タブ](#タブ)に従います。選択は下線で示し、ページ全体を囲むカードは作りません。
 
 「カスタムフォルダ」ページでは、13種類のまとめ方と説明を持つ出力フォルダの区画を先に、出力基点・フォルダ名・ルート形式の出力先の区画を後に置きます。上から自然に並べ、ウィンドウを高くしただけで後半が下端へ移動しないようにします。
 
@@ -380,7 +406,8 @@ OS標準の選択画面、利用者定義のテーマ、個別色の編集、OS�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 矩形部品の直角化と円形部品の例外、ランプ切替の寸法 | `CanonicalControls.xaml`、`CanonicalDialogStyles.xaml`、`Simple Styles.xaml`、各画面の局所スタイル | 製品XAML全体の角丸属性・Setter・トリガー、円形選択印とSliderつまみ、未使用のタブスタイルと参照の不在、ランプ切替の最小高・Padding・相互排他・選択アクセント・境界線を静的確認する。形状・寸法の現在値を固定する恒久テストは追加せず、既存のSettingsControlPresentation / SettingsWindowPresentation / MainWindowChartPresentationWpf / MainWindowPlayHistoryWpf / MainWindowContextMenuResource / PlaylistLampViewerWindowPresentation / PlaylistImportDialog系列で入力・選択・配色・操作・末尾到達を回帰確認する。 |
+| タブの選択の維持、キー操作、UIオートメーション、選択表示 | [`NavigationTabControl`](../../../BeMusicSeeker/Views/NavigationTabControl.cs)、[`ScrollingTabControl`](../../../BeMusicSeeker/Views/ScrollingTabControl.cs)、[`SettingsTabControl`](../../../BeMusicSeeker/Views/Settings/SettingsTabControl.cs)（ページ見出しの `SettingsPageHeaderText` を含む）、`CanonicalControls.xaml` の `App.Canonical.TopTab*`、`SettingsControls.xaml` の `SettingsTab*` | `MainWindowContextMenuResourceTests.CanonicalTopTabs_UseSingleSelectionAndStandardAutomation` は上部のタブの単一選択、選択表示、フォーカス枠、内容領域、無効項目の拒否を確認する。実画面の選択必須・選択解除要求での不変・項目名は [`TabNavigationAssert`](../../../tests/BeMusicSeeker.Windows.Tests/Helpers/TabNavigationAssert.cs) を使い、`SettingsControlPresentationTests.SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll`（設定画面のページ見出しがコントロール要素として一つだけ公開され、名前が選択中のタブ項目に追随することを `TabNavigationAssert.FindControlElementByAutomation` で確認する。外部クライアントからのコントロールビュー検索は Desktop E2E が分担する）、`PlaylistSummaryBulkEditTests.PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories`、`ChartPropertiesWindowTests`、`PlaylistImportDialogTests.CompiledTabs_SwitchingAwayAndBackKeepsTreeSearchInputAndSelection` が分担する。各画面の共通スタイルへの接続は `DialogPresentationTests` と `ChartPropertiesWindowTests` が確認する。実際のCtrl+クリック、Ctrl+Space、矢印、Home/End、Ctrl+Tabは、設定画面について Desktop E2E の `NormalStartupDesktopTests`（`DesktopScenarioUi.VerifySettingsTabInput`）が確認し、ページ内からのCtrl+Tabでフォーカスが新しいページの操作部品へ移ることで、`SettingsControls.xaml` の囲みの部品がフォーカスを受けないことも検出する。囲みの部品のスタイルの設定自体は静的確認する。ほかの画面の実入力・無効なタブを飛ばす移動・狭い幅での折返しは実機推奨とする。選択番号による表示切替と旧タブ用スタイルを残さないことは静的確認する。 |
+| 矩形部品の直角化と円形部品の例外、ランプ切替の寸法 | `CanonicalControls.xaml`、`CanonicalDialogStyles.xaml`、`Simple Styles.xaml`、各画面の局所スタイル | 製品XAML全体の角丸属性・Setter・トリガー、円形選択印とSliderつまみ、ランプ切替の最小高・Padding・相互排他・選択アクセント・境界線を静的確認する。形状・寸法の現在値を固定する恒久テストは追加せず、既存のSettingsControlPresentation / SettingsWindowPresentation / MainWindowChartPresentationWpf / MainWindowPlayHistoryWpf / MainWindowContextMenuResource / PlaylistLampViewerWindowPresentation / PlaylistImportDialog系列で入力・選択・配色・操作・末尾到達を回帰確認する。 |
 | 本文と局所枠の余白所有、固定領域、最小寸法での到達性 | `CanonicalControls.xaml` の `App.Layout.*` / `WindowBodyScrollViewerStyle`、各Windowと `SettingsControls.xaml` | `SettingsWindowPresentationTests` は本文端と一回のinset、全ページの横方向の到達性を、`SettingsControlPresentationTests` は本文スクロール時の固定領域を確認する。`PlaylistSummaryBulkEditTests` と `DialogPresentationTests` はプロパティとカードの末尾到達・固定操作を分担する。各画面の間隔の役割、末尾Margin解除、非表示要素の余白所有は対象XAMLの静的確認で分担する。 |
 | 入力Paddingの一回適用と局所編集枠の保護 | 共通TextBoxテンプレート、`Simple Styles.xaml`、`CustomTableView.CreateCellEditorTemplate`、取込み・譜面プロパティ | `MainWindowChartPresentationWpfTests` は適用後のPadding変更と表示・編集位置を、`PlaylistImportDialogTests` は長い多数行の末尾文字とバーの非重複を確認する。`ChartPropertiesWindowTests` は三欄の同じ表示資源への接続と保護域を担当し、表の編集開始・操作は既存 `CustomTableEditingTests` に残す。 |
 | Popupの枠基準、行内操作の保護、候補の行上限 | `Simple Styles.xaml` の一覧・候補・メニュー、`KeywordSearchEditor` | `MainWindowContextMenuResourceTests` は実部品の枠からのつまみ位置、`MainWindowChartPresentationWpfTests` は保存5/6行・補完10/11行の境界、独立viewport、短い候補の自然高、仮想化を分担する。 |
@@ -390,15 +417,17 @@ OS標準の選択画面、利用者定義のテーマ、個別色の編集、OS�
 | オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |
 | 表の共通バーとテーマ切替、交点 | `CustomTableView`、共通ScrollBarテンプレート | [`MainWindowChartPresentationWpfTests.CustomTableScrollBarsUseCompiledThemeAndOverlayContract`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は実テーマ切替の表・実バーへの反映と、全面寸法・交点の非重複を確認する。設定・ダイアログの実採用は既存 `SettingsControlPresentationTests` / `DialogPresentationTests` のconsumer検査へ分担する。OS入力、領域外ドラッグの実操作、配色の見え方と高DPIは実機確認と分担する。 |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
-| 表示フォントの保存値、解決と代替、標準部品とテーマ切替、表示中のウィンドウ・文書・一覧の追随、候補と選択時の保存・失敗 | [`AppFontService`](../../../BeMusicSeeker/Models/Settings/AppFontService.cs)、`Settings.AppearanceFontFamily`、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、`CustomTableView.TextFontFamily`、`SettingsDialogViewModel.AppearanceFontFamily` / `AppearanceFontOptions`、外観ページの `appearanceFontComboBox` | `MainWindowContextMenuResourceTests.AppearanceFontFamilySetting_TrimsWithoutValidatingOrRenaming` は保存値の空白除去と、存在しない名前を書き換えないことを確認する。`AppFontServiceTests.CreateFontFamily_FixesLineHeightAndCentersCapitalHeightForEveryFont` は、どのフォントでも行の高さが文字サイズの1.27倍で、基線が第一候補の大文字の高さを中央に置く位置であることを確認する。[`CustomTableTextLayoutCacheTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) の `GetOrCreate_KeepsSingleLineWhenTrimmedAndCutsAtLineBreak` は省略するレイアウトが一行のままであること、`GetOrCreate_FormatsNormalTextWithWholePixelWidths` と `GetOrCreate_FormatsScoreTextWithIdealWidths` は表示フォントの文字を物理画素の整数幅のGDI互換の方式、スコア用のフォントの文字を `Ideal` に近い通常の方式で整形することを確認する。[`CustomTableFontResolutionTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableFontResolutionTests.cs) は、候補の取出し、第一候補がインストール済みのときだけそれを書式のファミリーにすること、選択したフォントにない文字が既定のフォントの字形で描かれること、行の高さが渡されたフォントの値に文字サイズを掛けた固定値であること、同梱のスコア用フォントを一度だけ読み込み、読み込めない書体では例外にしないことを確認する。[`CustomTableRenderingTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) は、未インストール・空のフォント名が既定のフォントと同じ画素になること、同梱のスコア用フォントと読み込めない書体の表示、配置と大文字Hの上下中央、省略した文字が文字領域を越えないこと、字形の平行移動での一致を表示面の画素で確認する。メイン画面・`ThemedWindow`・ツールチップ・メニューへ描画方式を指定しないことは静的確認で分担し、滲みの解消は自動検証の対象に含めない。[`AppFontChoiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Settings/AppFontChoiceTests.cs) は候補の表示名・並び・保存する名前と、未インストールの保存値を残すことを確認する。[`AppFontServiceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/AppFontServiceTests.cs) は実際に描かれた字形で選択したフォントと既定の代替を確認し、システムのキー、テーマ切替後の維持、表示中のリリースノートのウィンドウ・文書・メニュー・ツールチップの追随を確認する。`CustomTablePhase6CacheTests.TextFontFamily_ChangeRedrawsHeaderCellsTrimAndEditorAndKeepsRowsSelectionAndScroll` は一覧の見出し・セルの画素、省略の判定、編集の確定と次の編集欄、編集欄の描画方式、行・列・選択・スクロールの不変と、最初からそのフォントで作った表と同じ画素になることを確認する。`SettingDialogCategoryPersistenceTests.CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure` は実際の選択欄での保存・適用と、保存の失敗時に確定値・表示中のフォント・選択欄を保つことを確認する。`SettingsWindowPresentationTests.SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose` はメイン画面・設定画面・二つの表への接続と文字サイズの不変を確認し、0.5刻みの文字サイズを丸めずに保存・反映して `px` を添えて表示することも確認する。`AppFontServiceTests.CreatePreviewFontFamily_UsesCandidateFontExceptSymbolFontsWithFixedLineMetrics` は、候補を描くフォントの字形と行の寸法を、Arial、空文字、未インストールの名前、記号フォントについて確認し、アプリ全体へ適用するフォントは記号フォントでも変わらないことを確認する。`SettingDialogCategoryPersistenceTests.CompiledFontSelection_DrawsCandidatesInOwnFontAndVirtualizesDropDown` は実際の選択欄で、閉じた状態の選択中の候補とドロップダウンの候補が候補のフォントで描かれること、候補の高さが同じこと、表示範囲の候補だけを実体化すること、開閉とスクロールで選択と保存値を変えないこと、候補のUIオートメーション名、既定の候補の表示言語への追随、表示名のキー入力による選択を確認する。これらはArialとMeiryo UIのインストールを前提にし、候補の描画の二件はWingdings、Webdings、Symbol、Marlettのインストールも前提にする。起動時の適用、通常の文字への個別指定の撤去、専用フォントの維持、候補の列挙を遅らせること、候補を描くフォントを表示する候補だけで作ることは静的確認で分担する。文字切れと字形の見え方は自動検証の対象に含めない。 |
+| 表示フォントの保存値、解決と代替、標準部品とテーマ切替、表示中のウィンドウ・文書・一覧の追随、候補と選択時の保存・失敗 | [`AppFontService`](../../../BeMusicSeeker/Models/Settings/AppFontService.cs)、`Settings.AppearanceFontFamily` / `Settings.CustomTableFontFamily`、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、`CustomTableView.TextFontFamily`、`SettingsDialogViewModel.AppearanceFontFamily` / `AppearanceFontOptions`、外観ページの二つのフォント選択欄 | `PortableSettingsPersistenceTests.FontFamilySettings_KeepLegacyUiValueAndNormalizeEachNameIndependently` は旧設定を通常UIに引き継ぐことと、両設定の空白除去・未インストール名の保持を確認する。`AppFontServiceTests.CreateFontFamily_FixesLineHeightAndCentersCapitalHeightForEveryFont` は、どのフォントでも行の高さが文字サイズの1.27倍で、基線が第一候補の大文字の高さを中央に置く位置であることを確認する。[`CustomTableTextLayoutCacheTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) の `GetOrCreate_KeepsSingleLineWhenTrimmedAndCutsAtLineBreak` は省略するレイアウトが一行のままであること、`GetOrCreate_FormatsNormalTextWithWholePixelWidths` と `GetOrCreate_FormatsScoreTextWithIdealWidths` は表示フォントの文字を物理画素の整数幅のGDI互換の方式、スコア用のフォントの文字を `Ideal` に近い通常の方式で整形することを確認する。[`CustomTableFontResolutionTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableFontResolutionTests.cs) は、候補の取出し、第一候補がインストール済みのときだけそれを書式のファミリーにすること、選択したフォントにない文字が既定のフォントの字形で描かれること、行の高さが渡されたフォントの値に文字サイズを掛けた固定値であること、同梱のスコア用フォントを一度だけ読み込み、読み込めない書体では例外にしないことを確認する。[`CustomTableRenderingTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) は、未インストール・空のフォント名が既定のフォントと同じ画素になること、同梱のスコア用フォントと読み込めない書体の表示、配置と大文字Hの上下中央、省略した文字が文字領域を越えないこと、字形の平行移動での一致を表示面の画素で確認する。メイン画面・`ThemedWindow`・ツールチップ・メニューへ描画方式を指定しないことは静的確認で分担し、滲みの解消は自動検証の対象に含めない。[`AppFontChoiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Settings/AppFontChoiceTests.cs) は候補の表示名・並び・保存する名前と、未インストールの保存値を残すことを確認する。[`AppFontServiceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/AppFontServiceTests.cs) は実際に描かれた字形で選択したフォントと既定の代替を確認し、システムのキー、テーマ切替後の維持、表示中のリリースノートのウィンドウ・文書・メニュー・ツールチップの追随を確認する。`CustomTablePhase6CacheTests.TextFontFamily_ChangeRedrawsHeaderCellsTrimAndEditorAndKeepsRowsSelectionAndScroll` は一覧の見出し・セルの画素、省略の判定、編集の確定と次の編集欄、編集欄の描画方式、行・列・選択・スクロールの不変と、最初からそのフォントで作った表と同じ画素になることを確認する。`SettingDialogCategoryPersistenceTests.CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure` は実際の選択欄での保存・適用と、保存の失敗時に確定値・表示中のフォント・選択欄を保つことを確認する。`SettingsWindowPresentationTests.SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose` はメイン画面・設定画面・三つの表への接続と文字サイズの不変を確認し、0.5刻みの文字サイズを丸めずに保存・反映して `px` を添えて表示することも確認する。`AppFontServiceTests.CreatePreviewFontFamily_UsesCandidateFontExceptSymbolFontsWithFixedLineMetrics` は、候補を描くフォントの字形と行の寸法を、Arial、空文字、未インストールの名前、記号フォントについて確認し、アプリ全体へ適用するフォントは記号フォントでも変わらないことを確認する。`SettingDialogCategoryPersistenceTests.CompiledFontSelection_DrawsCandidatesInOwnFontAndVirtualizesDropDown` は実際の選択欄で、閉じた状態の選択中の候補とドロップダウンの候補が候補のフォントで描かれること、候補の高さが同じこと、表示範囲の候補だけを実体化すること、開閉とスクロールで選択と保存値を変えないこと、候補のUIオートメーション名、既定の候補の表示言語への追随、表示名のキー入力による選択を確認する。これらはArial、Yu Gothic UI、Meiryo UIのインストールを前提にし、候補の描画の二件はWingdings、Webdings、Symbol、Marlettのインストールも前提にする。起動時の適用、通常の文字への個別指定の撤去、専用フォントの維持、候補の列挙を遅らせること、候補を描くフォントを表示する候補だけで作ることは静的確認で分担する。文字切れと字形の見え方は自動検証の対象に含めない。 |
 | 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全11配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全11辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗、直角の外枠要求 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、[`NativeWindowTitleBarController`](../../../BeMusicSeeker/Views/NativeWindowTitleBar.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowTitleBarTests.cs) が既存のテーマ・接続・終了・失敗処理を担う。DWMの33/1要求、既存のTrySetAttribute経由での失敗処理、ThemedMessageBoxを含む適用先とMainWindowへ追加しないことは静的確認する。実OSでの外枠の見え方は自動検証済みと扱わない。 |
-| 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
+| 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。見出しのフォーカス枠は `SettingsControlPresentationTests.CanonicalFocusVisuals_DrawSquareInsetRingForKeyboardTargetsAndKeepInputBorders` が確認し、ホバーの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
 | 日付部品の表示言語・テーマと値の保持 | [`DatePickerPresentation`](../../../BeMusicSeeker/Views/DatePickerPresentation.cs)、[`ResourceService`](../../../BeMusicSeeker/ViewModels/ResourceService.cs)、共通DatePicker／Calendarスタイル | `PlaylistLampViewerWindowPresentationTests.Viewer_datePresentationTracksApplicationCultureWithoutChangingTheQuery` は未選択／選択済みの同じ実PART・開いたPopup、サービス生成順、OS側との文化圏不一致、同梱言語と非Gregorianの追加言語・明暗テーマで表示更新、標準の再解析経路を通した日付通知・取得・表示モードの不変を確認する。翻訳のキー集合は `LocalizationResourceParityTests` が担う。 |
-| 通常／省スペースの共通描画、Sliderの縦横・反転・目盛・枠抑止・キー相当入力とテーマ追従 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) | `SettingsControlPresentationTests.CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput` は実部品の共通テンプレート・相対寸法・意味色・一回の命令と標準Sliderコマンドを確認する。`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes` は通常／省スペースの全表面、編集入力と候補幅を確認する。OSの実Tab・画像上の視認性・異なるDPIは実機推奨へ分担する。 |
+| キーボード操作だけのフォーカス枠、内側の直角の二重線とテーマ追随、フォーカス条件の描画の不在、入力欄の入力状態の枠 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.FocusVisualStyle` と各共通スタイル、`Simple Styles.xaml`、各画面の局所スタイル | `SettingsControlPresentationTests.CanonicalFocusVisuals_DrawSquareInsetRingForKeyboardTargetsAndKeepInputBorders` は共通スタイルの実部品で、実効の枠のスタイルを実体化した画素（内側・直角・二色・明→暗→明の追随）、フォーカス条件のトリガーの不在、入力欄の `FocusVisualStyle=null` と入力状態のトリガーを確認する。Sliderは同じクラスの `CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput`、再生パネルは `PlaybackPanelViewModelTests`、環境カードは `SettingsWindowPresentationTests`、上部のタブは `MainWindowContextMenuResourceTests.CanonicalTopTabs_UseSingleSelectionAndStandardAutomation` が同じ検査を分担する。マウスとキーボードによる表示の時機はWPFの判定に従い、テストから最後の入力機器を作れないため、実機推奨へ分担する。各画面の局所スタイルの網羅は変更時の静的確認で分担する。 |
+| ツリー項目の見出し行だけのフォーカス枠と選択表示の保持 | [`TreeViewItemFocusCue`](../../../BeMusicSeeker/Views/TreeViewItemFocusCue.cs)、`MainWindow.xaml` のツリー項目テンプレート | `MainWindowTreePresentationWpfTests.TreeItemFocusCue_DrawsRingOnHeaderRowOnlyAndKeepsSelection` は実MainWindowの展開中の項目で、添付プロパティの真偽による見出し行だけの画素の差と、子の行・選択背景・文字の不変を確認する。フォーカスを得た時点の評価、項目自身だけの判定、喪失時の解除は静的確認と実機推奨へ分担する。 |
+| 通常／省スペースの共通描画、Sliderの縦横・反転・目盛・キー相当入力とテーマ追従 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) | `SettingsControlPresentationTests.CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput` は実部品の共通テンプレート・相対寸法・意味色・一回の命令と標準Sliderコマンドを確認する。保留譜面の操作バーと統合候補一覧のツールバーが共通スタイルを継承し、画面内の旧スタイルを残さないことは、`MainWindowPackageMaintenanceWpfTests` の `PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes` と `CandidateList_PresentationFollowsDisplayLanguageRoundTrip` が、スタイルの継承元・テンプレートの一致・配色とテンプレートの上書きがないことで確認する（高さ・余白・除外欄の位置は固定しない）。`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes` は通常／省スペースの全表面、編集入力と候補幅を確認する。OSの実Tab・画像上の視認性・異なるDPIは実機推奨へ分担する。 |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、項目保存と即時反映 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDialogBehaviorTests.cs) |
-| 環境カードの二列・同高・名称一回・全表面入力・言語／テーマ追従と選択不可 | `GeneralSettingsPage.xaml`、設定辞書の `SettingsEnvironmentRadioStyle` | `SettingsWindowPresentationTests.SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages` は通常／初期設定と全6言語・最小幅で実測し、同じカードへの明暗テーマ反映とライブラリ操作中の無効化・復帰を確認する。明示した選択状態とClickから確認・取消への接続は `SettingDialogEditCompletionTests.OperationModeRadio_*`、標準キーとフォーカス枠の接続は型・イベント・テンプレートの静的確認、実Space・Tab入力と異なるDPIの見え方は実機推奨へ分担する。 |
+| 環境カードの二列・同高・名称一回・全表面入力・言語／テーマ追従と選択不可 | `GeneralSettingsPage.xaml`、設定辞書の `SettingsEnvironmentRadioStyle` | `SettingsWindowPresentationTests.SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages` は通常／初期設定と全6言語・最小幅で実測し、同じカードへの明暗テーマ反映、ライブラリ操作中の無効化・復帰、選択の有無だけで決まる枠色（選択中は `App.AccentBrush`、それ以外は `App.BorderBrush`）と共通のフォーカス枠を確認する。明示した選択状態とClickから確認・取消への接続は `SettingDialogEditCompletionTests.OperationModeRadio_*`、標準キーの接続は型・イベント・テンプレートの静的確認、実Space・Tab入力と異なるDPIの見え方は実機推奨へ分担する。 |
 | 見出し抑止と入力名・説明・検証・占有領域の保持 | `SettingsField.IsHeaderVisible`、各設定ページ | `SettingsWindowPresentationTests.SettingsField_HiddenHeaderPreservesMeaningDescriptionAndValidationWithoutEmptySpace` はField／ListEditorの実テンプレートを測定する。既存の `SettingsField_*` は可視／非表示の両方で、明示名・別Binding・所有の引取り・取り外しを確認する。実ページの採用と入力名は `SettingsPages_HeadingsAppearOnceAndEditorsKeepLocalizedAutomationNames`、検証配送と全ページ最小幅は既存ケースが担う。 |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |
 | 表とツリーへの配色・表示、共通アイコンの描画 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`AppFontIcon`](../../../BeMusicSeeker/Views/AppFontIcon.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |

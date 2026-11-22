@@ -10,54 +10,65 @@ using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Windows.Tests.Themes;
 
-/// <summary>表示フォントの解決とアプリのリソースへの適用を確認します。ArialとMeiryo UIがインストールされていることを前提にします。</summary>
+/// <summary>表示フォントの解決とアプリのリソースへの適用を確認します。Arial、Yu Gothic UI、Meiryo UIがインストールされていることを前提にします。</summary>
 [TestClass]
 public sealed class AppFontServiceTests
 {
     /// <summary>
-    /// Arialを適用すると英字はArial、Arialに字形がないかなは既定のMeiryo UIで描かれ、未インストールの名前と空文字は既定だけで描かれることを確認します。
-    /// メニュー・状態表示・メッセージ用のシステムのキーも同じフォントになり、テーマを切り替えても維持されます。
+    /// 用途ごとにArialの英字と、かなの代替字形を描き、未インストールの名前と空文字では用途ごとの既定だけで描くことを確認します。
+    /// メニュー・状態表示・メッセージ用のシステムのキーは通常UIのフォントを使い、どちらのフォントもテーマの切替後に維持されます。
     /// </summary>
     /// <remarks>既定の代替がなくOSの代替フォントへ落ちる誤り、標準部品がシステムのフォントのまま残る誤り、配色辞書へ置いてテーマ切替で失う誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    public void ApplyFontFamily_UsesSelectedFontThenDefaultAndSurvivesThemeChange()
+    [DataRow(false, "Yu Gothic UI", "Meiryo UI")]
+    [DataRow(true, "Meiryo UI", "Yu Gothic UI")]
+    public void ApplyFontFamily_UsesSelectedFontThenDefaultAndSurvivesThemeChange(bool table, string defaultName, string otherDefaultName)
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
             Application application = Application.Current;
             string originalTheme = BeMusicSeeker.Properties.Settings.Default.AppearanceTheme;
+            AppFontRole role = table ? AppFontRole.Table : AppFontRole.Ui;
+            string resourceKey = table ? "App.TableFontFamily" : "App.UiFontFamily";
+            string otherResourceKey = table ? "App.UiFontFamily" : "App.TableFontFamily";
             using var snapshot = AppFontResourceSnapshot.Capture();
             try
             {
                 string arial = GlyphFontProbe.FontUri(new FontFamily("Arial"), "A");
-                string meiryoUiLatin = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "A");
-                string meiryoUiKana = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "あ");
-                Assert.AreNotEqual(arial, meiryoUiLatin, "ArialとMeiryo UIを区別できる環境が前提です。");
+                string defaultLatin = GlyphFontProbe.FontUri(new FontFamily(defaultName), "A");
+                string defaultKana = GlyphFontProbe.FontUri(new FontFamily(defaultName), "あ");
+                Assert.AreNotEqual(arial, defaultLatin, $"Arialと{defaultName}を区別できる環境が前提です。");
+                Assert.AreNotEqual(defaultKana, GlyphFontProbe.FontUri(new FontFamily(otherDefaultName), "あ"), "用途ごとの既定でかなの字形が異なる環境が前提です。");
 
                 ResourceDictionary[] dictionaries = [.. application.Resources.MergedDictionaries];
-                AppFontService.ApplyFontFamily("Arial");
+                AppFontService.ApplyFontFamily(string.Empty, table ? AppFontRole.Ui : AppFontRole.Table);
+                object other = application.Resources[otherResourceKey];
+                AppFontService.ApplyFontFamily("Arial", role);
                 CollectionAssert.AreEqual(dictionaries, application.Resources.MergedDictionaries.ToArray());
-                var selected = (FontFamily)application.Resources[AppFontService.ResourceKey];
+                var selected = (FontFamily)application.Resources[resourceKey];
                 Assert.AreEqual(arial, GlyphFontProbe.FontUri(selected, "A"));
-                Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(selected, "あ"));
+                Assert.AreEqual(defaultKana, GlyphFontProbe.FontUri(selected, "あ"));
                 foreach (ResourceKey key in new[] { SystemFonts.MenuFontFamilyKey, SystemFonts.StatusFontFamilyKey, SystemFonts.MessageFontFamilyKey })
                 {
-                    Assert.AreSame(selected, application.Resources[key]);
+                    Assert.AreSame(table ? other : selected, application.Resources[key]);
                 }
 
-                AppThemeService.ApplyTheme(AppThemeService.Dark);
-                Assert.AreSame(selected, application.FindResource(AppFontService.ResourceKey));
-                AppThemeService.ApplyTheme(AppThemeService.Light);
-                Assert.AreSame(selected, application.FindResource(AppFontService.ResourceKey));
+                foreach (string theme in new[] { AppThemeService.Dark, AppThemeService.Light })
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    Assert.AreSame(selected, application.FindResource(resourceKey));
+                    Assert.AreSame(other, application.FindResource(otherResourceKey));
+                }
 
                 foreach (string name in new[] { "BeMusicSeeker No Such Font", string.Empty })
                 {
-                    AppFontService.ApplyFontFamily(name);
-                    var fallback = (FontFamily)application.Resources[AppFontService.ResourceKey];
-                    Assert.AreEqual(meiryoUiLatin, GlyphFontProbe.FontUri(fallback, "A"), name);
-                    Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(fallback, "あ"), name);
-                    Assert.AreSame(fallback, application.Resources[SystemFonts.MenuFontFamilyKey]);
+                    AppFontService.ApplyFontFamily(name, role);
+                    var fallback = (FontFamily)application.Resources[resourceKey];
+                    Assert.AreEqual(defaultLatin, GlyphFontProbe.FontUri(fallback, "A"), name);
+                    Assert.AreEqual(defaultKana, GlyphFontProbe.FontUri(fallback, "あ"), name);
+                    Assert.AreSame(table ? other : fallback, application.Resources[SystemFonts.MenuFontFamilyKey]);
+                    Assert.AreSame(other, application.Resources[otherResourceKey]);
                 }
             }
             finally
@@ -68,26 +79,28 @@ public sealed class AppFontServiceTests
     }
 
     /// <summary>
-    /// Arial、Meiryo UI、空文字、未インストールの名前のどれから作ったフォントでも、一行の高さは文字サイズの1.27倍になり、
-    /// 基線は第一候補の大文字の高さが行の上下中央に来る位置になることを確認します。空文字と未インストールの名前は既定のMeiryo UIの大文字の高さを使います。
+    /// Arial、用途ごとの既定、空文字、未インストールの名前のどれから作ったフォントでも、一行の高さは文字サイズの1.27倍になります。
+    /// 基線は第一候補の大文字の高さが行の上下中央に来る位置になり、空文字と未インストールの名前は用途ごとの既定の大文字の高さを使います。
     /// </summary>
     /// <remarks>フォントが申告する行の高さや基線をそのまま使う誤りと、どのフォントにも既定のフォントの大文字の高さを使う誤りを検出します。</remarks>
     [TestMethod]
-    public void CreateFontFamily_FixesLineHeightAndCentersCapitalHeightForEveryFont()
+    [DataRow(false, "Yu Gothic UI")]
+    [DataRow(true, "Meiryo UI")]
+    public void CreateFontFamily_FixesLineHeightAndCentersCapitalHeightForEveryFont(bool table, string defaultName)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             const double size = 100d;
             static double CapsHeight(string name) => new Typeface(new FontFamily(name), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
-            double arialCaps = CapsHeight("Arial"), meiryoUiCaps = CapsHeight("Meiryo UI");
-            Assert.IsTrue(Math.Abs(arialCaps - meiryoUiCaps) * size / 2d >= 0.5d, "二つのフォントの大文字の高さで基線を区別できる環境が前提です。");
+            double arialCaps = CapsHeight("Arial"), defaultCaps = CapsHeight(defaultName);
+            Assert.IsTrue(Math.Abs(arialCaps - defaultCaps) * size / 2d >= 0.5d, "二つのフォントの大文字の高さで基線を区別できる環境が前提です。");
+            AppFontRole role = table ? AppFontRole.Table : AppFontRole.Ui;
             foreach ((FontFamily family, double capsHeight, string label) in new[]
             {
-                (AppFontService.CreateFontFamily("Arial"), arialCaps, "Arial"),
-                (AppFontService.CreateFontFamily("Meiryo UI"), meiryoUiCaps, "Meiryo UI"),
-                (AppFontService.CreateFontFamily(string.Empty), meiryoUiCaps, "empty"),
-                (AppFontService.CreateFontFamily("BeMusicSeeker No Such Font"), meiryoUiCaps, "uninstalled"),
-                (AppFontService.DefaultFontFamily, meiryoUiCaps, "default")
+                (AppFontService.CreateFontFamily("Arial", role), arialCaps, "Arial"),
+                (AppFontService.CreateFontFamily(defaultName, role), defaultCaps, defaultName),
+                (AppFontService.CreateFontFamily(string.Empty, role), defaultCaps, "empty"),
+                (AppFontService.CreateFontFamily("BeMusicSeeker No Such Font", role), defaultCaps, "uninstalled")
             })
             {
                 var text = new FormattedText("H", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
@@ -99,8 +112,8 @@ public sealed class AppFontServiceTests
     }
 
     /// <summary>
-    /// 選択欄の候補を描くフォントは、Arialでは英字がArial、Arialに字形がないかなが既定のMeiryo UIになり、
-    /// 空文字、未インストールの名前、記号フォント（Wingdings、Webdings、Symbol、Marlett）では既定のMeiryo UIだけになることを確認します。
+    /// 選択欄の候補を描くフォントは、Arialでは英字がArial、Arialに字形がないかなが用途ごとの既定になります。
+    /// 空文字、未インストールの名前、記号フォント（Wingdings、Webdings、Symbol、Marlett）では用途ごとの既定だけになることを確認します。
     /// どの候補でも一行の高さは文字サイズの1.27倍で、基線は描画に使う第一候補の大文字の高さを行の上下中央に置きます。
     /// アプリ全体へ適用するフォントは、記号フォントでも選択されたフォントのままです。
     /// </summary>
@@ -109,30 +122,34 @@ public sealed class AppFontServiceTests
     /// 記号フォントの判定をアプリ全体の適用へ広げる誤りを検出します。上記の記号フォントがインストールされていることを前提にします。
     /// </remarks>
     [TestMethod]
-    public void CreatePreviewFontFamily_UsesCandidateFontExceptSymbolFontsWithFixedLineMetrics()
+    [DataRow(false, "Yu Gothic UI")]
+    [DataRow(true, "Meiryo UI")]
+    public void CreatePreviewFontFamily_UsesCandidateFontExceptSymbolFontsWithFixedLineMetrics(bool table, string defaultName)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             const double size = 100d;
             static double CapsHeight(string name) => new Typeface(new FontFamily(name), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
             string arial = GlyphFontProbe.FontUri(new FontFamily("Arial"), "A");
-            string meiryoUiLatin = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "A");
-            string meiryoUiKana = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "あ");
-            Assert.AreNotEqual(arial, meiryoUiLatin, "ArialとMeiryo UIを区別できる環境が前提です。");
+            string defaultLatin = GlyphFontProbe.FontUri(new FontFamily(defaultName), "A");
+            string defaultKana = GlyphFontProbe.FontUri(new FontFamily(defaultName), "あ");
+            double defaultCaps = CapsHeight(defaultName);
+            AppFontRole role = table ? AppFontRole.Table : AppFontRole.Ui;
+            Assert.AreNotEqual(arial, defaultLatin, $"Arialと{defaultName}を区別できる環境が前提です。");
             foreach ((string name, string expectedLatin, double capsHeight) in new[]
             {
                 ("Arial", arial, CapsHeight("Arial")),
-                (string.Empty, meiryoUiLatin, CapsHeight("Meiryo UI")),
-                ("BeMusicSeeker No Such Font", meiryoUiLatin, CapsHeight("Meiryo UI")),
-                ("Wingdings", meiryoUiLatin, CapsHeight("Meiryo UI")),
-                ("Webdings", meiryoUiLatin, CapsHeight("Meiryo UI")),
-                ("Symbol", meiryoUiLatin, CapsHeight("Meiryo UI")),
-                ("Marlett", meiryoUiLatin, CapsHeight("Meiryo UI"))
+                (string.Empty, defaultLatin, defaultCaps),
+                ("BeMusicSeeker No Such Font", defaultLatin, defaultCaps),
+                ("Wingdings", defaultLatin, defaultCaps),
+                ("Webdings", defaultLatin, defaultCaps),
+                ("Symbol", defaultLatin, defaultCaps),
+                ("Marlett", defaultLatin, defaultCaps)
             })
             {
-                FontFamily preview = AppFontService.CreatePreviewFontFamily(name);
+                FontFamily preview = AppFontService.CreatePreviewFontFamily(name, role);
                 Assert.AreEqual(expectedLatin, GlyphFontProbe.FontUri(preview, "A"), name);
-                Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(preview, "あ"), name);
+                Assert.AreEqual(defaultKana, GlyphFontProbe.FontUri(preview, "あ"), name);
                 var text = new FormattedText("H", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
                     new Typeface(preview, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), size, Brushes.Black, 1d);
                 Assert.AreEqual(1.27d * size, text.Height, 0.05d, name);
@@ -140,8 +157,8 @@ public sealed class AppFontServiceTests
             }
 
             string wingdings = GlyphFontProbe.FontUri(new FontFamily("Wingdings"), "A");
-            Assert.AreNotEqual(meiryoUiLatin, wingdings, "Wingdingsがインストールされ、英字を自身の字形で描く環境が前提です。");
-            Assert.AreEqual(wingdings, GlyphFontProbe.FontUri(AppFontService.CreateFontFamily("Wingdings"), "A"));
+            Assert.AreNotEqual(defaultLatin, wingdings, "Wingdingsがインストールされ、英字を自身の字形で描く環境が前提です。");
+            Assert.AreEqual(wingdings, GlyphFontProbe.FontUri(AppFontService.CreateFontFamily("Wingdings", role), "A"));
         });
     }
 
@@ -167,7 +184,7 @@ public sealed class AppFontServiceTests
             scope.TrackToolTip(toolTip);
             try
             {
-                AppFontService.ApplyFontFamily("Arial");
+                AppFontService.ApplyFontFamily("Arial", AppFontRole.Ui);
                 scope.ShowAndWaitForContentRendered(window);
                 scope.ShowAndWaitForContentRendered(menuHost);
                 // 標準スタイルの解決は実際の表示で起きるため、ToolTipを開いたまま観測する。
@@ -179,9 +196,9 @@ public sealed class AppFontServiceTests
                 double documentFontSize = document.FontSize;
                 foreach (string name in new[] { "Arial", "Meiryo UI", "Arial" })
                 {
-                    AppFontService.ApplyFontFamily(name);
+                    AppFontService.ApplyFontFamily(name, AppFontRole.Ui);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    var expected = (FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
+                    var expected = (FontFamily)Application.Current.Resources["App.UiFontFamily"];
                     Assert.AreEqual(GlyphFontProbe.FontUri(new FontFamily(name), "A"), GlyphFontProbe.FontUri(expected, "A"), name);
                     Assert.AreEqual(expected, window.FontFamily, name);
                     Assert.AreEqual(expected, document.FontFamily, name);

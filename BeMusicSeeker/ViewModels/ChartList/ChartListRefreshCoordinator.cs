@@ -196,6 +196,7 @@ internal static class ChartListRefreshCoordinator
             or MainViewUpdateMode.FileMissingFilterSelected
             or MainViewUpdateMode.FileMissingIgnoredFilterSelected
             or MainViewUpdateMode.DuplicateFilterSelected
+            or MainViewUpdateMode.SplitPlacementFilterSelected
             or MainViewUpdateMode.GarbledFilterSelected
             or MainViewUpdateMode.GarbleFixedFilterSelected
             or MainViewUpdateMode.UnregisteredFilterSelected

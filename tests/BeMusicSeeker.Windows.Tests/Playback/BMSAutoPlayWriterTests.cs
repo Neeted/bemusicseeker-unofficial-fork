@@ -301,6 +301,69 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
+    /// <summary>
+    /// エンコーダーの作成と開始の後に取消済みの状態でPCMを供給すると供給が取消で終わり、未完成出力の破棄が採番した出力だけを削除することを確認します。
+    /// 出力先には同名の既存ファイルがあり、内容も含めて保全され、エンコーダーが解放されます。
+    /// </summary>
+    /// <remarks>
+    /// 書出し段階の取消で未完成ファイルを削除する経路(WritePcmの取消と出力の破棄)を、実encoderで直接通します。
+    /// 合成中の取消ではencoder未作成のため通らない経路です。未完成ファイルの残留、既存ファイルの削除、encoderの解放漏れを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void WriterCancelledWhileWritingPcmDiscardsOnlyTheNumberedIncompleteOutput()
+    {
+        using var directory = new TemporaryDirectory();
+        byte[] existingBytes = [1, 2, 3, 4];
+        File.WriteAllBytes(directory.File("X.wav"), existingBytes);
+        string numbered = directory.File("X (2).wav");
+
+        BassAudioWriter.CreateEncoderWAV(directory.File("X"));
+        BassAudioWriter.StartRecording();
+        Assert.IsTrue(File.Exists(numbered), "開始後は採番した出力が作られている必要があります。");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsExactly<OperationCanceledException>(
+            () => BassAudioWriter.WritePcm(new float[2 * 4800], cancellation.Token));
+
+        Assert.IsTrue(BassAudioWriter.TryDiscardIncompleteOutput());
+
+        Assert.IsFalse(File.Exists(numbered));
+        CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(directory.File("X.wav")));
+        Assert.IsNull(BassAudioWriter.EncoderCommandLine);
+        Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+    }
+
+    /// <summary>
+    /// 変換の書出しへ進む通知で取り消すと、<see cref="BMSAutoPlayWriter.Write"/> が取消で終わり、出力が作られず、同名の既存ファイルが保全されエンコーダーが解放されることを確認します。
+    /// </summary>
+    /// <remarks>書出し段階の取消の入口(Writeの取消の捕捉と破棄)を通し、取消で出力や所有が残る誤りを検出します。</remarks>
+    [TestMethod]
+    public void WriterCancelledAtTheWritingStageLeavesNoOutputAndKeepsTheExistingFile()
+    {
+        using var directory = new TemporaryDirectory();
+        byte[] existingBytes = [1, 2, 3, 4];
+        File.WriteAllBytes(directory.File("X.wav"), existingBytes);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 4800, _ => 0.125f));
+        string chartPath = directory.File("chart.bmson");
+        File.WriteAllText(chartPath, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0}]}]}");
+        using var cancellation = new CancellationTokenSource();
+        using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(chartPath));
+        writer.LoadResources();
+
+        Assert.ThrowsExactly<OperationCanceledException>(() => writer.Write(
+            EncoderType.WAVE,
+            0.4f,
+            directory.File("X"),
+            BMSAutoPlayWriter.Normalization.NONE,
+            1f,
+            cancellation.Token,
+            reportWriting: cancellation.Cancel));
+
+        CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(directory.File("X.wav")));
+        Assert.IsFalse(File.Exists(directory.File("X (2).wav")));
+        Assert.IsNull(BassAudioWriter.EncoderCommandLine);
+    }
+
     private static AudioTestWaveFile WriteBmsonOutput(TemporaryDirectory directory, string name, string json)
     {
         string path = directory.File(name + ".bmson");
@@ -480,15 +543,16 @@ public sealed class BMSAutoPlayWriterTests
     /// <summary>BGM・可視・LN開始の各音声groupを品質2～6で描画し、有限sourceの切上げ出力長と最終frameを残す。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
-    [DataRow("01", 2)] // BGM。
-    [DataRow("11", 3)] // 1P可視音符。
-    [DataRow("21", 4)] // 2P可視音符。
-    [DataRow("51", 5)] // 1P LN開始。
-    [DataRow("61", 6)] // 2P LN開始。
-    public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality)
+    [DataRow("01", 2, 4411)] // BGM。
+    [DataRow("11", 3, 4411)] // 1P可視音符。
+    [DataRow("21", 4, 4411)] // 2P可視音符。
+    [DataRow("51", 5, 4411)] // 1P LN開始。
+    [DataRow("61", 6, 4411)] // 2P LN開始。
+    [DataRow("01", 2, 441)] // 50ms以下で直接合成の対象になる短い音源。
+    [DataRow("01", 6, 441)]
+    public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality, int sourceFrames)
     {
         const int sourceRate = 44100;
-        const int sourceFrames = 4411;
         const int outputRate = 48000;
         ReinitializeAudioRuntime(
             SampleFormat.SAMPLE_FLOAT_32BIT,
@@ -508,6 +572,45 @@ public sealed class BMSAutoPlayWriterTests
         int expectedFrames = CeilingFrameRatio(sourceFrames, outputRate, sourceRate);
         Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
+    }
+
+    /// <summary>同じindexの再発音で50ms以下に打ち切られた長い音源の出力の先頭Tフレームが、同じ音源を単独で鳴らした出力の先頭Tフレームと一致することを確認します。</summary>
+    /// <remarks>打切り後の短い発音は直接合成の対象になるため、SRCが入る44.1kHzモノラルから48kHzへの変換でも、現行の経路と同じ波形になることを検出します。T以降の再発音は照合しません。</remarks>
+    [TestMethod]
+    public void Write_DirectlyMixesAShortCutVoiceWithTheSamePcmAsAFreshVoice()
+    {
+        const int sourceRate = 44100;
+        const int sourceFrames = 44100;
+        const int outputRate = 48000;
+        const int cutFrames = 1920; // 48kHzで50ms(2400frame)以下。
+        ReinitializeAudioRuntime(SampleFormat.SAMPLE_FLOAT_32BIT, SampleRate.SAMPLE_RATE_48000Hz);
+        using var directory = new TemporaryDirectory();
+        float Sample(int frame) => 0.25f * MathF.Sin(frame * 0.05f);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, Sample));
+        // 1小節を3840フレームに縮め、1 slotを1フレームにします。Dは1920 slot後に置きます。
+        string line = "#00002:0.04\n#00001:" + "01" + new string('0', 2 * (cutFrames - 1)) + "01" + new string('0', 2 * (3840 - cutFrames - 1));
+        string chartName = "cut-voice";
+        File.WriteAllText(
+            directory.File(chartName + ".bms"),
+            "#PLAYER 1\n#TITLE cut\n#ARTIST test\n#BPM 120\n#WAV01 audio.wav\n" + line + "\n",
+            Encoding.ASCII);
+        AudioTestWaveFile cut = WriteOutputChart(directory, chartName, null);
+
+        // 期待値: 同じ音源を一回だけ鳴らした出力の先頭Tフレーム。
+        string singleName = "single-voice";
+        File.WriteAllText(
+            directory.File(singleName + ".bms"),
+            "#PLAYER 1\n#TITLE single\n#ARTIST test\n#BPM 120\n#WAV01 audio.wav\n#00001:01\n",
+            Encoding.ASCII);
+        AudioTestWaveFile single = WriteOutputChart(directory, singleName, null);
+
+        int singleFrames = single.DataLength / (single.Channels * sizeof(float));
+        int cutTotalFrames = cut.DataLength / (cut.Channels * sizeof(float));
+        Assert.AreEqual(cutFrames + singleFrames, cutTotalFrames);
+        for (int frame = 0; frame < cutFrames; frame++)
+        {
+            Assert.AreEqual(ReadFloatSample(single, frame, 0), ReadFloatSample(cut, frame, 0), 1e-6f, $"frame {frame}");
+        }
     }
 
     /// <summary>各発音の絶対時刻を独立丸めし、downsample後の先頭・再発音・最終frameを欠落させない。</summary>

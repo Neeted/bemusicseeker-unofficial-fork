@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -9,6 +10,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
 using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
+using Lists = BeMusicSeeker.TestSupport.Components.DuplicateMergeCandidateListTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -245,13 +247,15 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 同一ハッシュの最短ファイル名を残し、確認済み削除だけの件数と保存後失敗を返して、未実行対象の成功集計や保持対象の削除を検出する。
+    /// 実在する同一ハッシュの譜面のうち更新日時が古い譜面（同日時なら最短ファイル名）を残し、確認済み削除だけの件数と保存後失敗を返して、保存窓口の結果で未実行とされた対象の成功集計や保持対象の削除、名前の短さを古さより優先する選定を検出する。
     /// </summary>
-    // falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
+    // catalogFailure: falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
+    // longerIsOlder: trueは名前が長い方が更新日時の古い実ファイルで、名前の短さより古さを優先して長い方を残す行。
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount(bool catalogFailure)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount(bool catalogFailure, bool longerIsOlder)
     {
         using var caseWorkspace1 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = Path.Combine(
@@ -262,10 +266,29 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "long-name.bms"), "same-hash");
-            ChartFile missing = CreateChart(Path.Combine(root, "missing-long-name.bms"), "same-hash");
+            // 保存窓口の結果で未実行と注入される対象。実ファイルは存在する確認済みの候補で、選定規則では削除対象になる。
+            ChartFile notExecuted = CreateChart(Path.Combine(root, "unexecuted-long-name.bms"), "same-hash");
+            File.WriteAllText(keeper.Path, "short name");
+            File.WriteAllText(duplicate.Path, "long name");
+            File.WriteAllText(notExecuted.Path, "longest name");
+            if (longerIsOlder)
+            {
+                // 更新日時が古い方を残す。名前が長い方が古ければ、短い名前を優先せず長い方を残す。
+                File.SetLastWriteTimeUtc(notExecuted.Path, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(keeper.Path, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(duplicate.Path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            }
+            else
+            {
+                // 同日時なら最短のファイル名を残す。
+                var sameTime = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(keeper.Path, sameTime);
+                File.SetLastWriteTimeUtc(duplicate.Path, sameTime);
+                File.SetLastWriteTimeUtc(notExecuted.Path, sameTime);
+            }
             var outcome = new LibraryChartRemovalOutcome([
                 new(duplicate.Path, LibraryChartRemovalState.Confirmed),
-                new(missing.Path, LibraryChartRemovalState.NotExecuted)], true, true,
+                new(notExecuted.Path, LibraryChartRemovalState.NotExecuted)], true, true,
                 catalogFailure ? new IOException("required catalog finalization failure") : null);
             var store = new RecordingStore([]) { RemovalOutcome = outcome };
             FakeUiDialogService dialogs = AcceptedDialogs();
@@ -277,7 +300,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
                 lease?.Dispose();
             };
-            var cleanupGroup = new DuplicateGroup([keeper, duplicate, missing], [root]);
+            var cleanupGroup = new DuplicateGroup([keeper, duplicate, notExecuted], [root]);
             ChartFile expected = CreateChart(@"C:\Songs\Next\chart.bms", "next");
             ChartFile other = CreateChart(@"C:\Songs\Other\chart.bms", "other");
             var next = new DuplicateGroup([expected], [@"C:\Songs\Next"]) { Header = string.Empty };
@@ -319,7 +342,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             DuplicateGroup selected = result.SelectionContext.ResolveGroup(state.DuplicateChartGroups);
             Assert.IsNotNull(selected);
             CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
-            CollectionAssert.AreEqual(new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
+            CollectionAssert.AreEqual(longerIsOlder ? new[] { keeper, notExecuted } : new[] { duplicate, notExecuted }, (System.Collections.ICollection)store.Charts);
             Assert.IsNotNull(dialogs.ConfirmationRequest);
             StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "2");
             Assert.IsTrue(releasedAtReport);
@@ -362,6 +385,70 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
+    /// 実在を確認できない譜面（欠落したファイル）は、残す一件にも削除対象にもならない。
+    /// 欠落1件と実在1件だけなら削除対象がなく、確認・活動・保存窓口の呼出しを始めず件数0で終わり、実在する唯一のコピーを削除する誤りを検出する。
+    /// 欠落1件と実在2件（古い・新しい）なら、確認を出して保存窓口へ渡す削除対象は実在する新しい一件だけになり、
+    /// 欠落した譜面を残す一件に選んで実在する古い方を削除する誤りや、欠落を削除対象に含める誤りを検出する。
+    /// </summary>
+    // existingCount: 欠落のほかに実在する譜面の件数。1は実在が一件だけ、2は古い順にb・cの二件。
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task RunHashCleanupAsync_UnconfirmedChartIsNeitherKeptNorRemoved(int existingCount)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.GetPath("Songs");
+        Directory.CreateDirectory(root);
+        // 欠落するaは名前が最も短く、欠落の更新日時が古い値で読まれても残す一件に選ばれやすい配置にする。
+        ChartFile missing = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
+        ChartFile older = CreateChart(Path.Combine(root, "bb.bms"), "same-hash");
+        File.WriteAllText(older.Path, "older");
+        File.SetLastWriteTimeUtc(older.Path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        List<ChartFile> charts = [missing, older];
+        ChartFile? newer = null;
+        if (existingCount == 2)
+        {
+            newer = CreateChart(Path.Combine(root, "cc.bms"), "same-hash");
+            File.WriteAllText(newer.Path, "newer");
+            File.SetLastWriteTimeUtc(newer.Path, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            charts.Add(newer);
+        }
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        var presentation = new RecordingPresentation(events);
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store);
+        try
+        {
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(new DuplicateGroup(charts, [root]), root);
+
+            Assert.IsTrue(File.Exists(older.Path));
+            if (existingCount == 1)
+            {
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsNull(result.Failure);
+                Assert.AreEqual(0, result.RemovedChartCount);
+                Assert.IsNull(dialogs.ConfirmationRequest);
+                Assert.AreEqual(0, store.PhysicalMutationStarts);
+                Assert.AreEqual(0, store.Charts.Count);
+                CollectionAssert.AreEqual(Array.Empty<string>(), events);
+            }
+            else
+            {
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.IsNotNull(dialogs.ConfirmationRequest);
+                Assert.AreEqual(1, result.RemovedChartCount);
+                Assert.AreEqual(1, store.Charts.Count);
+                Assert.AreSame(newer, store.Charts[0]);
+            }
+        }
+        finally
+        {
+            owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+        }
+    }
+
+    /// <summary>
     /// 初回確認のCancelは失敗なしの未実行、表示不能は元原因付きで返し、folder確認・停止・出力開始を防ぎます。
     /// </summary>
     [TestMethod]
@@ -397,14 +484,12 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             presentation,
             dialogs,
             store, gate: gate, activity: activity);
-        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
-        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
 
         try
         {
-            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
-                new DuplicateGroup([first, second], [@"C:\Songs"]),
-                @"C:\Songs");
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(group, root);
 
             Assert.IsFalse(result.Succeeded);
             if (decision == "cancel") { Assert.IsNull(result.Failure); }
@@ -657,9 +742,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [TestMethod]
     public async Task RunHashCleanupAsync_ProtectedPreparedGroupDoesNotStopPlayback()
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
         var events = new List<string>();
         var presentation = new RecordingPresentation(events);
-        var store = new RecordingStore(events) { WholeFolderCandidates = [@"C:\Songs"], RegisteredUserRoots = [@"C:\Songs"] };
+        var store = new RecordingStore(events) { WholeFolderCandidates = [root], RegisteredUserRoots = [root] };
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
         var dialogs = new FakeUiDialogService
@@ -670,8 +757,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store, gate: gate, activity: activity);
         try
         {
-            await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash"),
-                CreateChart(@"C:\Songs\long-name.bms", "hash")], [@"C:\Songs"]), @"C:\Songs");
+            await owner.RunHashCleanupAsync(group, root);
             Assert.AreEqual(1, events.Count(value => value == "store-remove"));
             Assert.AreEqual(0, store.Charts.Count);
             Assert.AreEqual(0, store.ApprovedPaths.Count);
@@ -807,6 +893,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             int exits = 0;
             bool releasedAtExit = false;
             Exception? exitFailure = null;
+            var progress = new List<DuplicateMaintenanceProgressSnapshot>();
+            bool progressClosedAtExit = false;
             FakeUiDialogService dialogs = AcceptedDialogs();
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity,
                 new NoOpChartMutationPlaybackPort(), dialogs, () => false, Directory.Exists,
@@ -815,8 +903,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                     exits++;
                     exitFailure = failure;
                     releasedAtExit = !gate.IsActive && !playlist.IsActive && !activity.IsActive;
+                    lock (progress) { progressClosedAtExit = progress.Count == 2 && !progress[1].IsActive; }
                     return Task.CompletedTask;
                 });
+            owner.ProgressChanged += snapshot => { lock (progress) { progress.Add(snapshot); } };
             operation = owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
             Assert.AreSame(cleanupReached.Task, await Task.WhenAny(cleanupReached.Task, operation));
             Assert.AreEqual(0, exits);
@@ -831,6 +921,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Assert.IsFalse(result.MutationReceipt.SessionReceipt.DurableCommit);
             Assert.AreEqual(1, exits);
             Assert.IsTrue(releasedAtExit);
+            Assert.IsTrue(progressClosedAtExit, "進捗行は終了処理の呼出しより前に閉じます。");
+            Assert.AreEqual(source, progress[0].TargetPath);
             Assert.AreSame(result.MutationReceipt.SessionReceipt.PrimaryFailure, exitFailure);
             Assert.AreEqual(2, files.FailedMoveCount);
             Assert.IsNotNull(files.BackupPath);
@@ -873,6 +965,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     {
         public List<DuplicateGroup> DuplicateChartGroups { get; set; } = [];
         public int DuplicateChartGroupsInvalidationVersion => 0;
+        public List<DuplicateGroup>? SplitPlacementGroups => null;
         public bool IsWriteLockHeldInitializdBMSFilesHealthStatus => false;
         public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo => false;
         public bool IsWriteLockHeldInitializeBMSFilesZeroNote => false;
@@ -889,6 +982,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash")]
     public async Task BusyAdmission_RejectsExplicitMaintenanceWithOneWarningAndRunsNextRequestAfterRelease(string operation)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         var store = new RecordingStore(events);
         var gate = new ChartFileOperationSynchronizer();
@@ -898,7 +992,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.IsTrue(gate.TryEnter(out IDisposable held));
         using (held)
         {
-            DuplicateMaintenanceMutationResult rejected = await RunDuplicateOperationAsync(owner, operation);
+            DuplicateMaintenanceMutationResult rejected = await RunDuplicateOperationAsync(owner, operation, workspace);
 
             AssertBusyWarning(dialogs, rejected);
             Assert.IsNull(dialogs.ConfirmationRequest, "使用中の要求では確認を表示しません。");
@@ -909,7 +1003,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         Assert.AreEqual(0, store.PhysicalMutationStarts, "解放だけでは拒否した要求を実行しません。");
         dialogs.Messages.Clear();
-        DuplicateMaintenanceMutationResult next = await RunDuplicateOperationAsync(owner, operation);
+        DuplicateMaintenanceMutationResult next = await RunDuplicateOperationAsync(owner, operation, workspace);
         Assert.IsTrue(next.Succeeded, next.Failure?.ToString());
         Assert.IsFalse(next.Busy);
         Assert.AreEqual(1, store.PhysicalMutationStarts);
@@ -926,6 +1020,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash")]
     public async Task PhysicalAdmissionBusyAfterConfirmation_WarnsOnceAfterReleaseWithoutSuccess(string operation)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         var store = new RecordingStore(events) { PhysicalMutationAdmitted = false };
         var gate = new ChartFileOperationSynchronizer();
@@ -935,7 +1030,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         dialogs.OnMessage = () => warnedAfterRelease = gate.CanEnter && !activity.IsActive;
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
 
-        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
 
         AssertBusyWarning(dialogs, result);
         Assert.IsTrue(warnedAfterRelease, "警告はLとPの解放後に表示します。");
@@ -1047,8 +1142,244 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             () => NestedFolderCounter.CountAsync(workspace.GetPath("Missing")));
     }
 
+    /// <summary>
+    /// フォルダ統合と重複削除の進捗の事実は、全確認の承認後・背景の変更処理（対象別受付・活動・再生停止・抑制・物理変更）の開始前に一度始まり、
+    /// 背景処理の終端（成功・対象別受付の使用中・失敗）の後、結果の報告と返却より前に一度終わる。詳細は統合では統合元、削除では対象フォルダ。
+    /// 確認中の開始、統合先や譜面パスの表示、終端による行の残留、報告後の終了を検出する。確認を表示しない設定でも同じ開始・終了を通知する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "success", true)]
+    [DataRow("hash", "success", true)]
+    [DataRow("merge", "physicalBusy", true)]
+    [DataRow("hash", "physicalBusy", true)]
+    [DataRow("merge", "failure", true)]
+    [DataRow("hash", "failure", true)]
+    [DataRow("merge", "success", false)]
+    [DataRow("hash", "success", false)]
+    public async Task ProgressFacts_StartAfterApprovalAndEndBeforeReportOnEveryTerminal(string operation, string terminal, bool showConfirmation)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var events = new List<string>();
+        RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
+        store.PhysicalMutationAdmitted = terminal != "physicalBusy";
+        store.WholeFolderCandidates = operation == "hash" ? [@"C:\One", @"C:\Two"] : [];
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        int answered = 0;
+        var dialogs = new FakeUiDialogService
+        {
+            // 件数確認はOK、フォルダ単位の確認は一件目Yes・二件目Noで、最後の回答まで開始しないことを確かめる。
+            ConfirmationHandler = request => Task.FromResult(UiDialogResult.FromMessageBoxResult(
+                request.Button == MessageBoxButton.OKCancel ? MessageBoxResult.OK
+                    : ++answered == 1 ? MessageBoxResult.Yes : MessageBoxResult.No))
+        };
+        int prompts = 0;
+        Func<UiConfirmationRequest, Task<UiDialogResult>> answer = dialogs.ConfirmationHandler;
+        dialogs.ConfirmationHandler = request => { Interlocked.Increment(ref prompts); return answer(request); };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store,
+            showConfirmation: showConfirmation, gate: gate, activity: activity);
+        int expectedPrompts = (showConfirmation ? 1 : 0) + (operation == "hash" ? 2 : 0);
+        var progress = new List<(DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages)>();
+        owner.ProgressChanged += snapshot =>
+        {
+            string[] seen;
+            lock (events) { seen = [.. events]; }
+            lock (progress) { progress.Add((snapshot, Volatile.Read(ref prompts), store.PhysicalMutationStarts, seen, dialogs.Messages.Count)); }
+        };
+
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
+
+        Assert.AreEqual(2, progress.Count, "開始と終了を一度ずつ通知します。");
+        (DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages) start = progress[0];
+        Assert.IsTrue(start.Snapshot.IsActive);
+        Assert.AreEqual(operation == "merge" ? @"C:\Songs\Source" : workspace.GetPath("Songs"), start.Snapshot.TargetPath);
+        Assert.AreEqual(expectedPrompts, start.Prompts, "全確認への回答後に開始します。");
+        Assert.AreEqual(0, start.PhysicalStarts, "対象別受付の取得より前に開始します。");
+        Assert.AreEqual(0, start.Events.Length, "活動・再生停止・抑制・変更より前に開始します。");
+        (DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages) end = progress[1];
+        Assert.IsFalse(end.Snapshot.IsActive);
+        Assert.AreEqual(1, end.PhysicalStarts);
+        Assert.AreEqual(0, end.Messages, "結果の報告より前に終了します。");
+        if (terminal == "physicalBusy")
+        {
+            Assert.AreEqual(0, end.Events.Length);
+            AssertBusyWarning(dialogs, result);
+        }
+        else
+        {
+            CollectionAssert.Contains(end.Events, "suppression-end");
+            CollectionAssert.Contains(end.Events, "activity-end");
+            Assert.AreEqual(terminal == "success", result.Succeeded, result.Failure?.ToString());
+        }
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 共通受付の拒否（使用中・受付閉鎖）、確認の取消・表示失敗（件数確認とフォルダ単位の確認）、重複削除の事前準備の失敗、削除対象なしでは、
+    /// 進捗の開始も終了も通知しない。背景処理を始めない経路での行の表示と、開始のない終了通知を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "busy")]
+    [DataRow("hash", "busy")]
+    [DataRow("merge", "closed")]
+    [DataRow("hash", "closed")]
+    [DataRow("merge", "cancel")]
+    [DataRow("hash", "cancel")]
+    [DataRow("merge", "confirmFailed")]
+    [DataRow("hash", "confirmFailed")]
+    [DataRow("hash", "folderCancel")]
+    [DataRow("hash", "folderFailed")]
+    [DataRow("hash", "prepareFailed")]
+    [DataRow("hash", "noWork")]
+    public async Task ProgressFacts_NotPublishedWhenOperationEndsBeforeBackgroundMutation(string operation, string condition)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var events = new List<string>();
+        RecordingStore store = condition == "prepareFailed" ? new ThrowingStore(events) { ThrowOnPrepare = true } : new RecordingStore(events);
+        store.WholeFolderCandidates = condition.StartsWith("folder", StringComparison.Ordinal) ? [@"C:\One"] : [];
+        var gate = new ChartFileOperationSynchronizer();
+        int countConfirmations = 0;
+        int folderConfirmations = 0;
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationHandler = request =>
+            {
+                bool countConfirmation = request.Button == MessageBoxButton.OKCancel;
+                if (countConfirmation) { countConfirmations++; } else { folderConfirmations++; }
+                return Task.FromResult(condition switch
+                {
+                    "cancel" when countConfirmation => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+                    "confirmFailed" when countConfirmation => UiDialogResult.Failed(new IOException("confirmation failed")),
+                    "folderCancel" when !countConfirmation => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+                    "folderFailed" when !countConfirmation => UiDialogResult.Failed(new IOException("folder confirmation failed")),
+                    _ => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                });
+            }
+        };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate);
+        int notifications = 0;
+        owner.ProgressChanged += _ => Interlocked.Increment(ref notifications);
+        IDisposable? held = null;
+        if (condition == "busy") { Assert.IsTrue(gate.TryEnter(out held)); }
+        if (condition == "closed") { gate.CloseAdmission(); }
+
+        DuplicateMaintenanceMutationResult result;
+        using (held)
+        {
+            result = condition == "noWork"
+                ? await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash")], [@"C:\Songs"]), @"C:\Songs")
+                : await RunDuplicateOperationAsync(owner, operation, workspace);
+        }
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(0, Volatile.Read(ref notifications));
+        Assert.AreEqual(0, store.PhysicalMutationStarts);
+        Assert.AreEqual(0, events.Count);
+        // 各行が意図した停止点へ届いたことを、その行が止める確認・準備の要求回数で確かめる。
+        // 譜面が実在しない等で無操作のまま成功し、途中の停止を通らずに保証だけが失われる誤りを検出する。
+        switch (condition)
+        {
+            case "cancel":
+            case "confirmFailed":
+                Assert.AreEqual(1, countConfirmations, "件数確認が一回要求されます。");
+                Assert.AreEqual(0, folderConfirmations);
+                break;
+            case "folderCancel":
+            case "folderFailed":
+                Assert.AreEqual(1, folderConfirmations, "フォルダ単位の確認が一回要求されます。");
+                break;
+            case "prepareFailed":
+                Assert.AreEqual(1, store.PrepareChartRemovalCalls, "準備処理が一回呼ばれます。");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 進捗の受け手が開始時・終了時に例外を投げても、操作の結果・受付と活動の解放・報告の回数は変わらず、他の受け手は開始と終了の両方を受け取る。
+    /// 任意の表示の失敗で処理が止まる誤りと、開始の例外で終了通知が欠けて行が残る誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "success", true, true)]
+    [DataRow("hash", "physicalBusy", false, true)]
+    [DataRow("merge", "failure", true, false)]
+    public async Task ProgressSubscriberFailure_KeepsResultReleaseAndReport(string operation, string terminal, bool throwOnStart, bool throwOnEnd)
+    {
+        async Task<(DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released)> RunAsync(bool subscriberThrows)
+        {
+            using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            var events = new List<string>();
+            RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
+            store.PhysicalMutationAdmitted = terminal != "physicalBusy";
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+            int received = 0;
+            if (subscriberThrows)
+            {
+                owner.ProgressChanged += snapshot =>
+                {
+                    if (snapshot.IsActive ? throwOnStart : throwOnEnd) { throw new InvalidOperationException("progress presentation failed"); }
+                };
+            }
+            owner.ProgressChanged += _ => Interlocked.Increment(ref received);
+            DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
+            Assert.AreEqual(1, store.PhysicalMutationStarts);
+            return (result, dialogs.Messages.Count, Volatile.Read(ref received), gate.CanEnter && !activity.IsActive);
+        }
+
+        (DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released) expected = await RunAsync(subscriberThrows: false);
+        (DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released) actual = await RunAsync(subscriberThrows: true);
+
+        Assert.AreEqual(2, actual.Received, "例外を投げる受け手の後ろの受け手も開始と終了を受け取ります。");
+        Assert.AreEqual(expected.Result.Succeeded, actual.Result.Succeeded);
+        Assert.AreEqual(expected.Result.Busy, actual.Result.Busy);
+        Assert.AreEqual(expected.Result.Failure?.GetType(), actual.Result.Failure?.GetType());
+        Assert.AreEqual(expected.Messages, actual.Messages);
+        Assert.IsTrue(actual.Released);
+    }
+
+    /// <summary>保存処理または事前準備の例外で、背景の変更処理の失敗終端と準備失敗を再現します。</summary>
+    private sealed class ThrowingStore(List<string> events) : RecordingStore(events)
+    {
+        internal bool ThrowOnPrepare { get; init; }
+
+        public override DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
+            => throw new IOException("merge failed");
+
+        public override LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared,
+            IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
+            => throw new IOException("remove failed");
+
+        public override LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+        {
+            if (ThrowOnPrepare) { CountPrepareChartRemoval(); throw new IOException("prepare failed"); }
+            return base.PrepareChartRemoval(library, charts);
+        }
+    }
+
+    /// <summary>
+    /// 作業領域の直下に、同じ主ハッシュ・同じ更新日時の実ファイル2件（<c>a.bms</c>と<c>long-name.bms</c>）を作ります。
+    /// 同じフォルダ内の整理は実ファイルの実在を確認して削除対象を選ぶため、確認・準備の経路を調べるケースも実ファイルを使います。
+    /// </summary>
+    private static (DuplicateGroup Group, string Root) CreateHashDuplicateGroup(TestWorkspace workspace)
+    {
+        string root = workspace.GetPath("Songs");
+        Directory.CreateDirectory(root);
+        var sameTime = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        string first = Path.Combine(root, "a.bms");
+        string second = Path.Combine(root, "long-name.bms");
+        foreach (string path in new[] { first, second })
+        {
+            File.WriteAllText(path, "same");
+            File.SetLastWriteTimeUtc(path, sameTime);
+        }
+        return (new DuplicateGroup([CreateChart(first, "hash"), CreateChart(second, "hash")], [root]), root);
+    }
+
     private static Task<DuplicateMaintenanceMutationResult> RunDuplicateOperationAsync(
-        DuplicateMaintenanceWorkflowOwner owner, string operation)
+        DuplicateMaintenanceWorkflowOwner owner, string operation, TestWorkspace workspace)
     {
         if (operation == "merge")
         {
@@ -1056,9 +1387,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             string destination = @"C:\Songs\Destination";
             return owner.RunFolderMergeAsync(source, destination, new DuplicateGroup([], [source, destination]));
         }
-        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
-        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
-        return owner.RunHashCleanupAsync(new DuplicateGroup([first, second], [@"C:\Songs"]), @"C:\Songs");
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
+        return owner.RunHashCleanupAsync(group, root);
     }
 
     private static void AssertBusyWarning(FakeUiDialogService dialogs, DuplicateMaintenanceMutationResult result)
@@ -1107,6 +1437,1121 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     private static BMSLibrary CreateLibrary()
     {
         return UninitializedBmsLibrary.Create();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // 統合候補一覧からの一括整理（OrganizeSelectedGroupsAsync）。実際の一覧の管理主体（メモリ上のグループを採用）とワークフローの管理主体を組み、
+    // ツールバーが呼ぶのと同じ入口を呼ぶ。保存窓口は記録用の代替を継承して要求と結果を差し替え、進捗は実際の背景実行（BackgroundWorker）で動かす。
+    // 期待値の文言は、役割ごとのリソースの書式へ入力値を当てて作る。
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static readonly TimeSpan BatchDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>要求と進捗を記録し、結果を差し替えられる保存窓口の代替です。既定は、全グループの開始と反映段階への移行を通知して、全グループを完了として返します。</summary>
+    private sealed class BatchStore(List<string> events) : RecordingStore(events)
+    {
+        internal List<DuplicateBatchOrganizeRequest> Requests { get; } = [];
+
+        internal List<bool> OnPoolThread { get; } = [];
+
+        internal Func<DuplicateBatchOrganizeRequest, Action<DuplicateBatchOrganizeProgress>?, CancellationToken, LibraryOperationNotices, DuplicateBatchOrganizeResult>? Handler { get; set; }
+
+        public override DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+            BMSLibrary library, DuplicateBatchOrganizeRequest request, long operationId,
+            LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+        {
+            AddEvent("store-organize");
+            Requests.Add(request);
+            OnPoolThread.Add(Thread.CurrentThread.IsThreadPoolThread && SynchronizationContext.Current == null);
+            return Handler != null ? Handler(request, progress, cancellationToken, notices) : Complete(request, progress);
+        }
+
+        internal static DuplicateBatchOrganizeResult Complete(DuplicateBatchOrganizeRequest request, Action<DuplicateBatchOrganizeProgress>? progress)
+        {
+            for (int index = 0; index < request.Groups.Count; index++)
+            {
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(index + 1, request.Groups.Count, request.Groups[index].KeepDirectory));
+            }
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(request.Groups.Count, request.Groups.Count, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(request.Groups.Select(group => GroupResult(group.KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed,
+                merged: group.SourceDirectories, single: group.IsSingleFolder)));
+        }
+    }
+
+    private static DuplicateBatchOrganizeGroupResult GroupResult(
+        string keep,
+        DuplicateBatchOrganizeGroupStatus status,
+        DuplicateBatchOrganizeSkipReason skip = DuplicateBatchOrganizeSkipReason.None,
+        IEnumerable<string>? merged = null,
+        IEnumerable<DuplicateBatchOrganizeRetainedSource>? retained = null,
+        int trashed = 0,
+        int trashFailed = 0,
+        bool single = false)
+        => new(keep, single, status, skip, null, merged, retained, trashed, trashFailed);
+
+    private static LibraryMutationSessionReceipt DurableSession(
+        Exception? applyFailure = null, Exception? finalizationFailure = null, Exception? cleanupFailure = null, bool durable = true,
+        bool unrestored = false)
+        => new([new LibraryMutationSessionTarget(@"C:\S\source", @"C:\S\keep")], durableCommit: durable,
+            applyFailure: applyFailure, finalizationFailure: finalizationFailure, cleanupFailure: cleanupFailure, hasUnrestoredExistingDestination: unrestored);
+
+    private static DuplicateBatchOrganizeResult Result(
+        IEnumerable<DuplicateBatchOrganizeGroupResult> groups, bool canceled = false, LibraryMutationSessionReceipt? session = null, bool mergeApplied = true)
+        => new(
+            new DuplicateMergeMaintenanceReceipt(mergeApplied, ResourceHealthIndexUpdateMode.DeferOnUpdates, MaintenanceWorkflowResultFacts.From(null),
+                false, false, false, false, false, session ?? DurableSession()),
+            groups, canceled, admitted: true);
+
+    /// <summary>一括整理の入口を、本番の受付・活動・再生・一覧の管理主体と同じ接続で組んだ検証用の一式です。</summary>
+    private sealed class BatchFixture : IDisposable
+    {
+        private readonly SingleThreadSynchronizationContext ui = new();
+
+        internal BatchFixture(DuplicateGroup[] groups, bool showConfirmation = true, Func<Exception, Task>? exitForUnrestoredDestination = null)
+        {
+            Groups = groups;
+            Store = new BatchStore(Events);
+            Presentation = new RecordingPresentation(Events);
+            Dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), Events = Events };
+            Dialogs.Progress.ReceiverContext = ui;
+            List = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => Overwrite);
+            Lists.Adopt(List, Library, groups);
+            Owner = new DuplicateMaintenanceWorkflowOwner(
+                CreateLibrary, Gate, Activity, Presentation, Dialogs, () => showConfirmation, _ => true, _ => new ExplorerOpenResult(), _ => null, Store,
+                exitForUnrestoredDestination, candidateList: List);
+            Owner.WorkflowChanged += Presentation.OnWorkflowChanged;
+            Activity.ActivityChanged += Presentation.OnActivityChanged;
+            Owner.ProgressChanged += snapshot => { lock (BottomProgress) { BottomProgress.Add(snapshot); } };
+        }
+
+        internal object Library { get; } = new();
+
+        internal DuplicateGroup[] Groups { get; }
+
+        internal List<string> Events { get; } = [];
+
+        internal List<DuplicateMaintenanceProgressSnapshot> BottomProgress { get; } = [];
+
+        internal DuplicateMergeCandidateListOwner List { get; }
+
+        /// <summary>一覧の管理主体が読むたびに取得する上書きの設定です。</summary>
+        internal DuplicateMergeOverwriteSettings Overwrite { get; set; }
+
+        internal BatchStore Store { get; }
+
+        internal RecordingPresentation Presentation { get; }
+
+        internal FakeUiDialogService Dialogs { get; }
+
+        internal ChartFileOperationSynchronizer Gate { get; } = new();
+
+        internal ChartMutationActivityOwner Activity { get; } = new();
+
+        internal DuplicateMaintenanceWorkflowOwner Owner { get; }
+
+        /// <summary>指定したグループのSELECTだけをオンにします。</summary>
+        internal void Select(params DuplicateGroup[] groups)
+        {
+            List.ClearVisible();
+            foreach (DuplicateGroup group in groups)
+            {
+                int index = List.RowSet.Select(row => row.State.Group).Distinct().ToList().IndexOf(group);
+                Assert.IsTrue(index >= 0, "選択するグループが表示中ではありません。");
+                Assert.IsTrue(List.SetSelectOfRows([List.RowSet.GetFirstRowOfGroup(index)], selected: true));
+            }
+        }
+
+        internal DuplicateMergeCandidateGroupState State(DuplicateGroup group)
+        {
+            Assert.IsTrue(List.TryGetState(group, out DuplicateMergeCandidateGroupState? state));
+            return state!;
+        }
+
+        /// <summary>各グループのSELECT・KEEP・確認結果（同一性）を捕捉します。</summary>
+        internal (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] Snapshot()
+            => [.. Groups.Select(group => { DuplicateMergeCandidateGroupState state = State(group); return (state.IsSelected, state.KeepFolder, state.Verification); })];
+
+        public void Dispose() => ui.Dispose();
+    }
+
+    /// <summary>受付・確認・案内・進捗・再生停止・保存窓口・画面更新の抑制のどれにも触れていないことを確認します。</summary>
+    private static void AssertNothingHappened(BatchFixture fixture)
+    {
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "案内を出してはいけません。");
+        Assert.IsNull(fixture.Dialogs.ConfirmationRequest, "確認を表示してはいけません。");
+        Assert.AreEqual(0, fixture.Dialogs.Progress.Runs, "進捗を開いてはいけません。");
+        Assert.AreEqual(0, fixture.Store.Requests.Count, "モデルを呼んではいけません。");
+        CollectionAssert.AreEqual(Array.Empty<string>(), fixture.Events, "再生停止・抑制・活動・確認・案内のどれも起きてはいけません。");
+        Assert.AreEqual(0, fixture.BottomProgress.Count, "画面下部の進捗行を出してはいけません。");
+    }
+
+    private static string[] Lines(string? message) => string.IsNullOrEmpty(message) ? [] : message.Split(Environment.NewLine);
+
+    /// <summary>
+    /// 対象は表示中でSELECTがオンのグループだけで、0件なら受付・確認・Busy案内・再生停止・進捗・モデル呼出しのどれも行わない。
+    /// 受付を外部が保持していても案内を出さない。選択なし・検索で全件が非表示・グループなしのそれぞれを確認する。
+    /// 検出する誤り：0件でも受付を取る・Busyを案内する・確認を出す・進捗を開く、非表示のグループを対象にする。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_NoTargets_DoesNothingEvenWhileAdmissionIsHeld()
+    {
+        DuplicateGroup first = Lists.Group(@"C:\S\Visible1", @"C:\S\Visible2"), second = Lists.Group(@"C:\S\Visible3");
+        using var fixture = new BatchFixture([first, second]);
+        Assert.IsTrue(fixture.Gate.TryEnter(out IDisposable? held));
+        using (held)
+        {
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NoTargets, (await fixture.Owner.OrganizeSelectedGroupsAsync()).Status, "選択なし");
+            fixture.List.SelectVisible();
+            fixture.List.SearchText = "no-such-folder-text";
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NoTargets, (await fixture.Owner.OrganizeSelectedGroupsAsync()).Status, "全件が非表示");
+        }
+        AssertNothingHappened(fixture);
+        Assert.IsTrue(fixture.Gate.CanEnter, "受付を取らないので、外部の保持の解放後は取得できます。");
+        fixture.List.SearchText = string.Empty;
+        Assert.IsTrue(fixture.State(first).IsSelected && fixture.State(second).IsSelected, "非表示の間も、SELECTは変わりません。");
+
+        using var empty = new BatchFixture([]);
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NoTargets, (await empty.Owner.OrganizeSelectedGroupsAsync()).Status, "グループなし");
+        AssertNothingHappened(empty);
+    }
+
+    /// <summary>
+    /// 対象は表示中でSELECTがオンのグループで、未確認・要注意も承認後に対象にし、整理で処理した対象のSELECTだけをオフにする（KEEPと確認結果は同じ参照のまま）。
+    /// 検索で非表示のSELECTオンと、SELECTがオフのグループは対象にせず、状態を変えない。
+    /// 検出する誤り：非表示のグループを対象にする、未確認・要注意を除外する、対象のSELECTの残留、対象外のSELECTの書換え、整理の前後でKEEP・確認結果を書き換える。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_TargetsVisibleSelectedGroupsIncludingUnverifiedAndCautionAndClearsOnlyTheirSelect()
+    {
+        DuplicateGroup unverified = Lists.Group(@"C:\S\Visible-u1", @"C:\S\Visible-u2");
+        DuplicateGroup caution = Lists.Group(@"C:\S\Visible-c1", @"C:\S\Visible-c2");
+        DuplicateGroup safe = Lists.Group(@"C:\S\Visible-s1", @"C:\S\Visible-s2");
+        DuplicateGroup hiddenSelected = Lists.Group(@"C:\S\Other-h1", @"C:\S\Other-h2");
+        DuplicateGroup notSelected = Lists.Group(@"C:\S\Visible-n1", @"C:\S\Visible-n2");
+        using var fixture = new BatchFixture([unverified, caution, safe, hiddenSelected, notSelected]);
+        var cautionResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S\Visible-c1", "a.wav")])]);
+        var safeResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
+        fixture.List.WriteVerifications([new DuplicateMergeVerificationWrite(caution, cautionResult), new DuplicateMergeVerificationWrite(safe, safeResult)]);
+        fixture.Select(unverified, caution, safe, hiddenSelected);
+        fixture.List.SearchText = "Visible";
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+        CollectionAssert.AreEqual(
+            new[] { unverified, caution, safe }.Select(group => group.Folders[0]).ToArray(),
+            fixture.Store.Requests.Single().Groups.Select(group => group.KeepDirectory).ToArray(),
+            "表示中でSELECTがオンの三グループだけが、表示順で対象です。");
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] after = fixture.Snapshot();
+        CollectionAssert.AreEqual(
+            before.Select(item => (Selected: false, item.Keep, item.Verification)).ToArray(),
+            after.Select(item => (Selected: false, item.Keep, item.Verification)).ToArray(),
+            "整理の前後で、KEEPと確認結果（同じ参照）は変わりません。");
+        Assert.IsTrue(new[] { unverified, caution, safe, notSelected }.All(group => !fixture.State(group).IsSelected), "処理した対象のSELECTはオフで、対象外のSELECTオフは変わりません。");
+        Assert.IsTrue(fixture.State(hiddenSelected).IsSelected, "検索で非表示のグループは対象でなく、SELECTはオンのままです。");
+        Assert.AreSame(cautionResult, fixture.State(caution).Verification);
+        Assert.AreSame(safeResult, fixture.State(safe).Verification);
+        Assert.AreSame(DuplicateMergeVerificationResult.Unverified, fixture.State(unverified).Verification);
+        Assert.AreEqual(0, fixture.List.SelectedGroupCount, "表示中の選択件数は0です。");
+    }
+
+    /// <summary>
+    /// モデルが受理して結果を返したとき、対象のうち状態が「未処理」以外（完了・一部完了・スキップ・失敗）のグループは、一覧に残っていればSELECTをオフにし、
+    /// 「未処理」（取消で着手しなかった）のグループはオンのまま残す。対象でなかったグループ（検索で非表示でオン、未選択）のSELECT・KEEP・確認結果は変えず、
+    /// 対象のKEEPと確認結果は同じ値・同じ参照のままである。
+    /// 検出する誤り：状態ごとの取り違え（未処理のオフ、失敗・スキップのオン残り）、対象外の書換え、KEEP・確認結果の書換え。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ClearsSelectByResultStatusAndKeepsUnprocessedAndUntargetedGroups()
+    {
+        DuplicateGroup completed = Lists.Group(@"C:\S\Visible-1a", @"C:\S\Visible-1b");
+        DuplicateGroup partial = Lists.Group(@"C:\S\Visible-2a", @"C:\S\Visible-2b");
+        DuplicateGroup skipped = Lists.Group(@"C:\S\Visible-3a", @"C:\S\Visible-3b");
+        DuplicateGroup failed = Lists.Group(@"C:\S\Visible-4a", @"C:\S\Visible-4b");
+        DuplicateGroup unprocessed = Lists.Group(@"C:\S\Visible-5a", @"C:\S\Visible-5b");
+        DuplicateGroup hiddenSelected = Lists.Group(@"C:\S\Other-h1", @"C:\S\Other-h2");
+        DuplicateGroup notSelected = Lists.Group(@"C:\S\Visible-n1", @"C:\S\Visible-n2");
+        DuplicateGroup[] all = [completed, partial, skipped, failed, unprocessed, hiddenSelected, notSelected];
+        using var fixture = new BatchFixture(all);
+        var cautionResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S\Visible-1a", "a.wav")])]);
+        fixture.List.WriteVerifications([new DuplicateMergeVerificationWrite(completed, cautionResult)]);
+        Assert.IsTrue(fixture.List.SetKeep(fixture.List.RowSet.First(row => row.Path == @"C:\S\Visible-2b")));
+        fixture.Select(completed, partial, skipped, failed, unprocessed, hiddenSelected);
+        fixture.List.SearchText = "Visible";
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            DuplicateBatchOrganizeGroup[] g = [.. request.Groups];
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(5, 5, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(
+                [
+                    GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[0].SourceDirectories),
+                    GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.PartiallyCompleted,
+                        retained: [new(g[1].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.SourceMissing)]),
+                    GroupResult(g[2].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Skipped, DuplicateBatchOrganizeSkipReason.LinkFound),
+                    GroupResult(g[3].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed,
+                        retained: [new(g[3].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.PhysicalFailure)]),
+                    GroupResult(g[4].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed)
+                ],
+                canceled: true);
+        };
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] after = fixture.Snapshot();
+        bool[] expectedSelected = [false, false, false, false, true, true, false];
+        CollectionAssert.AreEqual(expectedSelected, after.Select(item => item.Selected).ToArray(), "完了・一部完了・スキップ・失敗はオフ、未処理と非表示の対象外はオンのままです。");
+        CollectionAssert.AreEqual(before.Select(item => item.Keep).ToArray(), after.Select(item => item.Keep).ToArray(), "KEEPは書き換えません。");
+        for (int index = 0; index < all.Length; index++)
+        {
+            Assert.AreSame(before[index].Verification, after[index].Verification, "確認結果は同じ参照のままです。");
+        }
+        Assert.AreSame(cautionResult, fixture.State(completed).Verification);
+        Assert.AreEqual(@"C:\S\Visible-2b", fixture.State(partial).KeepFolder);
+        Assert.AreEqual(1, fixture.List.SelectedGroupCount, "表示中でオンなのは未処理のグループだけです。");
+    }
+
+    /// <summary>
+    /// 要求のグループ順は並べ替えと検索を当てた後の表示順で、各グループはKEEPと、KEEP以外をPATH昇順（大文字小文字を無視）に並べた移動元を持つ。
+    /// KEEPが中間にある場合と、大文字小文字の混在（序数順だと逆になる）、一フォルダのグループ（移動元が空）を確認する。
+    /// 検出する誤り：結果順での要求、序数順の移動元、KEEPを移動元へ含める、KEEPの位置による取り違え、一フォルダのグループの移動元の誤り。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_RequestFollowsDisplayOrderWithKeepAndCaseInsensitiveSources()
+    {
+        DuplicateGroup middleKeep = Lists.Group((@"C:\S\zeta", 1), (@"C:\S\Alpha", 1), (@"C:\S\beta", 3));
+        DuplicateGroup mixedCase = Lists.Group((@"C:\S\a", 1), (@"C:\S\b", 2), (@"C:\S\C", 1));
+        DuplicateGroup single = Lists.Group(@"C:\S\solo");
+        using var fixture = new BatchFixture([middleKeep, mixedCase, single]);
+        fixture.List.SelectVisible();
+        fixture.List.RequestSort("Path", ListSortDirection.Descending);
+        // 表示順の期待値は、状態表の行の並びから導く（先頭フォルダのPATH降順：solo、Alpha、a）。
+        DuplicateGroup[] displayed = [.. fixture.List.RowSet.Select(row => row.State.Group).Distinct()];
+        CollectionAssert.AreEqual(new[] { single, middleKeep, mixedCase }, displayed);
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\S\solo|", @"C:\S\beta|C:\S\Alpha,C:\S\zeta", @"C:\S\b|C:\S\a,C:\S\C" },
+            fixture.Store.Requests.Single().Groups.Select(group => group.KeepDirectory + "|" + string.Join(",", group.SourceDirectories)).ToArray());
+        Assert.IsTrue(fixture.Store.Requests.Single().Groups[0].IsSingleFolder);
+
+        // 検索で絞った後の表示順だけが対象になる。
+        fixture.Store.Requests.Clear();
+        fixture.List.SearchText = "beta";
+        fixture.List.SelectVisible();
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+        Assert.AreEqual(@"C:\S\beta", fixture.Store.Requests.Single().Groups.Single().KeepDirectory);
+    }
+
+    /// <summary>
+    /// 受付は待たずに取得し、競合時はBusy案内を一回だけ出して、確認・停止・進捗・モデル呼出しをせず、SELECT・KEEP・確認結果を変えない。
+    /// 予約せず、解放後に自動実行しない。次の明示要求はBusyなしで実行する。
+    /// 検出する誤り：受付の待機・予約、Busyの案内漏れ・重複、競合時の確認表示、状態の書換え、解放後の自動実行。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_BusyAdmission_WarnsOnceWithoutConfirmationOrStateChangeAndRunsNextRequest()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        Assert.IsTrue(fixture.Gate.TryEnter(out IDisposable? held));
+        using (held)
+        {
+            DuplicateBatchOrganizeRunResult rejected = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Busy, rejected.Status);
+            UiMessageRequest warning = fixture.Dialogs.Messages.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+            Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+            Assert.IsNull(fixture.Dialogs.ConfirmationRequest);
+            Assert.AreEqual(0, fixture.Dialogs.Progress.Runs);
+            Assert.AreEqual(0, fixture.Store.Requests.Count);
+            CollectionAssert.AreEqual(new[] { "message" }, fixture.Events, "Busyの案内以外の操作は起きません。");
+            CollectionAssert.AreEqual(before, fixture.Snapshot());
+            Assert.IsFalse(fixture.Gate.CanEnter);
+        }
+        Assert.AreEqual(0, fixture.Store.Requests.Count, "解放だけでは、拒否した要求を実行しません。");
+
+        DuplicateBatchOrganizeRunResult next = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, next.Status, next.Failure?.ToString());
+        Assert.AreEqual(1, fixture.Store.Requests.Count);
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy), "次の要求はBusyを案内しません。");
+        Assert.IsTrue(fixture.Gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 受付が閉じている（アプリの終了処理中）場合は、Busyを案内せず、確認・停止・進捗・モデル呼出し・状態の変更のどれもなく未開始で返す。
+    /// 検出する誤り：終了処理中のBusy案内、受付が閉じていても確認や進捗へ進む。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ClosedAdmission_ReturnsNotStartedWithoutNoticeOrSideEffect()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Gate.CloseAdmission();
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NotStarted, run.Status);
+        AssertNothingHappened(fixture);
+        CollectionAssert.AreEqual(before, fixture.Snapshot());
+    }
+
+    /// <summary>
+    /// 受付の取得後に確認を必ず一回（OK／キャンセル、既定はキャンセル）出し、確認を表示しない設定でも出す。
+    /// キャンセル・閉じる・表示失敗・確認の例外では、モデル・再生停止・進捗・画面更新の抑制へ進まず、受付を解放し、状態を変えない。
+    /// 表示失敗と例外は失敗として一回だけ報告する。OKだけが実行へ進む。
+    /// 検出する誤り：確認の省略（設定オフ時を含む）、キャンセル・閉じる・表示失敗の承認扱い、表示失敗の握りつぶし・重複報告、受付の解放漏れ、状態の書換え。
+    /// </summary>
+    [TestMethod]
+    [DataRow("accept", true)]
+    [DataRow("accept", false)]
+    [DataRow("cancel", true)]
+    [DataRow("cancel", false)]
+    [DataRow("close", true)]
+    [DataRow("notshown", true)]
+    [DataRow("throw", false)]
+    public async Task OrganizeSelectedGroups_ConfirmationDecidesWhetherToRun(string decision, bool showConfirmationSetting)
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group], showConfirmationSetting);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        switch (decision)
+        {
+            case "cancel": fixture.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel); break;
+            case "close": fixture.Dialogs.ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.None); break;
+            case "notshown": fixture.Dialogs.ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable); break;
+            case "throw": fixture.Dialogs.ConfirmationHandler = _ => throw new InvalidOperationException("confirmation display failure"); break;
+        }
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
+        Assert.IsNotNull(request, "確認は、設定によらず常に一回出します。");
+        Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+        Assert.AreEqual(MessageBoxResult.Cancel, request.DefaultResult, "既定はキャンセルです。");
+        Assert.AreEqual(1, fixture.Events.Count(entry => entry == "confirm"));
+        Assert.IsTrue(fixture.Gate.CanEnter, "受付は解放します。");
+        if (decision == "accept")
+        {
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+            Assert.AreEqual(1, fixture.Store.Requests.Count);
+            return;
+        }
+        Assert.AreEqual(0, fixture.Store.Requests.Count);
+        Assert.AreEqual(0, fixture.Dialogs.Progress.Runs);
+        CollectionAssert.DoesNotContain(fixture.Events, "playback-stop");
+        CollectionAssert.DoesNotContain(fixture.Events, "suppression-start");
+        CollectionAssert.AreEqual(before, fixture.Snapshot());
+        if (decision is "cancel" or "close")
+        {
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Declined, run.Status);
+            Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "利用者の取消は案内しません。");
+            return;
+        }
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
+        Assert.IsNotNull(run.Failure);
+        UiMessageRequest report = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption, "確認の表示失敗は、一回だけ報告します。");
+        Assert.AreEqual(MessageBoxImage.Hand, report.Icon);
+    }
+
+    /// <summary>
+    /// 確認の表示中は、モデルを呼ばず、受付は保持し、進捗も開かない。確認が済んでから実行へ進む。
+    /// 検出する誤り：確認の前にモデルを呼ぶ、確認中に受付を手放す（別の変更が割り込める）、確認の前に進捗を開く。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_WhileConfirmationIsShown_HoldsAdmissionWithoutCallingModel()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        var pending = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Dialogs.PendingConfirmation = pending;
+        fixture.Dialogs.ConfirmationReached = reached;
+        Task<DuplicateBatchOrganizeRunResult> run = fixture.Owner.OrganizeSelectedGroupsAsync();
+        try
+        {
+            await reached.Task.WaitAsync(BatchDeadline);
+            Assert.IsFalse(fixture.Gate.CanEnter, "確認中も受付を保持します。");
+            Assert.AreEqual(0, fixture.Store.Requests.Count);
+            Assert.AreEqual(0, fixture.Dialogs.Progress.Runs);
+            CollectionAssert.AreEqual(new[] { "confirm" }, fixture.Events);
+        }
+        finally
+        {
+            pending.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, (await run.WaitAsync(BatchDeadline)).Status);
+        Assert.AreEqual(1, fixture.Store.Requests.Count);
+    }
+
+    /// <summary>
+    /// 通常の本文は、グループ数の行、二フォルダ以上のグループがあるときだけ統合の行（m：そのグループ数、k：移動元の合計）、ごみ箱の行の順。
+    /// 警告用の本文（警告色で表示する部分）は、未確認・要注意があるときだけ0件でない側の件数の行（このときアイコンは警告、どちらも0なら質問）で、該当がなければ出さない。
+    /// 表示中の選択対象に未確認または要注意があるときだけ、続行のチェック欄を要求する。
+    /// 検出する誤り：行の欠落・過剰、0件の側を出す、件数の取り違え、アイコンの取り違え、警告の行の通常の本文への残留・重複。
+    /// </summary>
+    [TestMethod]
+    [DataRow(0, 2, 0, 0, DisplayName = "二フォルダ以上なし・全て安全")]
+    [DataRow(2, 1, 0, 0, DisplayName = "統合あり・全て安全")]
+    [DataRow(1, 1, 1, 0, DisplayName = "未確認だけ")]
+    [DataRow(1, 1, 0, 1, DisplayName = "要注意だけ")]
+    [DataRow(2, 1, 1, 2, DisplayName = "未確認と要注意")]
+    public async Task OrganizeSelectedGroups_ConfirmationMessageComposition(int mergeGroups, int singleGroups, int unverified, int caution)
+    {
+        var groups = new List<DuplicateGroup>();
+        for (int index = 0; index < mergeGroups; index++) { groups.Add(Lists.Group($@"C:\S\m{index}\a", $@"C:\S\m{index}\b", $@"C:\S\m{index}\c")); }
+        for (int index = 0; index < singleGroups; index++) { groups.Add(Lists.Group($@"C:\S\s{index}")); }
+        using var fixture = new BatchFixture([.. groups]);
+        var cautionResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S", "a.wav")])]);
+        var safeResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
+        // 先頭から、未確認・要注意・安全の順に確認結果を割り当てる。未確認は初期値のままにする。
+        var writes = new List<DuplicateMergeVerificationWrite>();
+        for (int index = 0; index < groups.Count; index++)
+        {
+            if (index < unverified) { continue; }
+            writes.Add(new DuplicateMergeVerificationWrite(groups[index], index < unverified + caution ? cautionResult : safeResult));
+        }
+        fixture.List.WriteVerifications(writes);
+        fixture.List.SelectVisible();
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        var expected = new List<string> { string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_groups_format, groups.Count) };
+        if (mergeGroups > 0)
+        {
+            expected.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_merge_format, mergeGroups, mergeGroups * 2));
+        }
+        expected.Add(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_trash);
+        var expectedWarning = new List<string>();
+        if (unverified > 0 && caution > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution)); }
+        else if (unverified > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_format, unverified)); }
+        else if (caution > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, caution)); }
+        UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
+        CollectionAssert.AreEqual(expected, Lines(request.MessageBoxText), "警告の行は通常の本文へ残しません。");
+        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText), "警告用の本文は、該当する行だけです。");
+        Assert.AreEqual(unverified + caution > 0 ? BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_acknowledgment : null, request.AcknowledgmentText);
+        Assert.AreEqual(unverified + caution > 0 ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon);
+    }
+
+    /// <summary>
+    /// 確認文の警告用の本文の衝突の行は、確認文を作る時点の上書きの設定で決まる。一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があれば上書きの行を一行だけ
+    /// （スマート上書きがオフなら「移動元のファイルで上書き」、オンなら「更新日時の新しい方」）、スマート上書きと連番名での保持がどちらもオンで.bmx/.txtの衝突があれば連番名の行を、
+    /// ［要注意の行、上書きの行、連番名の行］の順に並べ、該当なしは警告用の本文なし。確認結果は行の設定と反対の設定で書き込み、整理の直前に行の設定へ変える。
+    /// 衝突の行は通常の本文へ出さず、アイコンは未確認・要注意を含むときだけ警告のままである。
+    /// 安全な対象の衝突の行だけではチェック欄を要求せず、非表示または未選択の未確認グループも判定から除く。
+    /// 検出する誤り：衝突の行の欠落・過剰表示、設定と合わない行、確認結果の書込み時の設定の使用、連番名での保持の値だけでの分岐、別内容ファイル衝突だけでの連番名の行、
+    /// 上書きの行の重複、行の順の入れ替え、衝突の行の通常の本文への残留、アイコンの変化。
+    /// </summary>
+    [TestMethod]
+    [DataRow("none", false, false, "")]
+    [DataRow("none", true, true, "")]
+    [DataRow("content", false, false, "source")]
+    [DataRow("content", true, false, "newer")]
+    [DataRow("content", true, true, "newer")]
+    [DataRow("protected", false, false, "source")]
+    [DataRow("protected", false, true, "source")]
+    [DataRow("protected", true, false, "newer")]
+    [DataRow("protected", true, true, "renamed")]
+    [DataRow("both", false, false, "source")]
+    [DataRow("both", true, true, "newer|renamed")]
+    public async Task OrganizeSelectedGroups_ConfirmationCollisionLinesFollowOverwriteSettingsAtConfirmation(
+        string kind, bool smart, bool keepByRenaming, string expectedLines)
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        DuplicateGroup hidden = Lists.Group(@"C:\Hidden");
+        DuplicateGroup unselected = Lists.Group(@"C:\S\unselected");
+        using var fixture = new BatchFixture([group, hidden, unselected]) { Overwrite = new(!smart, !keepByRenaming) };
+        bool content = kind is "content" or "both";
+        var result = new DuplicateMergeVerificationResult(
+            content ? DuplicateMergeVerificationStage.Caution : DuplicateMergeVerificationStage.Safe,
+            content
+                ? [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\one", "a.wav")])]
+                : [],
+            kind is "protected" or "both" ? ["readme.txt"] : null);
+        fixture.List.WriteVerifications([new DuplicateMergeVerificationWrite(group, result)]);
+        fixture.Select(group, hidden);
+        fixture.List.SearchText = @"C:\S\";
+        fixture.Overwrite = new(smart, keepByRenaming);
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
+        var collisionLines = new Dictionary<string, string>
+        {
+            ["source"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_source,
+            ["newer"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_newer,
+            ["renamed"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_renamed
+        };
+        Assert.AreEqual(3, collisionLines.Values.Distinct().Count(), "三つの行は別の文言です。");
+        Assert.IsFalse(Lines(request.MessageBoxText).Any(collisionLines.Values.Contains), "衝突の行は通常の本文へ出しません。");
+        var expectedWarning = new List<string>();
+        if (content) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, 1)); }
+        expectedWarning.AddRange(expectedLines.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(name => collisionLines[name]));
+        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText), $"{kind} smart={smart} rename={keepByRenaming}");
+        Assert.AreEqual(content, request.AcknowledgmentText != null);
+        Assert.AreEqual(content ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon, "アイコンの条件は変えません。");
+    }
+
+    /// <summary>
+    /// 承認後は 進捗を開く→（活動）→再生停止→画面更新の抑制→モデルの呼出し（UIの文脈の外、スレッドプール）の順に進み、モデルの呼出しは進捗表示の操作の内側に収まる。
+    /// 進捗画面は取消ボタンつきで、取消の扱いを操作へ任せる設定を使い、画面下部の進捗行は出さない。結果は進捗が閉じて受付を解放した後に一回案内する。
+    /// 検出する誤り：停止・抑制・モデルの順序違い、進捗の外でのモデル呼出し、UIの文脈でのモデル呼出し、下部の進捗行の表示、取消ボタンの欠落、案内の重複。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_RunsStopThenSuppressionThenModelInsideProgressOffTheCallerContext()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        bool? gateFreeAtResult = null;
+        fixture.Dialogs.OnMessage = () => gateFreeAtResult ??= fixture.Gate.CanEnter && !fixture.Activity.IsActive;
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "confirm", "progress-start", "activity-start", "playback-stop", "suppression-start", "store-organize",
+                "suppression-end", "activity-end", "progress-end", "message"
+            },
+            fixture.Events);
+        Assert.IsTrue(fixture.Store.OnPoolThread.Single(), "モデルはUIの文脈の外（スレッドプール）で呼びます。");
+        Assert.AreEqual(0, fixture.BottomProgress.Count, "画面下部の進捗行は出しません。");
+        UiProgressRequest progress = fixture.Dialogs.Progress.Request!;
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_title, progress.Title);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_progress_label, progress.Label);
+        Assert.IsTrue(progress.Settings.ShowCancelButton);
+        Assert.IsTrue(progress.Settings.ShowSubLabel);
+        Assert.IsTrue(progress.Settings.OperationOwnsCancellation, "反映段階で取消できず、取消の要求中も例外と結果を失わない設定です。");
+        Assert.AreEqual(true, gateFreeAtResult, "結果の案内の時点では、受付も活動も解放済みです。");
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count, "結果は一回だけ案内します。");
+    }
+
+    /// <summary>
+    /// 再生停止が失敗すると、画面更新の抑制もモデルの呼出しもせず、活動と受付を解放して、失敗を一回だけ報告する（結果の案内は出さない）。
+    /// 検出する誤り：停止の失敗の後の物理変更、失敗の握りつぶし・重複報告、受付・活動の解放漏れ、抑制の解除漏れ。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_PlaybackStopFailureSkipsModelAndReportsOnce()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Presentation.StopFailure = new IOException("playback stop failed");
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
+        Assert.AreEqual(0, fixture.Store.Requests.Count);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "再生停止に失敗してモデルの結果がなければ、SELECT・KEEP・確認結果を変えません。");
+        CollectionAssert.AreEqual(
+            new[] { "confirm", "progress-start", "activity-start", "playback-stop", "activity-end", "progress-end", "message" },
+            fixture.Events);
+        UiMessageRequest report = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption);
+        StringAssert.Contains(report.MessageBoxText, "playback stop failed");
+        Assert.IsTrue(fixture.Gate.CanEnter);
+        Assert.IsFalse(fixture.Activity.IsActive);
+    }
+
+    /// <summary>
+    /// 進捗は「i／総数」とKEEPのフォルダ名（割合は開始したグループの手前までの割合）で示し、全グループの物理処理の後は「ライブラリへ反映中」を示して取消ボタンを無効にする。
+    /// 反映段階で取消を要求しても、結果に「取り消されました。」を付けない。
+    /// 検出する誤り：KEEPでない代表名、番号の取り違え、反映段階の表示の欠落、反映中に取消できる、反映中の取消要求を取消と案内する。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ProgressShowsNumberAndKeepNameThenApplyingAndCannotBeCancelledThen()
+    {
+        DuplicateGroup first = Lists.Group((@"C:\S\alpha1", 1), (@"C:\S\alpha2", 2)), second = Lists.Group(@"C:\S\beta1", @"C:\S\beta2");
+        using var fixture = new BatchFixture([first, second]);
+        fixture.List.SelectVisible();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            DuplicateBatchOrganizeResult result = BatchStore.Complete(request, progress);
+            // 反映段階の通知の後で取消が要求されても、取消として扱わない。
+            fixture.Dialogs.Progress.RequestCancel();
+            return result;
+        };
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+        // 画面へは最新の値だけを間引いて渡すため、途中のグループ開始の値は欠けてよい。最後は必ず反映中で、反映中の後にグループ開始の値は来ない。
+        (int Percent, string Message)[] reports = [.. fixture.Dialogs.Progress.Reports];
+        Assert.AreEqual((100, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_progress_applying), reports[^1], "最後の値は「ライブラリへ反映中」です。");
+        Assert.AreEqual(1, reports.Count(report => report.Message == BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_progress_applying));
+        string[] groupMessages =
+        [
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_progress_group_format, 1, 2, "alpha2"),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_progress_group_format, 2, 2, "beta1")
+        ];
+        int[] indexes = [.. reports[..^1].Select(report => Array.IndexOf(groupMessages, report.Message))];
+        Assert.IsTrue(indexes.All(index => index >= 0) && indexes.Zip(indexes.Skip(1), (a, b) => a < b).All(ok => ok), "グループ開始の値は、番号が後退しない順です。");
+        Assert.AreEqual(1, fixture.Dialogs.Progress.CancellationDisabledCount, "反映段階へ入ったら、取消ボタンを無効にします。");
+        Assert.IsFalse(Lines(fixture.Dialogs.Messages.Single().MessageBoxText).Contains(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_canceled));
+    }
+
+    /// <summary>
+    /// 進捗表示の取消がモデルの取消の合図へ届き、モデルの結果が取消なら、結果に「取り消されました。」を出す（未処理の件数は見出しの「未処理」で示す）。
+    /// 進捗の仕組みが取消を返しても、結果の案内を省かない。取消の要求中にモデルが例外を出しても、失敗を捨てず一回だけ報告する。
+    /// 検出する誤り：取消の合図が届かない、取消の結果の案内漏れ、取消の状態を結果の省略に使う、取消の要求中の例外の握りつぶし。
+    /// </summary>
+    [TestMethod]
+    [DataRow("canceled")]
+    [DataRow("progress-reports-cancel")]
+    [DataRow("throws-while-canceled")]
+    public async Task OrganizeSelectedGroups_CancellationReachesModelAndIsReportedWithoutLosingResultOrFailure(string scenario)
+    {
+        DuplicateGroup first = Lists.Group(@"C:\S\a1", @"C:\S\a2"), second = Lists.Group(@"C:\S\b1", @"C:\S\b2"), third = Lists.Group(@"C:\S\c1", @"C:\S\c2");
+        using var fixture = new BatchFixture([first, second, third]);
+        fixture.List.SelectVisible();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool tokenCanceled = false;
+        if (scenario == "progress-reports-cancel") { fixture.Dialogs.Progress.ForcedStatus = UiDialogStatus.CancelledByUser; }
+        fixture.Store.Handler = (request, progress, token, _) =>
+        {
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 3, request.Groups[0].KeepDirectory));
+            started.TrySetResult();
+            if (scenario == "progress-reports-cancel")
+            {
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(3, 3, null!, DuplicateBatchOrganizeProgressKind.Applying));
+                return Result(request.Groups.Select(group => GroupResult(group.KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: group.SourceDirectories)));
+            }
+            tokenCanceled = token.WaitHandle.WaitOne(BatchDeadline);
+            if (scenario == "throws-while-canceled") { throw new IOException("model failure while cancellation is pending"); }
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 3, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(
+                [
+                    GroupResult(request.Groups[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: request.Groups[0].SourceDirectories),
+                    GroupResult(request.Groups[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed),
+                    GroupResult(request.Groups[2].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed)
+                ],
+                canceled: true);
+        };
+
+        Task<DuplicateBatchOrganizeRunResult> operation = fixture.Owner.OrganizeSelectedGroupsAsync();
+        await started.Task.WaitAsync(BatchDeadline);
+        if (scenario != "progress-reports-cancel") { fixture.Dialogs.Progress.RequestCancel(); }
+        DuplicateBatchOrganizeRunResult run = await operation.WaitAsync(BatchDeadline);
+
+        switch (scenario)
+        {
+            case "canceled":
+                Assert.IsTrue(tokenCanceled, "進捗表示の取消が、モデルの取消の合図へ届きます。");
+                Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status);
+                string[] lines = Lines(fixture.Dialogs.Messages.Single().MessageBoxText);
+                Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 3, 1, 0, 0, 0, 2), lines[0]);
+                CollectionAssert.Contains(lines, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_canceled);
+                break;
+            case "progress-reports-cancel":
+                Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, "進捗の仕組みが取消を返しても、結果を省きません。");
+                Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
+                break;
+            default:
+                Assert.IsTrue(tokenCanceled);
+                Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status, "取消の要求中の例外も、結果として返します。");
+                UiMessageRequest report = fixture.Dialogs.Messages.Single();
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption);
+                StringAssert.Contains(report.MessageBoxText, "model failure while cancellation is pending");
+                break;
+        }
+        Assert.IsTrue(fixture.Gate.CanEnter);
+    }
+
+    /// <summary>
+    /// モデルが操作全体を受理しなかった場合は、モデルが積んだ案内だけを一回出し、結果の案内も報告も出さない。受付と活動は解放する。
+    /// 検出する誤り：未受理でも結果を案内する、案内の重複・欠落、未受理の報告（失敗扱い）。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_NotAdmittedByModelShowsOnlyTheModelNotice()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Store.Handler = (request, _, _, notices) =>
+        {
+            notices.Add(new BMSLibrary.OperationDialogMessage("model notice", "model caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+            return DuplicateBatchOrganizeResult.NotAdmitted(request);
+        };
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NotAdmitted, run.Status);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "操作全体が受理されなければ、SELECT・KEEP・確認結果を変えません。");
+        UiMessageRequest notice = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual("model notice", notice.MessageBoxText);
+        Assert.IsTrue(fixture.Gate.CanEnter);
+        Assert.IsFalse(fixture.Activity.IsActive);
+    }
+
+    /// <summary>
+    /// 確定・反映・保守の失敗では、単体の統合と同じ報告（FileDbMutationReport）を一回出し、その後に結果を一回出す。移動元ごとの事前拒否（型の衝突、移動元がない、事前確認で拒否など）だけでは報告を出さず、結果の理由で案内する。
+    /// 検出する誤り：失敗の報告漏れ・重複、結果と報告の順序違い、事前拒否のたびの報告、失敗時の結果の欠落。
+    /// </summary>
+    [TestMethod]
+    [DataRow("finalization", true)]
+    [DataRow("apply", true)]
+    [DataRow("cleanup", true)]
+    [DataRow("type-conflict-refusal", false)]
+    [DataRow("source-missing-refusal", false)]
+    [DataRow("preflight-refusal", false)]
+    public async Task OrganizeSelectedGroups_RequiredFailuresAreReportedOnceBeforeTheSingleResult(string kind, bool expectReport)
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        LibraryMutationSessionReceipt session = kind switch
+        {
+            "finalization" => DurableSession(finalizationFailure: new IOException("finalization failed")),
+            "apply" => DurableSession(applyFailure: new IOException("apply failed"), durable: false),
+            "cleanup" => DurableSession(cleanupFailure: new IOException("cleanup failed")),
+            "type-conflict-refusal" => new LibraryMutationSessionReceipt([], durableCommit: false,
+                itemFailures: [new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget(@"C:\S\two", @"C:\S\one"), new IOException("type conflict refusal"),
+                    destinationTypeConflicts: [new FileDbMutationDestinationTypeConflict(@"C:\S\two\a", @"C:\S\one\a", true, false)])]),
+            // 型の衝突以外の移動元ごとの事前拒否は、変更セッションの必須の失敗として残るが、報告ではなく結果の理由として案内する。
+            _ => new LibraryMutationSessionReceipt([], durableCommit: false,
+                itemFailures: [new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget(@"C:\S\two", @"C:\S\one"), new IOException("source refusal"))])
+        };
+        DuplicateBatchOrganizeSourceReason sourceReason = kind switch
+        {
+            "source-missing-refusal" => DuplicateBatchOrganizeSourceReason.SourceMissing,
+            "preflight-refusal" => DuplicateBatchOrganizeSourceReason.PreflightRefused,
+            _ => DuplicateBatchOrganizeSourceReason.TypeConflict
+        };
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 1, request.Groups[0].KeepDirectory));
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 1, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result([GroupResult(request.Groups[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed,
+                retained: [new DuplicateBatchOrganizeRetainedSource(request.Groups[0].SourceDirectories[0], sourceReason)])],
+                session: session, mergeApplied: false);
+        };
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status);
+        UiMessageRequest[] messages = [.. fixture.Dialogs.Messages];
+        if (expectReport)
+        {
+            Assert.AreEqual(2, messages.Length, "報告を一回、その後に結果を一回出します。");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, messages[0].Caption);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_title, messages[1].Caption);
+        }
+        else
+        {
+            Assert.AreEqual(1, messages.Length, "移動元の事前拒否は、結果の理由で案内し、報告は出しません。");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_title, messages[0].Caption);
+            StringAssert.Contains(messages[0].MessageBoxText, DuplicateBatchOrganizePresentation.SourceReasonText(sourceReason));
+        }
+    }
+
+    /// <summary>
+    /// モデルが例外を出した場合は、単体の統合と同じ報告を一回出し、結果の案内は出さない。受付・活動・画面更新の抑制は解除する。
+    /// 検出する誤り：例外の握りつぶし、報告の重複、モデルの結果がないのに結果を案内する、解放漏れ。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ModelExceptionIsReportedOnceWithoutResult()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Store.Handler = (_, _, _, _) => throw new IOException("model exploded");
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
+        Assert.IsNull(run.Result);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "モデルの結果がなければ、SELECT・KEEP・確認結果を変えません。");
+        UiMessageRequest report = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption);
+        StringAssert.Contains(report.MessageBoxText, "model exploded");
+        CollectionAssert.AreEqual(
+            new[] { "confirm", "progress-start", "activity-start", "playback-stop", "suppression-start", "store-organize", "suppression-end", "activity-end", "progress-end", "message" },
+            fixture.Events);
+        Assert.IsTrue(fixture.Gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 既存宛先を復元できなかった場合は、結果の案内も報告も出さず、受付・活動の解放と進捗を閉じた後に、単体と同じ終了手順を一回だけ呼ぶ。
+    /// 検出する誤り：解放前の終了処理、復元不能の結果の案内・報告、終了処理の重複呼出し。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_UnrestoredDestinationExitsOnceAfterReleaseWithoutReportOrResult()
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        int exits = 0;
+        bool releasedAtExit = false, progressClosedAtExit = false;
+        Exception? exitFailure = null;
+        BatchFixture? fixture = null;
+        fixture = new BatchFixture([group], exitForUnrestoredDestination: failure =>
+        {
+            exits++;
+            exitFailure = failure;
+            releasedAtExit = fixture!.Gate.CanEnter && !fixture.Activity.IsActive;
+            progressClosedAtExit = fixture.Events.Contains("progress-end");
+            return Task.CompletedTask;
+        });
+        using (fixture)
+        {
+            fixture.List.SelectVisible();
+            var failure = new IOException("destination could not be restored");
+            fixture.Store.Handler = (request, progress, _, _) =>
+            {
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 1, null!, DuplicateBatchOrganizeProgressKind.Applying));
+                return Result([GroupResult(request.Groups[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed)],
+                    session: new LibraryMutationSessionReceipt([], durableCommit: false, physicalFailure: failure, hasUnrestoredExistingDestination: true), mergeApplied: false);
+            };
+
+            DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.UnrestoredDestination, run.Status);
+            Assert.AreEqual(1, exits);
+            Assert.IsTrue(releasedAtExit, "受付と活動を解放してから呼びます。");
+            Assert.IsTrue(progressClosedAtExit, "進捗を閉じてから呼びます。");
+            Assert.AreSame(failure, exitFailure);
+            Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "報告も結果も出しません。");
+        }
+    }
+
+    /// <summary>
+    /// 結果の見出しは五区分を0件の区分も含めて出し、全件が完了なら詳細・ごみ箱の行・取消の行は出さない（全件完了でも結果は案内し、アイコンは情報）。
+    /// 検出する誤り：全件完了での案内省略、0件の区分の省略、不要な行の表示。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_AllCompletedShowsOnlyTheHeadingWithZeroCategories()
+    {
+        DuplicateGroup first = Lists.Group(@"C:\S\a1", @"C:\S\a2"), second = Lists.Group(@"C:\S\solo");
+        using var fixture = new BatchFixture([first, second]);
+        fixture.List.SelectVisible();
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        UiMessageRequest result = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 2, 2, 0, 0, 0, 0), result.MessageBoxText);
+        Assert.AreEqual(MessageBoxImage.Asterisk, result.Icon);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_title, result.Caption);
+    }
+
+    /// <summary>
+    /// 結果は、ごみ箱の行を合計が一以上のときだけ（確定に失敗したグループの分も数える）、取消の行を取消のときだけ出し、完了以外のグループを要求順に
+    /// 「KEEP：状態（理由）」と残った移動元ごとの「移動元：理由」で並べる。理由は、スキップは拒否の理由、削除の失敗は「削除の失敗」、確定の失敗による失敗は「確定の失敗」、それ以外は括弧なし。
+    /// 検出する誤り：ごみ箱の合計の漏れ（確定失敗の分）、理由の取り違え・括弧の誤り、並びの違い、完了グループの詳細表示。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_MixedResultListsIncompleteGroupsInRequestOrderWithReasons()
+    {
+        DuplicateGroup[] groups = [.. Enumerable.Range(0, 6).Select(index => Lists.Group($@"C:\S\g{index}\a", $@"C:\S\g{index}\b"))];
+        using var fixture = new BatchFixture(groups);
+        fixture.List.SelectVisible();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            DuplicateBatchOrganizeGroup[] g = [.. request.Groups];
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(6, 6, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(
+                [
+                    GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[0].SourceDirectories, trashed: 2),
+                    GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, trashed: 1, trashFailed: 1,
+                        retained: [new(g[1].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.SourceMissing)]),
+                    GroupResult(g[2].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Skipped, DuplicateBatchOrganizeSkipReason.LinkFound),
+                    GroupResult(g[3].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed,
+                        retained: [new(g[3].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.PhysicalFailure)]),
+                    GroupResult(g[4].KeepDirectory, DuplicateBatchOrganizeGroupStatus.PartiallyCompleted,
+                        retained: [new(g[4].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.NotProcessed)]),
+                    GroupResult(g[5].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed)
+                ],
+                canceled: true);
+        };
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        string keepOf(int index) => groups[index].Folders[0];
+        string sourceOf(int index) => groups[index].Folders[1];
+        // KEEPは譜面数が同じなら先頭（PATH昇順の先頭）。
+        string[] expected =
+        [
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 6, 1, 2, 1, 1, 1),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_trashed_format, 3),
+            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_canceled,
+            string.Empty,
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format, keepOf(1),
+                BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_partial, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_delete_failure),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_source_format, sourceOf(1), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_source_missing),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format, keepOf(2),
+                BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_skipped, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_link),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_format, keepOf(3), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_source_format, sourceOf(3), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_physical_failure),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_format, keepOf(4), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_partial),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_source_format, sourceOf(4), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_not_processed),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_format, keepOf(5), BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_unprocessed)
+        ];
+        UiMessageRequest result = fixture.Dialogs.Messages.Single();
+        CollectionAssert.AreEqual(expected, Lines(result.MessageBoxText));
+        Assert.AreEqual(MessageBoxImage.Exclamation, result.Icon, "完了以外があれば、アイコンは警告です。");
+    }
+
+    /// <summary>
+    /// 確定に失敗した操作では、物理的に成功していたグループが「確定の失敗」を理由とする失敗になり、ごみ箱へ送った譜面の数は確定失敗のグループの分も合計へ数える。
+    /// 失敗の報告を出した後に、結果を一回出す。
+    /// 検出する誤り：確定失敗のグループのごみ箱の数の欠落、確定の失敗の理由の欠落、報告と結果の順序。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_CommitFailureCountsTrashedChartsAndShowsCommitFailureReason()
+    {
+        DuplicateGroup merge = Lists.Group(@"C:\S\m\a", @"C:\S\m\b"), single = Lists.Group(@"C:\S\solo"), plain = Lists.Group(@"C:\S\p\a", @"C:\S\p\b"), both = Lists.Group(@"C:\S\q");
+        using var fixture = new BatchFixture([merge, single, plain, both]);
+        fixture.List.SelectVisible();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(2, 2, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(
+                [
+                    GroupResult(request.Groups[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed, trashed: 2,
+                        retained: [new(request.Groups[0].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.NotCommitted)]),
+                    GroupResult(request.Groups[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed, trashed: 1, single: true),
+                    // もともと統合できずに失敗したグループ（ごみ箱へ送った譜面もなし）には、確定の失敗を付けない。
+                    GroupResult(request.Groups[2].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed,
+                        retained: [new(request.Groups[2].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.PhysicalFailure)]),
+                    GroupResult(request.Groups[3].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed, trashed: 1, trashFailed: 1, single: true)
+                ],
+                session: DurableSession(applyFailure: new IOException("commit failed"), durable: false), mergeApplied: false);
+        };
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        UiMessageRequest[] messages = [.. fixture.Dialogs.Messages];
+        Assert.AreEqual(2, messages.Length);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, messages[0].Caption, "報告が先です。");
+        string[] lines = Lines(messages[1].MessageBoxText);
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 4, 0, 0, 0, 4, 0), lines[0]);
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_trashed_format, 4), lines[1]);
+        string commitFailed = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_commit_failure;
+        CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format,
+            fixture.Store.Requests.Single().Groups[0].KeepDirectory, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed, commitFailed));
+        CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format,
+            fixture.Store.Requests.Single().Groups[1].KeepDirectory, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed, commitFailed));
+        CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_source_format,
+            fixture.Store.Requests.Single().Groups[0].SourceDirectories[0], commitFailed));
+        // 確定の失敗と個別の削除の失敗が重なるグループは、確定の失敗を優先して表示する。
+        CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format,
+            fixture.Store.Requests.Single().Groups[3].KeepDirectory, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed, commitFailed));
+        CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_format,
+            fixture.Store.Requests.Single().Groups[2].KeepDirectory, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed),
+            "もともと失敗したグループには、確定の失敗を付けません。");
+    }
+
+    /// <summary>
+    /// 進捗画面が操作を呼ばずに失敗する（ディスパッチャーや所有者の不在・アプリの終了中・表示の例外）場合は、確認で承認していても、再生の停止・画面更新の抑制・モデルの呼出しをせず、
+    /// 受付を解放し（再取得できる）、失敗を一回だけ報告して、結果の案内を出さない。
+    /// 検出する誤り：受付の解放漏れ、報告の欠落・重複、操作が走らないのに結果を案内する、停止・抑制・モデルの呼出し。
+    /// </summary>
+    [TestMethod]
+    [DataRow("OwnerUnavailable")]
+    [DataRow("DispatcherUnavailable")]
+    [DataRow("AppClosing")]
+    [DataRow("Failed")]
+    public async Task OrganizeSelectedGroups_ProgressRouteFailingWithoutRunningReleasesAdmissionAndReportsOnce(string statusName)
+    {
+        DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
+        using var fixture = new BatchFixture([group]);
+        fixture.List.SelectVisible();
+        fixture.Dialogs.Progress.FailWithoutRunning = Enum.Parse<UiDialogStatus>(statusName);
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
+        Assert.IsNotNull(run.Failure);
+        Assert.IsTrue(fixture.Gate.TryEnter(out IDisposable? again), "受付を解放します。");
+        again.Dispose();
+        UiMessageRequest report = fixture.Dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption);
+        Assert.AreEqual(0, fixture.Store.Requests.Count);
+        CollectionAssert.AreEqual(new[] { "confirm", "progress-start", "progress-end", "message" }, fixture.Events);
+    }
+
+    /// <summary>
+    /// 詳細は完了以外のグループを最大20件まで出し、21件目以降は「ほか{n}グループ…」に省略する（20件ちょうどなら省略の行は出ない）。完了のグループは数えない。
+    /// 検出する誤り：上限の取り違え（19・21件表示）、20件ちょうどでの省略の行、完了グループの詳細表示。
+    /// </summary>
+    [TestMethod]
+    [DataRow(20, 0)]
+    [DataRow(21, 1)]
+    [DataRow(25, 5)]
+    public async Task OrganizeSelectedGroups_DetailsAreLimitedToTwentyGroups(int incompleteGroups, int expectedOmitted)
+    {
+        DuplicateGroup[] groups = [.. Enumerable.Range(0, incompleteGroups + 2).Select(index => Lists.Group($@"C:\S\g{index:00}"))];
+        using var fixture = new BatchFixture(groups);
+        fixture.List.SelectVisible();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(request.Groups.Count, request.Groups.Count, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            // 先頭の二グループは完了、残りは拒否（スキップ）です。
+            return Result(request.Groups.Select((group, index) => GroupResult(group.KeepDirectory,
+                index < 2 ? DuplicateBatchOrganizeGroupStatus.Completed : DuplicateBatchOrganizeGroupStatus.Skipped,
+                index < 2 ? DuplicateBatchOrganizeSkipReason.None : DuplicateBatchOrganizeSkipReason.NestedFolders, single: true)));
+        };
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        string[] lines = Lines(fixture.Dialogs.Messages.Single().MessageBoxText);
+        string[] expectedDetails = [.. groups.Skip(2).Select(group => string.Format(
+            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format,
+            group.Folders[0],
+            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_skipped,
+            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_nested))];
+        string[] detailLines = [.. lines.Where(expectedDetails.Contains)];
+        CollectionAssert.AreEqual(expectedDetails.Take(20).ToArray(), detailLines, "要求順の先頭20件だけを出します。");
+        string more = string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_more_format, expectedOmitted);
+        Assert.AreEqual(expectedOmitted > 0, lines.Contains(more), "超えた分だけ、省略の行を出します。");
+        Assert.AreEqual(0, lines.Count(line => line.Contains(@"C:\S\g00") || line.Contains(@"C:\S\g01")), "完了のグループは詳細に出しません。");
+    }
+
+    /// <summary>
+    /// モデルの分類値（グループの状態・拒否の理由・移動元の理由）のすべてに、空でなく互いに異なる文言を対応させる。
+    /// 検出する誤り：分類値の追加時の文言の漏れ（例外・空文字）、別の理由との文言の混同。
+    /// </summary>
+    [TestMethod]
+    public void BatchOrganizePresentation_EveryClassificationHasItsOwnText()
+    {
+        string[] statuses = [.. Enum.GetValues<DuplicateBatchOrganizeGroupStatus>().Select(DuplicateBatchOrganizePresentation.StatusText)];
+        string[] skips = [.. Enum.GetValues<DuplicateBatchOrganizeSkipReason>().Where(reason => reason != DuplicateBatchOrganizeSkipReason.None).Select(DuplicateBatchOrganizePresentation.SkipReasonText)];
+        string[] sources = [.. Enum.GetValues<DuplicateBatchOrganizeSourceReason>().Select(reason => DuplicateBatchOrganizePresentation.SourceReasonText(reason, @"C:\S\chart.bms"))];
+        Assert.IsNull(DuplicateBatchOrganizePresentation.SkipReasonText(DuplicateBatchOrganizeSkipReason.None));
+        foreach (string[] texts in new[] { statuses, skips, sources })
+        {
+            Assert.IsTrue(texts.All(text => !string.IsNullOrWhiteSpace(text)));
+            Assert.AreEqual(texts.Length, texts.Distinct().Count(), "文言が重複しています。");
+        }
+        Assert.AreEqual(5, statuses.Length);
+        Assert.AreEqual(7, skips.Length);
+        // 移動元の理由「確定の失敗」は、グループの理由「確定の失敗」と同じ文言を使う。
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_commit_failure, DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.NotCommitted));
+        // 所持の実ファイルを確認できず見送った移動元の理由は、専用のリソースへ対応し、譜面のパスを含める。他の理由へ丸めない。
+        Assert.AreEqual(
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_owned_file_missing, @"C:\S\chart.bms"),
+            DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.OwnedFileMissing, @"C:\S\chart.bms"));
+        StringAssert.Contains(DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.OwnedFileMissing, @"C:\S\chart.bms"), @"C:\S\chart.bms");
     }
 
 }

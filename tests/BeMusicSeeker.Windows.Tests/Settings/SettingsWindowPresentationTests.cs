@@ -93,10 +93,10 @@ public sealed class SettingsWindowPresentationTests
                 presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
                 windowTest.ShowAndWaitForContentRendered(firstPresentation!);
 
-                var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                var navigation = (TabControl)firstPresentation!.FindName("settingsNavigation");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var playlistPage = (FrameworkElement)((ContentControl)firstPresentation.FindName("settingsPageContent")).Content;
+                var playlistPage = (FrameworkElement)SettingsTabs.SelectedPage(firstPresentation);
                 TextBox tableInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.TableListURL));
                 TextBox mappingInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.PlaylistMd5UrlMappingTsvUri));
                 // N0: 二つの文言が同じだと取り違えを検出できないため、比較の前提として異なることを確かめます。
@@ -132,9 +132,9 @@ public sealed class SettingsWindowPresentationTests
                     if (previousLanguage == null) { Resources.Culture = null; }
                     else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
                 }
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationGeneral");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
@@ -275,18 +275,18 @@ public sealed class SettingsWindowPresentationTests
                 window.Closed += (_, _) => closed.TrySetResult();
                 windowTest.ShowAndWaitForContentRendered(window);
                 Assert.AreEqual(0, catalog.RefreshCount);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationAudio");
                 window.UpdateLayout();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(started.Task, "audio-list-window-started");
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AudioSettingsPage)SettingsTabs.SelectedPage(window);
                 Assert.IsFalse(((Button)page.FindName("buttonPlayerTest")).IsEnabled);
                 Assert.IsTrue(((ComboBox)page.FindName("comboBoxPlayerDriver")).IsEnabled);
                 Assert.IsFalse(((Button)window.FindName("buttonOK")).IsEnabled, "初期設定の必須一覧が未設定なら開始は無効です。音声一覧取得は通常Closeを妨げません。");
                 Assert.IsTrue(((Button)window.FindName("buttonCancel")).IsEnabled);
                 navigation.SelectedItem = window.FindName("navigationGeneral");
                 window.UpdateLayout();
-                Assert.IsInstanceOfType<GeneralSettingsPage>(((ContentControl)window.FindName("settingsPageContent")).Content);
+                Assert.IsInstanceOfType<GeneralSettingsPage>(SettingsTabs.SelectedPage(window));
                 dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
                 window.Close();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "audio-list-ordinary-close");
@@ -548,7 +548,7 @@ public sealed class SettingsWindowPresentationTests
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
 
-                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var generalPage = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 SettingsSection schemaSection = FindDescendants<SettingsSection>(generalPage)
                     .Single(section => Equals(section.Header, Resources.Lr2_play_history_schema_label));
                 SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaSection)
@@ -655,7 +655,7 @@ public sealed class SettingsWindowPresentationTests
                     BmtHash(window).SelectedValue = values.BeatorajaBmtHashOutputMode == "Original" ? "PreferSha256Only" : "Original";
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreNotEqual(values.BeatorajaBmtHashOutputMode, settings.BeatorajaBmtHashOutputMode);
-                    var navigation = (ListBox)window.FindName("settingsNavigation");
+                    var navigation = (TabControl)window.FindName("settingsNavigation");
                     navigation.SelectedItem = window.FindName("navigationPlaylist");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     navigation.SelectedItem = window.FindName("navigationGeneral");
@@ -761,16 +761,18 @@ public sealed class SettingsWindowPresentationTests
                 window.UpdateLayout();
 
                 var client = (FrameworkElement)window.Content;
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var pageHeader = (ContentControl)window.FindName("settingsPageHeader");
-                var body = (ScrollViewer)window.FindName("settingsPageScrollViewer");
-                var page = (ContentControl)window.FindName("settingsPageContent");
+                TabControl navigation = SettingsTabs.Navigation(window);
+                TextBlock pageHeader = SettingsTabs.Header(window);
+                ScrollViewer body = SettingsTabs.Body(window);
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 var presenter = (ScrollContentPresenter)body.Template.FindName("PART_ScrollContentPresenter", body);
                 Rect navigationBounds = GetVisualBounds(client, navigation);
                 Rect bodyBounds = GetVisualBounds(client, body);
                 Rect headerBounds = GetVisualBounds(client, pageHeader);
                 Rect pageBounds = GetVisualBounds(presenter, page);
                 Assert.AreEqual(0d, navigationBounds.Left, 0.25d, "分類はclient左端へ届く。");
+                Assert.AreEqual(0d, navigationBounds.Top, 0.25d, "分類はclient上端から始まる。");
+                Assert.AreEqual(client.ActualHeight, navigationBounds.Bottom, 0.25d, "分類はclient下端へ届く。");
                 Assert.AreEqual(client.ActualWidth, bodyBounds.Right, 0.25d, "本文viewerはclient右端へ届く。");
                 Assert.AreEqual(16d, GetVisualBounds(body, presenter).Left, 0.25d, "本文左余白は一度だけ適用する。");
                 Assert.AreEqual(0d, pageBounds.Left, 0.25d);
@@ -817,13 +819,13 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
 
                 owner.SettingDialog.RightClickActionSettingsEditor.AddProgramAction();
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
-                var rightClickPage = (RightClickSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var rightClickPage = (RightClickSettingsPage)SettingsTabs.SelectedPage(window);
                 FindDescendants<Button>(rightClickPage).Single(button =>
                     AutomationProperties.GetAutomationId(button) == "RightClickProgramExecutablePicker")
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -843,7 +845,7 @@ public sealed class SettingsWindowPresentationTests
                 dialogs.MessageResult = UiDialogResult.Failed(new IOException("executable notice failure"));
                 navigation.SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var playbackPage = (PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var playbackPage = (PlaybackSettingsPage)SettingsTabs.SelectedPage(window);
                 var ubmplay = (RadioButton)playbackPage.FindName("radioButtonPlayuBMplay");
                 typeof(RadioButton).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(ubmplay, null);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -899,10 +901,10 @@ public sealed class SettingsWindowPresentationTests
                 window.Measure(new Size(820, 760));
                 window.Arrange(new Rect(0, 0, 820, 760));
                 window.UpdateLayout();
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (RightClickSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (RightClickSettingsPage)SettingsTabs.SelectedPage(window);
                 Button restoreButton = FindDescendants<Button>(page).Single(button =>
                     AutomationProperties.GetAutomationId(button) == "RightClickRestoreDefaults");
 
@@ -987,10 +989,10 @@ public sealed class SettingsWindowPresentationTests
                 SettingsDialogViewModel viewModel = owner.SettingDialog;
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel };
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var playlistPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var playlistPage = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 TextBox tableInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(viewModel.TableListURL));
                 tableInput.Text = accepted.ToString();
                 (tableInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("表URLのBindingがありません。")).UpdateSource();
@@ -1367,9 +1369,9 @@ public sealed class SettingsWindowPresentationTests
                 if (failedWithException) { Assert.AreSame(original, confirmationFailure.InnerException); }
                 else { StringAssert.Contains(confirmationFailure.Message, nameof(UiDialogStatus.OwnerUnavailable)); }
                 AssertUnaccepted();
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 Button add = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Add));
                 void ClickAndAwait()
@@ -1816,11 +1818,11 @@ public sealed class SettingsWindowPresentationTests
 
     private static void ClickBackupPageButton(SettingsWindow window, string text)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationBackup");
+        ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationBackup");
         window.Measure(new Size(820, 760));
         window.Arrange(new Rect(0, 0, 820, 760));
         window.UpdateLayout();
-        var page = (BackupSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+        var page = (BackupSettingsPage)SettingsTabs.SelectedPage(window);
         FindDescendants<Button>(page).Single(button => Equals(button.Content, text))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }
@@ -1936,7 +1938,7 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 dialogs.ExpectedOwner = window;
 
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 void ClickAdd()
                 {
                     ((Button)page.FindName("addBmsSearchRootButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2097,12 +2099,12 @@ public sealed class SettingsWindowPresentationTests
                 };
 
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationAbout");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 // ページのLoadedで言語通知の購読が始まるため、言語変更の前にBackgroundまで消化して購読を確定する。
                 TestUiDispatcherHost.ProcessQueuedBackground();
-                var page = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AboutSettingsPage)SettingsTabs.SelectedPage(window);
                 var version = (TextBlock)page.FindName("textBlockVerNum");
                 var build = (TextBlock)page.FindName("textBlockBuildNum");
                 string englishVersion = version.Text;
@@ -2159,7 +2161,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 windowTest.ShowAndWaitForContentRendered(window);
                 Assert.AreEqual(initialEnvironment, settings.IsInitialEnvironment);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 var standalone = (RadioButton)page.FindName("radioButtonNotUseLR2");
                 var linked = (RadioButton)page.FindName("radioButtonUseLR2");
                 int themeIndex = 0;
@@ -2185,8 +2187,10 @@ public sealed class SettingsWindowPresentationTests
                         Assert.AreEqual(TextWrapping.Wrap, description.TextWrapping);
                         Border chrome = FindDescendants<Border>(radio).Single(border => border.Child is Grid);
                         AssertBrushColor(radio, radio.IsChecked == true ? "App.ControlSelectedBrush" : "App.SurfaceBrush", chrome.Background);
-                        AssertBrushColor(radio, radio.IsKeyboardFocused ? "App.InputFocusBorderBrush"
-                            : radio.IsChecked == true ? "App.AccentBrush" : "App.BorderBrush", chrome.BorderBrush);
+                        // 枠色はフォーカスと無関係に、選択中なら強調色、それ以外は通常の枠色。キーボード用の枠は共通のフォーカス枠が担う。
+                        AssertBrushColor(radio, radio.IsChecked == true ? "App.AccentBrush" : "App.BorderBrush", chrome.BorderBrush);
+                        FocusVisualAssert.AssertKeyboardFocusRing(radio);
+                        FocusVisualAssert.AssertNoFocusConditionedTriggers(radio);
                         // 角丸の外側は入力面ではない。描画面の四辺・中央・説明も同じRadioButtonへ到達する。
                         foreach (Point point in new[] { new Point(radio.ActualWidth / 2, 2), new Point(2, radio.ActualHeight / 2),
                             new Point(radio.ActualWidth - 2, radio.ActualHeight / 2), new Point(radio.ActualWidth / 2, radio.ActualHeight - 2),
@@ -2234,15 +2238,15 @@ public sealed class SettingsWindowPresentationTests
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var pageHost = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost pageHost = SettingsTabs.PageHost(window);
 
                 var generalPage = (GeneralSettingsPage)pageHost.Content;
                 var standalone = (RadioButton)generalPage.FindName("radioButtonNotUseLR2");
                 Assert.AreEqual(Resources.Operation_Mode_Standalone, standalone.Content);
                 Assert.AreEqual(Resources.Operation_Mode_Standalone, new RadioButtonAutomationPeer(standalone).GetName());
 
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlayback");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var playbackPage = (PlaybackSettingsPage)pageHost.Content;
                 var internalPlayer = (RadioButton)playbackPage.FindName("radioButtonInternalPlayer");
@@ -2255,7 +2259,7 @@ public sealed class SettingsWindowPresentationTests
                     Assert.IsTrue(FindDescendants<TextBlock>(playbackPage).Any(text => text.IsVisible && text.Text == AutomationProperties.GetHelpText(player)));
                 }
 
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationBackup");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationBackup");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var backupPage = (BackupSettingsPage)pageHost.Content;
                 SettingsPathPicker destination = FindDescendants<SettingsPathPicker>(backupPage)
@@ -2403,29 +2407,29 @@ public sealed class SettingsWindowPresentationTests
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var advanced = (ListBoxItem)window.FindName("navigationAdvanced");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                var advanced = (TabItem)window.FindName("navigationAdvanced");
 
                 Assert.AreEqual(Resources.Settings_window_title, window.Title);
-                Assert.AreEqual(Resources.Advanced_settings, advanced.Content);
+                Assert.AreEqual(Resources.Advanced_settings, advanced.Header);
                 Assert.AreEqual(Resources.Advanced_settings, AutomationProperties.GetName(advanced));
                 string originalTitle = window.Title;
-                object originalAdvancedLabel = advanced.Content;
+                object originalAdvancedLabel = advanced.Header;
 
-                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var generalPage = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 ((ComboBox)generalPage.FindName("languageComboBox")).SelectedItem = "Default(日本語)";
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(Resources.Settings_window_title, window.Title);
-                Assert.AreEqual(Resources.Advanced_settings, advanced.Content);
+                Assert.AreEqual(Resources.Advanced_settings, advanced.Header);
                 Assert.AreEqual(Resources.Advanced_settings, AutomationProperties.GetName(advanced));
                 Assert.AreNotEqual(originalTitle, window.Title);
-                Assert.AreNotEqual(originalAdvancedLabel, advanced.Content);
-                Assert.AreNotEqual(window.Title, advanced.Content,
+                Assert.AreNotEqual(originalAdvancedLabel, advanced.Header);
+                Assert.AreNotEqual(window.Title, advanced.Header,
                     "The settings window identity must not reuse the Advanced category label.");
                 navigation.SelectedItem = window.FindName("navigationAbout");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var aboutPage = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var aboutPage = (AboutSettingsPage)SettingsTabs.SelectedPage(window);
                 Button releaseNotes = FindDescendants<Button>(aboutPage).Single(button =>
                     Equals(button.Content, Resources.About_release_notes_button));
                 string japaneseReleaseNotes = (string)releaseNotes.Content;
@@ -2555,7 +2559,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 string[] statusProperties =
@@ -2621,13 +2625,13 @@ public sealed class SettingsWindowPresentationTests
                 context = CreateSchemaPresentationContext(scope, values, scoreDbPath);
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 // 同じ schema 状態を表示する General と Advanced の両配送先を確認する。
                 foreach (string categoryName in new[] { "navigationGeneral", "navigationAdvanced" })
                 {
                     navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    var page = (UserControl)((ContentControl)window.FindName("settingsPageContent")).Content;
+                    var page = (UserControl)SettingsTabs.SelectedPage(window);
                     SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
                         candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                         == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
@@ -2737,9 +2741,9 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AudioSettingsPage)SettingsTabs.SelectedPage(window);
                 SettingsStatusBanner status = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
                     candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                     == nameof(SettingsDialogViewModel.AudioDeviceTestStatusMessage));
@@ -2880,7 +2884,7 @@ public sealed class SettingsWindowPresentationTests
                         SettingsWindow presentedSettings = settingsWindow ?? throw new AssertFailedException("The settings window was not created.");
                         if (enumerateDevices)
                         {
-                            ((ListBox)presentedSettings.FindName("settingsNavigation")).SelectedItem = presentedSettings.FindName("navigationAudio");
+                            ((TabControl)presentedSettings.FindName("settingsNavigation")).SelectedItem = presentedSettings.FindName("navigationAudio");
                             presentedSettings.UpdateLayout();
                             audioTestTask = dialog.AudioSettingsCompletionTask;
                             await listStarted.Task;
@@ -3015,10 +3019,10 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AudioSettingsPage)SettingsTabs.SelectedPage(window);
                 SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
                     candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
                     == nameof(SettingsDialogViewModel.AudioDeviceTestStatusMessage));
@@ -3056,9 +3060,8 @@ public sealed class SettingsWindowPresentationTests
             var window = new SettingsWindow(UndeclaredDialogs.Create());
             SettingsDialogViewModel sharedDataContext = owner.SettingDialog;
             window.DataContext = sharedDataContext;
-            var navigation = (ListBox)window.FindName("settingsNavigation");
-            var header = (ContentControl)window.FindName("settingsPageHeader");
-            var content = (ContentControl)window.FindName("settingsPageContent");
+            TabControl navigation = SettingsTabs.Navigation(window);
+            SettingsPageHost content = SettingsTabs.PageHost(window);
             (string Navigation, Type Page)[] pageRoutes =
             [
                 ("navigationGeneral", typeof(GeneralSettingsPage)),
@@ -3077,6 +3080,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
+                TextBlock header = SettingsTabs.Header(window);
                 // navigation の表示順ではなく、意味のある各項目の配送先を照合する。
                 foreach ((string categoryName, Type pageType) in pageRoutes)
                 {
@@ -3084,7 +3088,7 @@ public sealed class SettingsWindowPresentationTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(pageType, content.Content.GetType());
                     Assert.AreSame(sharedDataContext, ((FrameworkElement)content.Content).DataContext);
-                    Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
+                    Assert.AreEqual(((TabItem)navigation.SelectedItem).Header, header.Text);
                 }
             }
             finally
@@ -3122,11 +3126,11 @@ public sealed class SettingsWindowPresentationTests
                 };
 
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var pageHost = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost pageHost = SettingsTabs.PageHost(window);
                 Assert.IsInstanceOfType<GeneralSettingsPage>(pageHost.Content);
 
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationAppearance");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var appearancePage = (AppearanceSettingsPage)pageHost.Content;
                 Assert.AreSame(settings, appearancePage.DataContext);
@@ -3282,8 +3286,8 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。実際の選択欄でフォントを選ぶと、その項目が保存され、メイン画面・設定画面・両 table のフォントが文字サイズを変えずに追随し、閉じても保存値を保ちます。</summary>
-    /// <remarks>フォントの選択から共通の表示フォントへの接続漏れと、フォントの変更で一覧の文字サイズが変わる誤りを検出します。</remarks>
+    /// <summary>実スライダーの寸法と一覧フォントが主画面の三つの一覧に反映され、通常UIのフォントは主画面と設定画面に反映されます。一覧のリセットは一覧フォントと寸法を既定に戻し、設定画面を閉じても確定値を保ちます。</summary>
+    /// <remarks>通常UIと一覧のフォントを共有する誤り、三つの一覧への接続漏れ、フォントの変更で寸法が変わる誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose()
@@ -3297,8 +3301,6 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             MainWindow? mainWindow = null;
             MainWindowViewModel? owner = null;
-            CustomTableView? mainTable = null;
-            CustomTableView? playlistSummaryTable = null;
             MainWindowTestLifetime? ownership = null;
             ExceptionDispatchInfo? bodyFailure = null;
             Exception? cleanupFailure = null;
@@ -3307,7 +3309,8 @@ public sealed class SettingsWindowPresentationTests
             {
                 var startupEvents = new List<string>();
                 startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
-                var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
+                string settingsPath = Path.Combine(CaseWorkspace.RootDirectory, "user.config");
+                var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.OpenSettings(settingsPath), startupEvents);
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: startupSettingsSession,
@@ -3317,25 +3320,54 @@ public sealed class SettingsWindowPresentationTests
                     dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 ownership = new MainWindowTestLifetime(owner, startupLifetime.ShutdownRequested.Task);
+                AppFontService.ApplyFontFamily(string.Empty, AppFontRole.Ui);
+                AppFontService.ApplyFontFamily(string.Empty, AppFontRole.Table);
                 mainWindow = ownership.CreateWindow(() => new MainWindow(owner));
                 windowTest.PrepareForOwnedPresentation(mainWindow);
                 mainWindow.Show();
                 mainWindow.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                mainTable = (CustomTableView)mainWindow.FindName("customTableView");
-                playlistSummaryTable = (CustomTableView)mainWindow.FindName("customTablePlaylistSummary");
-                Assert.IsNotNull(mainTable);
-                Assert.IsNotNull(playlistSummaryTable);
+                CustomTableView[] tables =
+                [
+                    (CustomTableView)mainWindow.FindName("customTableView"),
+                    (CustomTableView)mainWindow.FindName("customTablePlaylistSummary"),
+                    (CustomTableView)mainWindow.FindName("customTableDuplicateCandidates")
+                ];
+                System.Windows.Media.FontFamily scoreFont = tables[0].ScoreFontFamily;
+                Assert.IsNotNull(scoreFont);
 
                 SettingsDialogViewModel settings = owner.SettingDialog;
                 double savedFontSize = settings.CustomTableFontSize;
-                double savedRowHeight = settings.CustomTableRowHeight;
-                double savedHeaderHeight = settings.CustomTableHeaderHeight;
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (AppearanceSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AppearanceSettingsPage)SettingsTabs.SelectedPage(window);
+                void AssertFonts(string uiFont, string tableFont)
+                {
+                    string expectedUiGlyph = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(uiFont), "A");
+                    string expectedTableGlyph = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(tableFont), "A");
+                    Assert.AreEqual(expectedUiGlyph, GlyphFontProbe.FontUri(mainWindow.FontFamily, "A"));
+                    Assert.AreEqual(expectedUiGlyph, GlyphFontProbe.FontUri(window.FontFamily, "A"));
+                    foreach (CustomTableView table in tables)
+                    {
+                        Assert.AreEqual(expectedTableGlyph, GlyphFontProbe.FontUri(table.TextFontFamily, "A"), table.Name);
+                    }
+                    Assert.AreSame(scoreFont, tables[0].ScoreFontFamily);
+                }
+
+                void AssertTableDimensions(double fontSize, double rowHeight, double headerHeight)
+                {
+                    Assert.AreEqual(fontSize, owner.ViewSettings.CustomTableFontSize);
+                    Assert.AreEqual(rowHeight, owner.ViewSettings.CustomTableRowHeight);
+                    Assert.AreEqual(headerHeight, owner.ViewSettings.CustomTableHeaderHeight);
+                    foreach (CustomTableView table in tables)
+                    {
+                        Assert.AreEqual(fontSize, table.TextFontSize, table.Name);
+                        Assert.AreEqual(rowHeight, table.RowHeight, table.Name);
+                        Assert.AreEqual(headerHeight, table.HeaderHeight, table.Name);
+                    }
+                }
 
                 var sliders = FindDescendants<Slider>(page)
                     .ToDictionary(
@@ -3360,59 +3392,49 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(14.5d, settings.CustomTableFontSize);
-                Assert.AreEqual(14.5d, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(31d, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(37d, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(14.5d, mainTable!.TextFontSize);
-                Assert.AreEqual(31d, mainTable!.RowHeight);
-                Assert.AreEqual(37d, mainTable!.HeaderHeight);
-                Assert.AreEqual(14.5d, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(31d, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(37d, playlistSummaryTable!.HeaderHeight);
+                AssertTableDimensions(14.5d, 31d, 37d);
+                AssertFonts("Yu Gothic UI", "Meiryo UI");
+
+                var fontComboBox = (ComboBox)page.FindName("appearanceFontComboBox");
+                var tableFontComboBox = (ComboBox)page.FindName("customTableFontComboBox");
+                Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                fontComboBox.SelectedItem = settings.AppearanceFontOptions.Single(option => option.Key == "Arial");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(14.5d, 31d, 37d);
+
+                tableFontComboBox.SelectedItem = settings.CustomTableFontOptions.Single(option => option.Key == "Times New Roman");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                Assert.AreEqual("Times New Roman", settings.CustomTableFontFamily);
+                Assert.AreEqual("Times New Roman", TestSettingsFactory.OpenSettings(settingsPath).CustomTableFontFamily);
+                AssertFonts("Arial", "Times New Roman");
+                AssertTableDimensions(14.5d, 31d, 37d);
 
                 Button reset = FindDescendants<Button>(page)
                     .Single(button => Equals(button.Content, Resources.Appearance_table_reset_defaults));
                 reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
-
-                var fontComboBox = (ComboBox)page.FindName("appearanceFontComboBox");
-                Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
-                Assert.AreEqual(string.Empty, ((SettingsDialogViewModel.AppearanceFontOption)fontComboBox.SelectedItem).Key);
-                fontComboBox.SelectedItem = settings.AppearanceFontOptions.Single(option => option.Key == "Arial");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("Arial", settings.AppearanceFontFamily);
-                var appliedFont = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
-                Assert.AreEqual(GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A"), GlyphFontProbe.FontUri(appliedFont, "A"));
-                Assert.AreEqual(appliedFont, mainWindow.FontFamily);
-                Assert.AreEqual(appliedFont, window.FontFamily);
-                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
-                Assert.AreEqual(appliedFont, playlistSummaryTable!.TextFontFamily);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                Assert.AreEqual("Arial", fontComboBox.SelectedValue);
+                Assert.AreEqual(string.Empty, tableFontComboBox.SelectedValue);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(Settings.DefaultCustomTableFontSize, Settings.DefaultCustomTableRowHeight, Settings.DefaultCustomTableHeaderHeight);
 
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
-                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
-
+                Settings saved = TestSettingsFactory.OpenSettings(settingsPath);
+                Assert.AreEqual("Arial", saved.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, saved.CustomTableFontFamily);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, saved.CustomTableFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, saved.CustomTableRowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, saved.CustomTableHeaderHeight);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(Settings.DefaultCustomTableFontSize, Settings.DefaultCustomTableRowHeight, Settings.DefaultCustomTableHeaderHeight);
             }
             catch (Exception exception)
             {
@@ -3521,9 +3543,9 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (PlaybackSettingsPage)SettingsTabs.SelectedPage(window);
                 RadioButton[] radios =
                 [
                     (RadioButton)page.FindName("radioButtonInternalPlayer"),
@@ -3600,7 +3622,7 @@ public sealed class SettingsWindowPresentationTests
                     Height = 600
                 };
                 windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 SettingsPathPicker configPathPicker = FindDescendants<SettingsPathPicker>(page).Single(picker =>
@@ -3654,14 +3676,15 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var host = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost host = SettingsTabs.PageHost(window);
                 var assertions = new List<(string Navigation, Func<FrameworkElement, Control> Find, string Name)>
                 {
                     ("navigationGeneral", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "Language"), Resources.Language),
                     ("navigationGeneral", page => (ListBox)page.FindName("bmsSearchRootPathListBox"), Resources.Standalone_BMSDirectories),
                     ("navigationAppearance", page => (ComboBox)page.FindName("appearanceThemeComboBox"), Resources.Appearance_theme),
                     ("navigationAppearance", page => (ComboBox)page.FindName("appearanceFontComboBox"), Resources.Appearance_font),
+                    ("navigationAppearance", page => (ComboBox)page.FindName("customTableFontComboBox"), Resources.Appearance_table_font),
                     ("navigationAppearance", page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
                     ("navigationPlayback", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
                     ("navigationAudio", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),
@@ -4009,7 +4032,7 @@ public sealed class SettingsWindowPresentationTests
                 dialogs.ExpectedOwner = window;
                 windowTest.ShowAndWaitForContentRendered(window);
 
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 Expander pathDetails = FindDescendants<Expander>(page).Single(details => details.Content is DependencyObject contents
                     && FindDescendants<SettingsPathPicker>(contents).Any(candidate =>
                         candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.LR2SongDBPath)));
@@ -4207,7 +4230,7 @@ public sealed class SettingsWindowPresentationTests
                 };
                 dialogs.ExpectedOwner = window;
                 windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
@@ -4394,9 +4417,9 @@ public sealed class SettingsWindowPresentationTests
 
     private static void ClickAdvancedDangerButton(SettingsWindow window, string content)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+        ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
         TestUiDispatcherHost.ProcessQueuedPresentation();
-        var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+        var page = (AdvancedSettingsPage)SettingsTabs.SelectedPage(window);
         Button button = FindDescendants<Button>(page).Single(candidate => Equals(candidate.Content, content));
         Assert.IsTrue(button.IsEnabled, content + " button must be enabled for the test fixture.");
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
@@ -4719,9 +4742,9 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var scroller = (ScrollViewer)window.FindName("settingsPageScrollViewer");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                TabControl navigation = SettingsTabs.Navigation(window);
+                ScrollViewer scroller = SettingsTabs.Body(window);
+                SettingsPageHost content = SettingsTabs.PageHost(window);
 
                 for (int categoryIndex = 0; categoryIndex < navigation.Items.Count; categoryIndex++)
                 {
@@ -4730,13 +4753,15 @@ public sealed class SettingsWindowPresentationTests
                     window.UpdateLayout();
 
                     var page = (FrameworkElement)content.Content;
+                    ContentPresenter pageHost = SettingsTabs.FindVisualAncestor<ContentPresenter>(page)
+                        ?? throw new AssertFailedException("ページの表示領域がありません。");
                     string pageName = page.GetType().Name;
                     Assert.IsTrue(scroller.ViewportWidth > 0, pageName);
                     Assert.IsTrue(scroller.ExtentWidth <= scroller.ViewportWidth + 0.5,
                         $"{pageName} produced horizontal extent {scroller.ExtentWidth} in viewport {scroller.ViewportWidth}.");
                     Assert.AreEqual(0d, scroller.ScrollableWidth, 0.5, pageName);
-                    Assert.IsTrue(content.ActualWidth <= scroller.ViewportWidth + 0.5, pageName);
-                    Assert.IsTrue(page.ActualWidth <= content.ActualWidth + 0.5, pageName);
+                    Assert.IsTrue(pageHost.ActualWidth <= scroller.ViewportWidth + 0.5, pageName);
+                    Assert.IsTrue(page.ActualWidth <= pageHost.ActualWidth + 0.5, pageName);
 
                     IEnumerable<FrameworkElement> widthOwners = FindDescendants<FrameworkElement>(page)
                         .Where(element => element != page
@@ -4791,10 +4816,10 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var pageHost = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost pageHost = SettingsTabs.PageHost(window);
 
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationGeneral");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var generalPage = (FrameworkElement)pageHost.Content;
                 SettingsPathPicker pathPicker = FindDescendants<SettingsPathPicker>(generalPage)
@@ -4805,7 +4830,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(pathPicker.Label, AutomationProperties.GetName(pathEditor));
                 Assert.AreEqual(pathPicker.BrowseText, AutomationProperties.GetName(browseButton));
 
-                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationAudio");
+                navigation.SelectedItem = navigation.Items.OfType<TabItem>().Single(item => item.Name == "navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var audioPage = (FrameworkElement)pageHost.Content;
                 SettingsStatusBanner statusBanner = FindDescendants<SettingsStatusBanner>(audioPage).First();
@@ -4834,7 +4859,10 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = Path.Combine(CaseWorkspace.RootDirectory, "BmsSavedSettings-" + Guid.NewGuid().ToString("N"));
+            // 登録済みのルートの配下に追加候補を置くと追加が拒否されるため、登録ルートと追加候補は兄弟の位置に置きます。
+            string library = Path.Combine(root, "library");
             string added = Path.Combine(root, "added");
+            Directory.CreateDirectory(library);
             Directory.CreateDirectory(added);
             using var release = new ManualResetEventSlim();
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4844,7 +4872,7 @@ public sealed class SettingsWindowPresentationTests
             Settings values = TestSettingsFactory.CreateIsolatedSettings(value =>
             {
                 value.OperationModeLR2DB = false;
-                value.BMSRootPath = root; value.StandaloneBmsRootPaths = root; value.BMSInstallDir = root;
+                value.BMSRootPath = library; value.StandaloneBmsRootPaths = library; value.BMSInstallDir = library;
                 value.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 value.EnablePlaylistUrlCompletion = false; value.ScanBmsFilesOnStartup = false; value.SkipInitPlaylistLoad = true;
                 value.UseBeatorajaScoreDb = false; value.EnableBeatorajaBmtOutput = false; value.UseExternalPanelImage = false;
@@ -4875,7 +4903,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(owner.IsInitializationCompleted);
                 string chart = Path.Combine(added, "normal.bms");
                 File.WriteAllText(chart, "#PLAYER 1\n#TITLE Modal Folder\n#BPM 120\n#00111:01\n");
-                var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [root]);
+                var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [library]);
                 next.ScanObserved = () => { entered.TrySetResult(); release.Wait(); };
                 scanner.Current = next;
                 main = ownership.CreateWindow(() => new MainWindow(owner, window =>
@@ -4895,7 +4923,7 @@ public sealed class SettingsWindowPresentationTests
                                 Assert.IsFalse(owner.SettingDialog.IsEditCompletionEnabled);
                                 Button confirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:bms"));
                                 Assert.IsFalse(confirm.IsEnabled);
-                                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
                                 TestUiDispatcherHost.ProcessQueuedPresentation();
                                 float quality = owner.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
                                 owner.SettingDialog.EncoderQuality = quality;
@@ -5573,7 +5601,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(confirmedBmtOutput, viewModel.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(savedQuality, viewModel.SettingDialog.EncoderQuality);
                 Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionEnabled);
-                ((ListBox)reopened.FindName("settingsNavigation")).SelectedItem = reopened.FindName("navigationRecording");
+                ((TabControl)reopened.FindName("settingsNavigation")).SelectedItem = reopened.FindName("navigationRecording");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 float quality = viewModel.SettingDialog.EncoderQuality == 0.5f ? 0.6f : 0.5f;
                 viewModel.SettingDialog.EncoderQuality = quality;
@@ -5637,7 +5665,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 scope.ShowAndWaitForContentRendered(window);
-                var general = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var general = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 FindDescendants<Button>(general).Single(button => Equals(button.Tag, "confirm:bmt"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(entered.Task, "BMT-section-accepted-P");
@@ -5646,9 +5674,9 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
                 Assert.IsTrue(settings.IsAudioOutputSelectionEnabled);
                 Assert.IsFalse(settings.IsEditCompletionEnabled);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var appearance = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var appearance = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 FindDescendants<CheckBox>(appearance).Single(check => check.Name == "checkBoxUseExternalPanelImage")
                     .SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                 Assert.IsTrue(values.UseExternalPanelImage);
@@ -5715,7 +5743,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             void ClickConfirm()
             {
-                var page = (FrameworkElement)((ContentControl)window!.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window!);
                 FindDescendants<Button>(page).Single(button => Equals(button.Tag, "confirm:bmt"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 AwaitViewOperationTerminal(settings);

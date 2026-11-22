@@ -14,7 +14,7 @@
 
 メイン一覧とプレイリスト一覧の列初期化は、所有する確認入口が明示的なOKを得た場合だけ、設定を置換します。否定、閉鎖、確認の表示失敗では初期化しません。表示失敗は、所有イベントで一度案内します。任意の失敗通知が失敗しても、初期化を実行したことにはしません。
 
-列設定は、`ICustomTableColumnLayout` の `Width`、`DisplayIndex`、`Visibility` で表します。列は、可視のものを `DisplayIndex` の順に、同値なら `FallbackOrder` の順で作ります。幅の変更と可視列の並べ替えは、設定オブジェクトへ反映し、設定の保存時に永続化します。
+列設定は、`ICustomTableColumnLayout` の `Width`、`DisplayIndex`、`Visibility` で表します。列は、可視のものを `DisplayIndex` の順に、同値なら `FallbackOrder` の順で作ります。幅の変更と可視列の並べ替えは、設定オブジェクトへ反映し、設定の保存時に永続化します。ただし統合候補一覧の列設定は設定に含めず、起動中だけ保持して永続化しません。
 
 表示先ごとに使う列設定は次のとおりです。
 
@@ -31,6 +31,7 @@
 | 導入保留 | `INSTALL` |
 | 履歴 | `PLAY_HISTORY` |
 | プレイリスト一覧 | 独立した `PlaylistSummaryColumnSettings` |
+| [統合候補一覧](../library/duplicate-files.md#統合候補一覧) | 独立した `DuplicateMergeCandidateColumnSettings`。起動中だけ保持し、設定へ保存しない |
 
 並べ替えや検索条件の変更は、表示先の変更ではありません。現在のツリー選択へ解決してから設定を選び、同じ表示先の設定が適用済みなら再適用しません。プレイリスト一覧の設定は、独立して互換性を補完します。
 

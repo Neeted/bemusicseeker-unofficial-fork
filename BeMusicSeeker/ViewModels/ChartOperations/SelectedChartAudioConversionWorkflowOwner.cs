@@ -36,14 +36,71 @@ internal interface ISelectedChartAudioConversionExecutor
     /// <param name="bmsFiles">変換する譜面。</param>
     /// <param name="saveDirectory">出力先フォルダ。</param>
     /// <param name="settings">この変換で使う設定のスナップショット。</param>
-    /// <param name="cancellationToken">変換を取り消すトークン。</param>
+    /// <param name="cancellationToken">変換を取り消すトークン。取消は譜面の音源の読込み・合成・書出しの途中へ届き、取消で完全な書出しに至らなかった譜面は結果へ報告しません。</param>
     /// <param name="reportFileCompleted">ファイルごとの結果の通知先。</param>
+    /// <param name="reportProgress">譜面ごとの段階と合成の進み具合の通知先。音声処理の呼出し側から呼ぶため、受け側は軽い処理だけを行います。</param>
     void Execute(
         IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
-        Action<SelectedChartAudioConversionFileResult> reportFileCompleted);
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted,
+        Action<SelectedChartAudioConversionProgress> reportProgress);
+}
+
+/// <summary>音声変換の進捗画面に表示する段階です。</summary>
+internal enum SelectedChartAudioConversionStage
+{
+    /// <summary>再生と先読みの停止です。譜面を特定しない、進捗画面が扱う最初の段階です。</summary>
+    StoppingPlayback,
+
+    /// <summary>譜面の解析です。</summary>
+    Analyzing,
+
+    /// <summary>音源の読込みです。</summary>
+    LoadingSources,
+
+    /// <summary>音声の合成です。</summary>
+    Synthesizing,
+
+    /// <summary>ファイルの書出しです。</summary>
+    Writing
+}
+
+/// <summary>実行側が報告する、現在処理中の譜面・段階・合成の進み具合を保持する変更不能な値です。</summary>
+internal sealed class SelectedChartAudioConversionProgress
+{
+    /// <summary>進捗の値を初期化します。</summary>
+    /// <param name="chartIndex">全体での譜面の位置(0始まり)。</param>
+    /// <param name="stage">現在の段階。</param>
+    /// <param name="synthesisFraction">現在の譜面の合成済みフレームの割合(0以上1以下)。合成以外の段階では参照されません。</param>
+    internal SelectedChartAudioConversionProgress(int chartIndex, SelectedChartAudioConversionStage stage, double synthesisFraction = 0d)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(chartIndex);
+        ChartIndex = chartIndex;
+        Stage = stage;
+        SynthesisFraction = Math.Clamp(synthesisFraction, 0d, 1d);
+    }
+
+    /// <summary>全体での譜面の位置(0始まり)です。</summary>
+    internal int ChartIndex { get; }
+
+    /// <summary>現在の段階です。</summary>
+    internal SelectedChartAudioConversionStage Stage { get; }
+
+    /// <summary>現在の譜面の合成済みフレームの割合です。</summary>
+    internal double SynthesisFraction { get; }
+
+    /// <summary>
+    /// 現在の譜面内の割合を返します。解析と読込みの間は0、合成の間は合成済みの割合、書出しの間は1です。
+    /// 段階の所要時間には重みを付けません。
+    /// </summary>
+    internal double ChartFraction => Stage switch
+    {
+        SelectedChartAudioConversionStage.Synthesizing => SynthesisFraction,
+        SelectedChartAudioConversionStage.Writing => 1d,
+        _ => 0d
+    };
 }
 
 /// <summary>音声変換した1譜面の成否、対象名、失敗原因、音源省略数を保持します。</summary>
@@ -306,6 +363,9 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
     private readonly ChartFileOperationSynchronizer operationAdmission;
 
+    /// <summary>実行側の進捗を画面へ渡す間隔です。音声処理の呼出し側から画面を更新せず、最新値だけを間引いて渡します。</summary>
+    private static readonly TimeSpan ProgressPollInterval = TimeSpan.FromMilliseconds(50);
+
     /// <param name="settingsProvider">変換ごとに一回だけ呼ぶ設定のスナップショット提供元。</param>
     /// <param name="isEncoderAvailable">形式と検索先から、外部エンコーダーを利用できるかを判定します。</param>
     /// <param name="playback">変換前に停止する再生の窓口。</param>
@@ -421,56 +481,50 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             {
                 throw new DirectoryNotFoundException();
             }
-            await playback.StopPlayback().ConfigureAwait(false);
             using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            int completedCount = 0;
-            int failedCount = 0;
-            var fileResults = new List<SelectedChartAudioConversionFileResult>();
+            var run = new ConversionRun(bmsFiles, operationCancellation, SynchronizationContext.Current);
             Action<SelectedChartAudioConversionFileResult> reportFileCompleted = fileResult =>
             {
                 if (fileResult == null)
                 {
                     throw new ArgumentNullException(nameof(fileResult));
                 }
-                Interlocked.Increment(ref completedCount);
+                Interlocked.Increment(ref run.CompletedCount);
                 if (!fileResult.Succeeded)
                 {
-                    Interlocked.Increment(ref failedCount);
+                    Interlocked.Increment(ref run.FailedCount);
                 }
-                fileResults.Add(fileResult);
+                lock (run.FileResults)
+                {
+                    run.FileResults.Add(fileResult);
+                }
             };
-            var conversionTask = Task.Run(
-                () => executor.Execute(
-                    bmsFiles,
-                    folderResult.FolderPath,
-                    settings,
-                    operationCancellation.Token,
-                    reportFileCompleted),
-                CancellationToken.None);
-            conversionTask.ObserveFault("tableContextMenuItemConvertToAudioFileClick");
 
             UiProgressResult progressResult;
             try
             {
+                // 進捗画面を先に開き、再生停止は画面が扱う処理の最初の段階として実行します。
                 progressResult = await dialogs.RunWithProgressAsync(
                     new UiProgressRequest(
                         BeMusicSeeker.Properties.Resources.Converting,
                         BuildProgressLabel(settings),
                         new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false)),
-                    context => ObserveConversionProgressAsync(
-                        conversionTask,
-                        operationCancellation,
-                        context,
-                        () => Volatile.Read(ref completedCount),
-                        bmsFiles),
+                    context =>
+                    {
+                        Task operation = RunProgressOperationAsync(
+                            run,
+                            context,
+                            folderResult.FolderPath,
+                            settings,
+                            reportFileCompleted);
+                        Volatile.Write(ref run.Operation, operation);
+                        return operation;
+                    },
                     operationCancellation.Token);
             }
             catch (Exception exception)
             {
-                await CancelAndDrainConversionAsync(
-                    conversionTask,
-                    operationCancellation,
-                    exception);
+                await CancelAndDrainConversionAsync(run, exception);
                 throw;
             }
             if (progressResult == null)
@@ -479,24 +533,39 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     UiDialogStatus.Failed,
                     error: new InvalidOperationException("Audio conversion progress route returned no result."));
             }
+            else if (progressResult.Status == UiDialogStatus.Accepted && Volatile.Read(ref run.Operation) == null)
+            {
+                progressResult = new UiProgressResult(
+                    UiDialogStatus.Failed,
+                    error: new InvalidOperationException("Audio conversion progress route did not run the operation."));
+            }
 
             if (progressResult.Status == UiDialogStatus.Accepted)
             {
-                await conversionTask;
+                await run.Operation;
+                if (run.StopFailure != null)
+                {
+                    ExceptionDispatchInfo.Capture(run.StopFailure).Throw();
+                }
+                if (run.ConversionTask != null)
+                {
+                    await run.ConversionTask;
+                }
             }
             else if (progressResult.Status == UiDialogStatus.CancelledByUser)
             {
-                await CancelAndDrainConversionAsync(conversionTask, operationCancellation);
+                await CancelAndDrainConversionAsync(run);
+                if (run.StopFailure != null)
+                {
+                    ExceptionDispatchInfo.Capture(run.StopFailure).Throw();
+                }
             }
             else
             {
                 var progressFailure = new InvalidOperationException(
                     "Audio conversion progress route failed: " + progressResult.Status,
                     progressResult.Error);
-                await CancelAndDrainConversionAsync(
-                    conversionTask,
-                    operationCancellation,
-                    progressFailure);
+                await CancelAndDrainConversionAsync(run, progressFailure);
                 throw progressFailure;
             }
 
@@ -505,9 +574,9 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             var result = SelectedChartAudioConversionResult.Create(
                 cancelled ? SelectedChartAudioConversionStatus.Cancelled : SelectedChartAudioConversionStatus.Completed,
                 bmsFiles.Count,
-                Volatile.Read(ref completedCount),
-                Volatile.Read(ref failedCount),
-                fileResults.ToArray());
+                Volatile.Read(ref run.CompletedCount),
+                Volatile.Read(ref run.FailedCount),
+                run.FileResults.ToArray());
             await ShowOptionalNotificationAsync(new UiMessageRequest(
                 BuildCompletionMessage(result, settings, cancelled),
                 BeMusicSeeker.Properties.Resources.Confirm,
@@ -662,69 +731,262 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             + settings.SampleFormatDisplayName;
     }
 
-    private static async Task ObserveConversionProgressAsync(
-        Task conversionTask,
-        CancellationTokenSource operationCancellation,
+    /// <summary>進捗画面の操作です。再生停止の段階を終えてから変換を開始し、変換の終端まで進捗を表示します。</summary>
+    private async Task RunProgressOperationAsync(
+        ConversionRun run,
         UiProgressContext context,
-        Func<int> completedCountProvider,
-        IReadOnlyList<ModelChartFile> bmsFiles)
+        string saveDirectory,
+        SelectedChartAudioConversionSettingsSnapshot settings,
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
     {
+        if (!await StopPlaybackStageAsync(run, context))
+        {
+            return;
+        }
+
+        var conversionTask = Task.Run(
+            () => executor.Execute(
+                run.Files,
+                saveDirectory,
+                settings,
+                run.Cancellation.Token,
+                reportFileCompleted,
+                run.ReportProgress),
+            CancellationToken.None);
+        run.ConversionTask = conversionTask;
+        conversionTask.ObserveFault("tableContextMenuItemConvertToAudioFileClick");
+        await ObserveConversionProgressAsync(run, conversionTask, context);
+    }
+
+    /// <summary>
+    /// 再生停止の段階を表示しながら停止の完了を待ちます。停止の失敗は元の例外として記録し、変換を始めません。
+    /// 取消は停止の完了を待ってから、変換を始めずに返します。
+    /// </summary>
+    /// <returns>変換を始めてよい場合だけtrueです。</returns>
+    private async Task<bool> StopPlaybackStageAsync(ConversionRun run, UiProgressContext context)
+    {
+        Task stopTask = InvokeOnCapturedContext(run.CallerContext, playback.StopPlayback);
+        bool cancelRequested = false;
+        do
+        {
+            try
+            {
+                context.ReportWithCancellationCheck(
+                    0,
+                    BeMusicSeeker.Properties.Resources.AudioConversionStageStoppingPlayback);
+            }
+            catch (ProgressDialogCancellationExcpetion)
+            {
+                cancelRequested = true;
+            }
+            if (cancelRequested || run.Cancellation.IsCancellationRequested)
+            {
+                cancelRequested = true;
+                break;
+            }
+            await Task.WhenAny(stopTask, Task.Delay(ProgressPollInterval));
+        }
+        while (!stopTask.IsCompleted);
+
+        // 停止は取消でも途中で捨てず、完了まで待ちます。
+        await Task.WhenAny(stopTask);
+        if (!cancelRequested)
+        {
+            // 停止の完了と同時に押された取消も、変換を始める前に拾います。
+            try
+            {
+                context.ThrowIfCancellationPending();
+            }
+            catch (ProgressDialogCancellationExcpetion)
+            {
+                cancelRequested = true;
+            }
+            cancelRequested |= run.Cancellation.IsCancellationRequested;
+        }
+        if (cancelRequested)
+        {
+            CancelConversion(run.Cancellation);
+        }
+        if (stopTask.IsFaulted || stopTask.IsCanceled)
+        {
+            try
+            {
+                await stopTask;
+            }
+            catch (Exception exception)
+            {
+                run.StopFailure = exception;
+            }
+            return false;
+        }
+        return !cancelRequested;
+    }
+
+    /// <summary>呼出し元の同期コンテキストがあればそこで、なければ呼出し元のまま再生停止を始めます。</summary>
+    private static Task InvokeOnCapturedContext(SynchronizationContext callerContext, Func<Task> action)
+    {
+        if (callerContext == null)
+        {
+            try
+            {
+                return action();
+            }
+            catch (Exception exception)
+            {
+                return Task.FromException(exception);
+            }
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        callerContext.Post(
+            _ =>
+            {
+                Task task;
+                try
+                {
+                    task = action();
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                    return;
+                }
+                task.ContinueWith(
+                    completed =>
+                    {
+                        if (completed.IsFaulted)
+                        {
+                            completion.TrySetException(completed.Exception.InnerExceptions);
+                        }
+                        else if (completed.IsCanceled)
+                        {
+                            completion.TrySetCanceled();
+                        }
+                        else
+                        {
+                            completion.TrySetResult();
+                        }
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            },
+            null);
+        return completion.Task;
+    }
+
+    private static async Task ObserveConversionProgressAsync(
+        ConversionRun run,
+        Task conversionTask,
+        UiProgressContext context)
+    {
+        SelectedChartAudioConversionProgress reported = null;
         while (!conversionTask.IsCompleted)
         {
             try
             {
-                int completedCount = completedCountProvider();
-                context.ReportWithCancellationCheck(
-                    100 * (completedCount + 1) / (bmsFiles.Count + 1),
-                    "[{0}/{1}] {2}",
-                    Math.Min(completedCount + 1, bmsFiles.Count),
-                    bmsFiles.Count,
-                    bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].Path);
+                // 実行側の通知は最新値だけを保持し、画面へは一定間隔で間引いて渡します。
+                SelectedChartAudioConversionProgress latest = Volatile.Read(ref run.LatestProgress);
+                if (ReferenceEquals(latest, reported))
+                {
+                    context.ThrowIfCancellationPending();
+                }
+                else
+                {
+                    reported = latest;
+                    int total = run.Files.Count;
+                    context.ReportWithCancellationCheck(
+                        FormatPercent(latest, total),
+                        "[{0}/{1}] {2} {3}",
+                        Math.Min(latest.ChartIndex + 1, total),
+                        total,
+                        GetStageName(latest.Stage),
+                        run.Files[Math.Min(latest.ChartIndex, total - 1)].Path);
+                }
             }
             catch (ProgressDialogCancellationExcpetion)
             {
-                await CancelAndDrainConversionAsync(conversionTask, operationCancellation);
+                // 実作業と資源解放の終端を待ってから、進捗画面を閉じます。
+                CancelConversion(run.Cancellation);
+                await Task.WhenAny(conversionTask);
                 return;
             }
 
-            await Task.WhenAny(conversionTask, Task.Delay(100));
+            await Task.WhenAny(conversionTask, Task.Delay(ProgressPollInterval));
         }
     }
 
-    private static async Task CancelAndDrainConversionAsync(
-        Task conversionTask,
-        CancellationTokenSource cancellation,
-        Exception primaryException = null)
+    /// <summary>(完了した譜面数 + 現在の譜面内の割合) / 全体数 を百分率にします。</summary>
+    private static int FormatPercent(SelectedChartAudioConversionProgress progress, int total)
     {
-        Exception cancellationFailure = null;
+        double percent = 100d * (progress.ChartIndex + progress.ChartFraction) / Math.Max(1, total);
+        return Math.Clamp((int)Math.Floor(percent + 1e-9), 0, 100);
+    }
+
+    private static string GetStageName(SelectedChartAudioConversionStage stage)
+    {
+        return stage switch
+        {
+            SelectedChartAudioConversionStage.StoppingPlayback => BeMusicSeeker.Properties.Resources.AudioConversionStageStoppingPlayback,
+            SelectedChartAudioConversionStage.Analyzing => BeMusicSeeker.Properties.Resources.AudioConversionStageAnalyzing,
+            SelectedChartAudioConversionStage.LoadingSources => BeMusicSeeker.Properties.Resources.AudioConversionStageLoadingSources,
+            SelectedChartAudioConversionStage.Synthesizing => BeMusicSeeker.Properties.Resources.AudioConversionStageSynthesizing,
+            SelectedChartAudioConversionStage.Writing => BeMusicSeeker.Properties.Resources.AudioConversionStageWriting,
+            _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, "Unknown audio conversion stage.")
+        };
+    }
+
+    private static void CancelConversion(CancellationTokenSource cancellation)
+    {
         try
         {
             cancellation.Cancel();
         }
         catch (Exception exception)
         {
-            cancellationFailure = exception;
+            TryLogConversionSecondaryFailure("cancellation callback", exception);
+        }
+    }
+
+    /// <summary>
+    /// 取消を要求し、進捗画面の操作と変換の実作業が終端に達するまで待ちます。
+    /// 取消による終了は結果として扱い、実行側の例外は主原因がなければ返し、あれば診断へ残します。
+    /// </summary>
+    private static async Task CancelAndDrainConversionAsync(
+        ConversionRun run,
+        Exception primaryException = null)
+    {
+        CancelConversion(run.Cancellation);
+
+        Task operation = Volatile.Read(ref run.Operation);
+        if (operation != null)
+        {
+            await Task.WhenAny(operation);
+            if (operation.IsFaulted)
+            {
+                TryLogConversionSecondaryFailure("progress operation", operation.Exception.GetBaseException());
+            }
         }
 
+        Task conversionTask = run.ConversionTask;
         Exception workerFailure = null;
-        try
+        if (conversionTask != null)
         {
-            await conversionTask;
-        }
-        catch (OperationCanceledException exception)
-            when (cancellation.IsCancellationRequested
-                && exception.CancellationToken == cancellation.Token)
-        {
-        }
-        catch (Exception exception)
-        {
-            workerFailure = exception;
+            try
+            {
+                await conversionTask;
+            }
+            catch (OperationCanceledException exception)
+                when (run.Cancellation.IsCancellationRequested
+                    && exception.CancellationToken == run.Cancellation.Token)
+            {
+            }
+            catch (Exception exception)
+            {
+                workerFailure = exception;
+            }
         }
 
-        if (cancellationFailure != null)
-        {
-            TryLogConversionSecondaryFailure("cancellation callback", cancellationFailure);
-        }
         if (primaryException != null)
         {
             if (workerFailure != null)
@@ -737,6 +999,55 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         {
             ExceptionDispatchInfo.Capture(workerFailure).Throw();
         }
+    }
+
+    /// <summary>一回の変換で、進捗画面の操作・変換の実作業・計数が共有する状態です。</summary>
+    private sealed class ConversionRun
+    {
+        internal ConversionRun(
+            IReadOnlyList<ModelChartFile> files,
+            CancellationTokenSource cancellation,
+            SynchronizationContext callerContext)
+        {
+            Files = files;
+            Cancellation = cancellation;
+            CallerContext = callerContext;
+            LatestProgress = new SelectedChartAudioConversionProgress(0, SelectedChartAudioConversionStage.Analyzing);
+            ReportProgress = progress =>
+            {
+                if (progress != null)
+                {
+                    Volatile.Write(ref LatestProgress, progress);
+                }
+            };
+        }
+
+        internal IReadOnlyList<ModelChartFile> Files { get; }
+
+        internal CancellationTokenSource Cancellation { get; }
+
+        /// <summary>再生停止を呼出し元の文脈で行うための同期コンテキストです。なければnullです。</summary>
+        internal SynchronizationContext CallerContext { get; }
+
+        internal List<SelectedChartAudioConversionFileResult> FileResults { get; } = [];
+
+        internal int CompletedCount;
+
+        internal int FailedCount;
+
+        /// <summary>実行側が最後に通知した進捗です。</summary>
+        internal SelectedChartAudioConversionProgress LatestProgress;
+
+        internal Action<SelectedChartAudioConversionProgress> ReportProgress { get; }
+
+        /// <summary>進捗画面へ渡した操作のTaskです。画面が操作を呼ばなかった場合はnullです。</summary>
+        internal Task Operation;
+
+        /// <summary>変換の実作業のTaskです。再生停止で終わった場合はnullです。</summary>
+        internal Task ConversionTask;
+
+        /// <summary>再生停止が失敗した場合の元の例外です。</summary>
+        internal Exception StopFailure;
     }
 
     private static void TryLogConversionSecondaryFailure(string stage, Exception exception)
@@ -792,12 +1103,18 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         this.sessionLease = sessionLease ?? throw new ArgumentNullException(nameof(sessionLease));
     }
 
+    /// <summary>
+    /// 譜面ごとに、解析・音源の読込み・合成・書出しの順に変換します。取消は音源の読込みと合成の途中、書出しの供給ごとに届き、
+    /// 取消で完全な書出しに至らなかった譜面は結果へ報告せず、その譜面の未完成の出力は削除して処理を終えます。
+    /// </summary>
+    /// <param name="reportProgress">段階と合成の割合の通知先です。省略時は通知しません。</param>
     public void Execute(
         IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
-        Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted,
+        Action<SelectedChartAudioConversionProgress> reportProgress = null)
     {
         if (!LongPathFileSystem.DirectoryExists(saveDirectory))
         {
@@ -844,11 +1161,15 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
 
                 Exception fileException = null;
                 Exception fatalFileException = null;
+                bool cancelledFile = false;
                 int omittedAudioSourceCount = 0;
                 RibbitBmsAutoPlayWriter writer = null;
                 try
                 {
                     index++;
+                    int chartIndex = index - 1;
+                    reportProgress?.Invoke(new SelectedChartAudioConversionProgress(
+                        chartIndex, SelectedChartAudioConversionStage.Analyzing));
                     var source = Ribbit.BMS.PlaybackChart.Load(bmsFile.Path);
                     string fileName = new Dictionary<string, string>
                     {
@@ -875,14 +1196,26 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                     }
                     string outputPath = Path.Combine(saveDirectory, fileName);
                     writer = new RibbitBmsAutoPlayWriter(source);
-                    writer.LoadResources();
+                    reportProgress?.Invoke(new SelectedChartAudioConversionProgress(
+                        chartIndex, SelectedChartAudioConversionStage.LoadingSources));
+                    writer.LoadResources(cancellationToken);
                     omittedAudioSourceCount = writer.OmittedAudioSources.Count;
                     writer.Write(
                         settings.Encoder,
                         settings.EncoderQuality,
                         outputPath,
                         BassAudioMapping.ToBassNormalization(settings.EncoderNormalization),
-                        settings.EncoderAmplifier);
+                        settings.EncoderAmplifier,
+                        cancellationToken,
+                        fraction => reportProgress?.Invoke(new SelectedChartAudioConversionProgress(
+                            chartIndex, SelectedChartAudioConversionStage.Synthesizing, fraction)),
+                        () => reportProgress?.Invoke(new SelectedChartAudioConversionProgress(
+                            chartIndex, SelectedChartAudioConversionStage.Writing)));
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // 取消で途中終了した譜面は未処理として数え、失敗の結果にも診断にも出しません。
+                    cancelledFile = true;
                 }
                 catch (Exception ex) when (IsFatalConversionFailure(ex))
                 {
@@ -916,6 +1249,10 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                 if (fatalFileException != null)
                 {
                     ExceptionDispatchInfo.Capture(fatalFileException).Throw();
+                }
+                if (cancelledFile)
+                {
+                    break;
                 }
 
                 terminalFileResult = null;

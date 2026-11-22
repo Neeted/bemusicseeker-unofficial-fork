@@ -149,7 +149,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         AddHandler(System.Windows.Controls.Primitives.Thumb.DragCompletedEvent,
             new System.Windows.Controls.Primitives.DragCompletedEventHandler(settingsSliderDragCompleted));
         categoryPages = new UserControl[11];
-        settingsPageContent.Content = GetOrCreateCategoryPage(0);
+        GetOrCreateCategoryPage(0);
         LogSettingsDialogPerformance("settings_window_construct", construction);
     }
 
@@ -190,7 +190,10 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                 Source = this,
                 Mode = BindingMode.OneWay
             });
+            // UI Automation では、選択中のタブ項目の子として本文のページを公開する。
+            System.Windows.Automation.AutomationProperties.SetAutomationId(page, "SettingsSelectedPageContent");
             categoryPages[index] = page;
+            ((TabItem)settingsNavigation.Items[index]).Content = page;
             return page;
         }
         finally
@@ -410,15 +413,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private void settingsNavigationSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (categoryPages == null
+        // ページ内の一覧や選択欄の SelectionChanged も上がってくるため、タブ自身の切替だけを扱う。
+        if (!ReferenceEquals(e.OriginalSource, settingsNavigation)
+            || categoryPages == null
             || settingsNavigation.SelectedIndex < 0
             || settingsNavigation.SelectedIndex >= categoryPages.Length)
         {
             return;
         }
 
-        settingsPageContent.Content = GetOrCreateCategoryPage(settingsNavigation.SelectedIndex);
-        settingsPageScrollViewer.ScrollToVerticalOffset(0d);
+        // 各ページは初回の選択時に一度だけ作り、タブ項目の内容へ接続する。本文を先頭へ戻す処理はタブ自身が行う。
+        GetOrCreateCategoryPage(settingsNavigation.SelectedIndex);
     }
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)

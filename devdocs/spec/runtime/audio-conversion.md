@@ -96,8 +96,8 @@ Float32のWAVは、有限の±1超過をそのまま保存します。整数入�
 
 利用できない場合は、譜面の件数によらず一回だけ、題名を `Resources.Warning` とするOK・キャンセルの警告確認を表示します。既定はキャンセルで、本文は選んだ形式の表示名と必要な実行ファイル名を示し、OKで今回の変換だけをWAVEで続行すること、キャンセルで中止すること、設定の保存形式が変わらないことを伝えます。確認中はライブラリ操作の受付を保持しません。
 
-- OKでは、形式と表示名だけをWAVEへ置き換え、他の値を捕捉時のまま保った今回専用のスナップショットを使い、設定を読み直しません。以後の出力フォルダ選択、受付、出力先確認、再生停止、変換、進捗、完了通知は従来の順序で進みます。
-- キャンセル・否定・ウィンドウ閉鎖では、出力フォルダ選択、受付、再生停止、変換、進捗、完了通知を行わず、対象数だけを持つ `Cancelled` を返します。
+- OKでは、形式と表示名だけをWAVEへ置き換え、他の値を捕捉時のまま保った今回専用のスナップショットを使い、設定を読み直しません。以後の出力フォルダ選択、受付、出力先確認、進捗画面、再生停止、変換、完了通知は[進捗画面と取消](#進捗画面と取消)の順序で進みます。
+- キャンセル・否定・ウィンドウ閉鎖では、出力フォルダ選択、受付、進捗画面、再生停止、変換、完了通知を行わず、対象数だけを持つ `Cancelled` を返します。
 - 確認が表示できない・失敗した場合は、変換せずに `InvalidOperationException` とし、失敗の原因を内部例外へ残します。確認自体の例外は伝播させます。
 
 共有設定の `Encoder` は、確認の結果によらず書き換えません。実行側は渡されたスナップショットの形式をそのまま使い、ファイルごとの可用性判定やWAVEへの代替をしません。確認後に実行ファイルが失われた場合は、各ファイルの通常の失敗として結果へ残し、バッチは続行します。進捗の見出しと完了通知は、実際に使ったスナップショットの形式の表示名を示します。設定ページの表示時に実行ファイルの有無だけで形式を置き換えない扱いは、[設定](settings.md)に従います。設定ページでの検索先の変更時に、変換の事前確認を再実行することは対象外です。
@@ -118,7 +118,28 @@ Float32のWAVは、有限の±1超過をそのまま保存します。整数入�
 
 ### 選択後の出力先確認
 
-出力フォルダの選択が受理された後、再生を停止する直前に、`SelectedChartAudioConversionWorkflowOwner` が `LongPathFileSystem.DirectoryExists` で選択先を確認します。フォルダが存在しなければ標準の `DirectoryNotFoundException` を送出し、再生停止、進捗表示、変換、完了通知へ進みません。変換の実行側も開始時に出力先を再確認し、選択先の確認後にフォルダが失われていれば変換を拒否します。
+出力フォルダの選択が受理された後、進捗画面を開く直前に、`SelectedChartAudioConversionWorkflowOwner` が `LongPathFileSystem.DirectoryExists` で選択先を確認します。フォルダが存在しなければ標準の `DirectoryNotFoundException` を送出し、進捗表示、再生停止、変換、完了通知へ進みません。変換の実行側も開始時に出力先を再確認し、選択先の確認後にフォルダが失われていれば変換を拒否します。
+
+### 進捗画面と取消
+
+出力先の確認と操作受付の成功後、再生停止を待つ前に進捗画面を開きます。再生停止は、進捗画面が扱う処理の最初の段階です。
+
+- 進捗画面を表示できない場合は、再生停止も変換も始めず、完了通知も出さずに `InvalidOperationException` とします。
+- 再生停止が失敗した場合は、変換を始めずに元の例外を呼出元へ返します。
+- 表示後に進捗の経路が失敗した場合は、変換を取り消し、実作業の終端を待ってから失敗を返します。
+
+段階は、再生の停止、譜面の解析、音源の読込み、音声の合成、ファイルの書出しです。段階名は表示リソースから取ります。
+
+- 表示は「[現在の番号/全体数] 段階名 譜面パス」です。再生停止の段階は番号とパスを付けず、段階名だけを表示します。
+- 割合は `(完了した譜面数 + 現在の譜面の合成済みフレームの割合) / 全体数` の百分率で、小数点以下を切り捨てます。再生停止の段階は0、解析と読込みの間は譜面内の割合を0、書出しの間は1とします。段階の所要時間に重みを付けません。
+- 変換の実行側は最新の段階と割合を書くだけで、画面への反映は管理主体が間引いて行います。合成の処理から画面の操作や同期のログを行いません。
+
+取消は、音源の読込み、直接合成の波形の作成、合成、PCMの供給の途中へ届けます。
+
+- 取消後は、実作業とエンコーダー・音声セッションの解放の終端を待ってから進捗画面を閉じます。
+- 取消で完全な書出しに至らなかった出力ファイルは、エンコーダーの解放を確認してから削除します。削除するのは、その変換が採番して作成したファイルだけで、既存の完成ファイルは変更しません。
+- 取消で途中終了した譜面は未処理として数え、失敗の理由一覧には出しません。
+- 再生停止の段階で取り消された場合は、停止の完了を待ち、変換を始めずに全件未処理の `Cancelled` を返します。
 
 ### 開始と所有
 
@@ -144,7 +165,7 @@ flowchart TB
 
 `AudioPcmRenderer` はフレーム単位で読み、正の短い読取りは処理して継続します。0バイトの予期しない停滞、フレームの不整列、非有限値、ネイティブの失敗は成功としません。明示的なEOFが、有限の要求フレーム数に届かない場合も失敗です。
 
-エンコーダーは一時停止の状態で作成して自動のDSP供給を止め、完成PCMを、エンコーダーのハンドルを指定した同期の `EncodeWrite` で一回だけ供給します。Pausedは正常な活動状態です。非同期キューは使いません。最終の整数変換だけにTPDFを適用し、float入力にはditherしません。音源は、供給とエンコーダーの終了確認まで保持します。
+エンコーダーは一時停止の状態で作成して自動のDSP供給を止め、完成PCMを、エンコーダーのハンドルを指定した同期の `EncodeWrite` で、先頭から順に重複なく供給します。供給は完全なフレームの境界で区切り、区切りごとに取消を確認します。Pausedは正常な活動状態です。非同期キューは使いません。最終の整数変換だけにTPDFを適用し、float入力にはditherしません。音源は、供給とエンコーダーの終了確認まで保持します。
 
 24bitだけは供給の直前に明示的に量子化します。固定版での実測による根拠、代替案、標準の変換へ戻す条件は[設計判断](../../decisions/audio-library-boundaries.md#24bitだけ明示的に量子化する理由)に従います。doubleで `q = Clamp(RoundToEven(x × 2^23 + U1 − U2), −2^23, 2^23−1)` を求め、正確に表現できる `q / 2^23` のfloat32を、再利用する小さい作業配列へ格納します。U1・U2はエンコーダー単位の乱数列から得る、独立した[0,1)の一様乱数です。元のPCMは変更せず、ネイティブ側のDITHERは無効にして、24bitへの正確な格納変換だけを行います。元入力の範囲検査は維持し、clampはditherの後の端点に限ります。24bit以外の整数形式は、BASSencのTPDFを使います。
 
@@ -177,6 +198,7 @@ flowchart TB
 | 開始・通知・停止・実形式、途中終了と解放の所有 | [`AudioEncoderSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioEncoderSession.cs)、[`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`AudioEncoderSessionTests`](../../../tests/BeMusicSeeker.Core.Tests/Playback/AudioEncoderSessionTests.cs)、[`BassAudioWriterTests`](../../../tests/BeMusicSeeker.Core.Tests/Playback/BassAudioWriterTests.cs) |
 | 選択後の出力先の消失を再生停止前に拒否し、変換開始時にも再確認 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs)、`BassSelectedChartAudioConversionExecutor` | [`SelectedChartAudioConversionWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) / [`SelectedChartAudioConversionWorkflowOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) が、選択直後に消失した場合は停止・進捗・通知が行われないこと、停止時に消失した場合は実行側が拒否することを確認する。 |
 | ファイルごとの成功・失敗・未処理、主な失敗、省略音源数の警告、解放できない場合の停止 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs) | [`SelectedChartAudioConversionWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) / [`SelectedChartAudioConversionWorkflowOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) が、一回の完了通知、警告つきの成功を含む件数、譜面名と省略パス数、主な失敗、未処理数を確認する。 |
+| 進捗画面の先行表示、段階と割合の表示、取消の終端待ち、未完成出力の削除 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs)、`BassSelectedChartAudioConversionExecutor`、[`BMSAutoPlayWriter`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、[`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) の `WritePcm` / `TryDiscardIncompleteOutput` | [`SelectedChartAudioConversionWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `RunAsync_AcceptedRoutePreservesCountsSettingsAndTerminalNotificationOrder` と `RunAsync_WaitsForPlaybackCleanupBeforeStartingWriter` が、進捗表示、再生停止、実行の順序と停止中の段階表示を確認する。`RunAsync_ProgressFailureCancelsExecutionAndDoesNotShowCompletion` が表示不可と表示後の失敗を、`RunAsync_PlaybackStopFailureReturnsTheOriginalExceptionWithoutStartingConversion` が停止の失敗を、`RunAsync_DisplaysStageNamesChartPathsAndWeightlessPercent` が2譜面の段階名・パス・割合(0、25、50、75、100)を、`RunAsync_CancellationDuringSynthesisHoldsTheProgressUntilExecutionTerminates` と `RunAsync_CancellationDuringPlaybackStopWaitsForStopAndDoesNotStartConversion` が取消の終端待ちと結果を確認する。[`SelectedChartAudioConversionWorkflowOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `ProductionExecutorReportsStagesAndHonorsCancellationAtEveryPosition` が、本番の実行側で段階の順序と合成の割合、読込み・合成の途中の取消で出力が残らず既存ファイルが保全されることを確認する。[`BMSAutoPlayWriterTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BMSAutoPlayWriterTests.cs) の `WriterCancelledWhileWritingPcmDiscardsOnlyTheNumberedIncompleteOutput` が、開始後の取消済みの供給で採番した未完成の出力だけが削除され、エンコーダーが解放されることを、`WriterCancelledAtTheWritingStageLeavesNoOutputAndKeepsTheExistingFile` が書出しの段階の取消で出力が残らないことを確認する。6言語の段階名は `LocalizationResourceParityTests` が確認する。再生停止を呼出元の同期コンテキストへ渡す経路は静的に確認し、実際の進捗ウィンドウの描画と外部エンコーダーでの取消は自動テストで確認していない。 |
 | 別途用意した実エンコーダーとの接続 | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
 | 一回のレンダリング、全体RMS、絶対フレーム、有限音源の最終フレーム、末尾無音の下限、空変換の拒否、再生設定の不変 | [`BMSAutoPlayWriter`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、[`BmsAudioFrameSchedule`](../../../BeMusicSeeker/Ribbit/BMS/BmsAudioFrameSchedule.cs)、[`BmsScheduledAudioMixer`](../../../BeMusicSeeker/Ribbit/BMS/BmsScheduledAudioMixer.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`BMSAutoPlayWriterTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BMSAutoPlayWriterTests.cs) が、固定入力から独立に求めた出力長、非零の最終音フレーム、開始時刻の丸め、再発音、末尾無音をWAVで確認する。[`BmsRealtimeAudioSchedulerTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BmsRealtimeAudioSchedulerTests.cs) が、BPM・EXBPM・STOP・小節長・aliasを含む譜面の固定の期待フレーム、WriterのPCM、リアルタイムのPCMを照合する。[`AudioPcmRendererTests`](../../../tests/BeMusicSeeker.Core.Tests/Playback/AudioPcmRendererTests.cs) が、フレームの取得と測定の契約を確認する。 |
 | 最終の整数変換、float過大値の保存、24bitの正確な格子 | [`AudioPcm24Quantizer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcm24Quantizer.cs)、`AudioEncoderSession` | [`AudioOutputNativeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/AudioOutputNativeTests.cs) が、正負0.25 LSBと無音を各2^20サンプルで、平均誤差0.02 LSB以下、最大誤差2 LSB以下として検査する。24bit無音の−1/0/+1の頻度は、1/8・3/4・1/8に対して各0.005以内である。 |

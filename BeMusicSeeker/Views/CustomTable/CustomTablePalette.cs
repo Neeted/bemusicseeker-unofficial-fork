@@ -27,7 +27,9 @@ internal sealed class CustomTablePalette
         Pen headerBorder,
         Pen columnReorderInsert,
         Pen checkBoxBorder,
-        Pen checkBoxCheck)
+        Pen checkBoxCheck,
+        Pen checkBoxDisabledBorder,
+        Pen checkBoxDisabledCheck)
     {
         HeaderBackground = headerBackground;
         RowBackground = rowBackground;
@@ -48,6 +50,8 @@ internal sealed class CustomTablePalette
         ColumnReorderInsert = columnReorderInsert;
         CheckBoxBorder = checkBoxBorder;
         CheckBoxCheck = checkBoxCheck;
+        CheckBoxDisabledBorder = checkBoxDisabledBorder;
+        CheckBoxDisabledCheck = checkBoxDisabledCheck;
     }
 
     internal static CustomTablePalette Current
@@ -101,6 +105,12 @@ internal sealed class CustomTablePalette
 
     internal Pen CheckBoxCheck { get; }
 
+    /// <summary>無効なチェックボックス・ラジオボタンの枠です。背景は塗らず、行の背景を見せます。</summary>
+    internal Pen CheckBoxDisabledBorder { get; }
+
+    /// <summary>無効なチェックボックスのチェックと、ラジオボタンの中央の塗りです。</summary>
+    internal Pen CheckBoxDisabledCheck { get; }
+
     internal static void Invalidate()
     {
         cachedVersion = -1;
@@ -143,7 +153,10 @@ internal sealed class CustomTablePalette
             CreatePen(FindBrush("Table.HeaderGridLineBrush", Color.FromRgb(0xC8, 0xCC, 0xD1)), 1d),
             CreatePen(FindBrush("Table.ColumnReorderInsertBrush", Colors.Black), 3d),
             CreatePen(FindBrush("Table.CheckBoxBorderBrush", Color.FromRgb(0x45, 0x4A, 0x50)), 1d),
-            CreatePen(FindBrush("Table.CheckBoxCheckBrush", Color.FromRgb(0x20, 0x20, 0x20)), 1.8d));
+            CreatePen(FindBrush("Table.CheckBoxCheckBrush", Color.FromRgb(0x20, 0x20, 0x20)), 1.8d),
+            // 無効色は、テーマごとの専用リソースを増やさず、補助的な文字色（既存のテーマ資源）から導く。
+            CreatePen(subtleForeground, 1d),
+            CreatePen(subtleForeground, 1.8d));
     }
 
     private static Brush FindBrush(string key, Color fallbackColor)

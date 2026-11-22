@@ -52,8 +52,21 @@ internal static class TestBmsFactory
 }
 
 /// <summary>呼出し側が所有するDB寿命と、固定した全機能有効の読込み条件を共有するテスト用ライブラリです。</summary>
-internal sealed class TestBmsLibrary : BMSLibrary
+internal sealed class TestBmsLibrary : BMSLibrary, IDuplicateMergeCandidateListSource
 {
+    /// <summary>統合候補一覧の構築が解決を呼ぶ位置（UIスレッド外）で実行する観測・保留・失敗の注入点です。</summary>
+    internal Action<CancellationToken> DuplicateMergeCandidateResolveHook { get; set; }
+
+    IReadOnlyDictionary<string, (string Title, string Artist)> IDuplicateMergeCandidateListSource.ResolveDestinationDisplayPairs(
+        IReadOnlyList<string> folders, CancellationToken cancellationToken)
+    {
+        DuplicateMergeCandidateResolveHook?.Invoke(cancellationToken);
+        return ResolveDuplicateMergeCandidatePairs(folders, cancellationToken);
+    }
+
+    Func<string, bool> IDuplicateMergeCandidateListSource.CaptureRegisteredBmsRootPredicate()
+        => CaptureDuplicateMergeCandidateRegisteredPredicate();
+
     /// <summary>当該fixtureが所有する実確定設定です。稼働rootの別一覧は保持しません。</summary>
     internal Settings FixtureSettings { get; }
     /// <summary>LR2 fixtureが実登録の保存・公開に用いる採用済み所有者です。</summary>

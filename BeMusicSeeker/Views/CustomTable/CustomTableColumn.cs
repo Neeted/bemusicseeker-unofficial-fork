@@ -17,7 +17,9 @@ public enum CustomTableCellKind
     DownloadIcon,
     StatusIcon,
     ActionText,
-    CheckBox
+    CheckBox,
+    /// <summary>選択済み（true）・未選択（false）を円で示します。値がnullなら何も描きません。操作は <see cref="CheckBox"/> と同じです。</summary>
+    RadioButton
 }
 
 /// <summary>
@@ -26,7 +28,7 @@ public enum CustomTableCellKind
 /// </summary>
 internal sealed class CustomTableTextStyle
 {
-    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultFontFamily;
+    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultTableFontFamily;
 
     private CustomTableTextStyle(FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {
@@ -140,6 +142,14 @@ public sealed class CustomTableColumn
     /// <summary>列定義を作ります。</summary>
     /// <param name="header">固定の見出し文字列。<paramref name="headerSelector"/> がある場合は使用しません。null も許容します。</param>
     /// <param name="headerSelector">見出しを呼出しごとに現在の表示言語の資源値から返す関数。指定時は <paramref name="header"/> より優先し、null なら固定見出しを使います。</param>
+    /// <param name="mergesRowGroup">
+    /// trueなら、行グループの提供元（<see cref="ICustomTableRowGroupSource"/>）を持つ表で、グループの全行にまたがる一つのセルとして描きます。
+    /// 値・チェック状態・ツールチップ・操作可否をグループ内の全行で一致させることは、行の供給側の責任です。提供元を持たない表では通常の列です。
+    /// </param>
+    /// <param name="enabledSelector">
+    /// チェックボックス・ラジオボタンの操作可否を行ごとに返す関数。falseの行は無効色で描き、クリックしても <see cref="CustomTableView.CellActionRequested"/> を送りません。
+    /// nullなら常に操作できます。
+    /// </param>
     internal CustomTableColumn(
         string id,
         string header,
@@ -168,7 +178,9 @@ public sealed class CustomTableColumn
         Func<object, IEnumerable<string>> editSuggestionsSelector = null,
         double? tooltipTextWidth = null,
         bool autoTrimTooltip = true,
-        Func<string> headerSelector = null)
+        Func<string> headerSelector = null,
+        bool mergesRowGroup = false,
+        Func<object, bool> enabledSelector = null)
     {
         Id = id;
         configuredHeader = header;
@@ -198,6 +210,8 @@ public sealed class CustomTableColumn
         EditSuggestionsSelector = editSuggestionsSelector;
         TooltipTextWidth = NormalizeTooltipTextWidth(tooltipTextWidth);
         AutoTrimTooltip = autoTrimTooltip;
+        MergesRowGroup = mergesRowGroup;
+        EnabledSelector = enabledSelector;
     }
 
     public string Id { get; }
@@ -270,6 +284,11 @@ public sealed class CustomTableColumn
 
     internal Func<object, bool?> CheckedSelector { get; }
 
+    internal Func<object, bool> EnabledSelector { get; }
+
+    /// <summary>行グループの提供元を持つ表で、グループの全行にまたがる一つのセルとして描く列かどうかです。</summary>
+    internal bool MergesRowGroup { get; }
+
     internal Func<object, string> EditTextSelector { get; }
 
     internal Func<object, IEnumerable<string>> EditSuggestionsSelector { get; }
@@ -338,6 +357,12 @@ public sealed class CustomTableColumn
     internal bool? GetChecked(object row)
     {
         return CheckedSelector == null ? null : CheckedSelector(row);
+    }
+
+    /// <summary>チェックボックス・ラジオボタンを操作できるかを返します。選択子がない列は常に操作できます。</summary>
+    internal bool GetEnabled(object row)
+    {
+        return EnabledSelector == null || EnabledSelector(row);
     }
 
     internal IReadOnlyList<string> GetEditSuggestions(object row)
@@ -544,6 +569,61 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 16, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsRootFolder)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
             new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 17, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
             new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 18, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsBmtOutput)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
+        ];
+    }
+
+    /// <summary>統合候補一覧の表示列を作成します。列の並びは、表示位置の指定がなければ既定の順です。</summary>
+    internal static IReadOnlyList<CustomTableColumn> CreateDuplicateCandidateColumns(DuplicateMergeCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            return [];
+        }
+        return [.. CreateAllDuplicateCandidateColumns(settings)
+            .Where(column => column.IsVisible)
+            .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
+            .ThenBy(column => column.FallbackOrder)];
+    }
+
+    internal static IEnumerable<PlaylistSummaryColumnSettings.ColumnLayout> EnumerateDuplicateCandidateColumnLayouts(DuplicateMergeCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            yield break;
+        }
+        foreach (CustomTableColumn column in CreateAllDuplicateCandidateColumns(settings))
+        {
+            if (column.Layout is PlaylistSummaryColumnSettings.ColumnLayout layout)
+            {
+                yield return layout;
+            }
+        }
+    }
+
+    /// <summary>
+    /// SELECTとSTATUSはグループの全行にまたがる結合列、KEEPはラジオボタンの列です。値は行（不変）が指すグループの状態から読みます。
+    /// 固定のKEEPと統合不可のSELECTは無効表示で、操作できません。KEEPは並べ替えの対象外です。
+    /// </summary>
+    private static CustomTableColumn[] CreateAllDuplicateCandidateColumns(DuplicateMergeCandidateColumnSettings settings)
+    {
+        return
+        [
+            new CustomTableColumn("Select", "SELECT", settings.Select, 0, "Select", TextAlignment.Center, row => string.Empty,
+                checkedSelector: row => (row as DuplicateMergeCandidateRow)?.State.IsSelected,
+                cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false, mergesRowGroup: true,
+                enabledSelector: row => (row as DuplicateMergeCandidateRow)?.State.CanSelect == true),
+            new CustomTableColumn("Status", "STATUS", settings.Status, 1, "Status", TextAlignment.Left,
+                row => (row as DuplicateMergeCandidateRow)?.StatusText ?? string.Empty,
+                tooltipSelector: row => (row as DuplicateMergeCandidateRow)?.StatusTooltipText,
+                tooltipTextWidth: WrappedTooltipTextWidth, mergesRowGroup: true),
+            new CustomTableColumn("Keep", "KEEP", settings.Keep, 2, null, TextAlignment.Center, row => string.Empty,
+                checkedSelector: row => (row as DuplicateMergeCandidateRow)?.IsKeep,
+                cellKind: CustomTableCellKind.RadioButton, autoTrimTooltip: false,
+                enabledSelector: row => (row as DuplicateMergeCandidateRow)?.State.KeepFixed == false),
+            new CustomTableColumn("Path", "PATH", settings.Path, 3, "Path", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Path ?? string.Empty),
+            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 4, "Folder", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.FolderName ?? string.Empty),
+            new CustomTableColumn("Title", "TITLE", settings.Title, 5, "Title", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Title ?? string.Empty),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 6, "Artist", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Artist ?? string.Empty)
         ];
     }
 

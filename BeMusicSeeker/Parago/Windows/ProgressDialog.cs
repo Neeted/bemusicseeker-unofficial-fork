@@ -12,6 +12,8 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
 {
     private volatile bool _isBusy;
 
+    private bool _operationOwnsCancellation;
+
     private BackgroundWorker _worker;
 
     public string Label
@@ -53,6 +55,7 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
             SubTextLabel.Visibility = Visibility.Collapsed;
         }
         CancelButton.Visibility = ((!settings.ShowCancelButton) ? Visibility.Collapsed : Visibility.Visible);
+        _operationOwnsCancellation = settings.OperationOwnsCancellation;
         ProgressBar.IsIndeterminate = settings.ShowProgressBarIndeterminate;
     }
 
@@ -74,7 +77,7 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
             ProgressDialogContext current = null;
             try
             {
-                current = new ProgressDialogContext(s as BackgroundWorker, e);
+                current = new ProgressDialogContext(s as BackgroundWorker, e, DisableCancellation);
                 if (operation is Action)
                 {
                     ((Action)operation)();
@@ -91,14 +94,18 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
                     }
                     e.Result = ((Func<object>)operation)();
                 }
-                current.CheckCancellationPending();
+                if (!_operationOwnsCancellation)
+                {
+                    current.CheckCancellationPending();
+                }
             }
             catch (ProgressDialogCancellationExcpetion)
             {
             }
             catch (Exception)
             {
-                if (current == null || !current.CheckCancellationPending())
+                // 取消を操作に任せる場合は、取消の要求中でも操作の例外を握りつぶさず、結果として返します。
+                if (_operationOwnsCancellation || current == null || !current.CheckCancellationPending())
                 {
                     throw;
                 }
@@ -115,7 +122,7 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
         };
         _worker.ProgressChanged += delegate (object s, ProgressChangedEventArgs e)
         {
-            if (!_worker.CancellationPending)
+            if (_operationOwnsCancellation || !_worker.CancellationPending)
             {
                 SubLabel = (e.UserState as string) ?? string.Empty;
                 ProgressBar.Value = e.ProgressPercentage;
@@ -130,10 +137,27 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
     {
         if (_worker != null && _worker.WorkerSupportsCancellation)
         {
-            SubLabel = "aborting ...";
+            if (!_operationOwnsCancellation)
+            {
+                SubLabel = "aborting ...";
+            }
             CancelButton.IsEnabled = false;
             _worker.CancelAsync();
         }
+    }
+
+    /// <summary>
+    /// 取消ボタンを無効にします。操作が取消できない段階へ進んだことを利用者へ示します。どのスレッドからでも呼べ、UIスレッドの完了を待ちません。
+    /// </summary>
+    private void DisableCancellation()
+    {
+        void Disable() => CancelButton.IsEnabled = false;
+        if (Dispatcher.CheckAccess())
+        {
+            Disable();
+            return;
+        }
+        Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)Disable);
     }
 
     private void OnClosing(object sender, CancelEventArgs e)

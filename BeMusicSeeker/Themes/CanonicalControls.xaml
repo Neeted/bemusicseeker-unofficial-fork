@@ -43,27 +43,39 @@
     <Setter Property="AutomationProperties.Name" Value="" />
   </Style>
 
+  <!--
+    キーボード操作の位置を示す共通のフォーカス枠。WPFのFocusVisualStyleは、キーボード操作でフォーカスが
+    移ったときだけ表示され、マウス操作では表示されない。部品の内側へ直角の二重線を描き、外側の2 DIPは
+    通常の背景で、その内側の1 DIPは強調色で塗った背景で見える。外側へ描かないのは、スクロール領域や
+    ペインの端で切り取られないようにするため。TreeViewItemFocusCueの見出し行の枠も同じ見た目に揃える。
+  -->
+  <Style x:Key="App.FocusVisualStyle" TargetType="{x:Type Control}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type Control}">
+          <Border BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
+                  BorderThickness="2"
+                  SnapsToDevicePixels="True">
+            <Border BorderBrush="{DynamicResource App.AccentFocusRingBrush}"
+                    BorderThickness="1" />
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <ControlTemplate x:Key="App.Canonical.ButtonTemplate" TargetType="{x:Type Button}">
-    <Grid SnapsToDevicePixels="True">
-      <Border x:Name="ButtonChrome"
-              Background="{TemplateBinding Background}"
-              BorderBrush="{TemplateBinding BorderBrush}"
-              BorderThickness="{TemplateBinding BorderThickness}">
-        <ContentPresenter Margin="{TemplateBinding Padding}"
-                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                          RecognizesAccessKey="True" />
-      </Border>
-      <Border x:Name="FocusBorder"
-              BorderBrush="{TemplateBinding Tag}"
-              BorderThickness="2"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
-    </Grid>
+    <Border x:Name="ButtonChrome"
+            Background="{TemplateBinding Background}"
+            BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}"
+            SnapsToDevicePixels="True">
+      <ContentPresenter Margin="{TemplateBinding Padding}"
+                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                        RecognizesAccessKey="True" />
+    </Border>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.55" />
       </Trigger>
@@ -116,10 +128,6 @@
       </Trigger>
       <Trigger Property="IsSelected" Value="True">
         <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="ItemChrome" Property="BorderThickness" Value="1" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -206,9 +214,17 @@
         <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
         <Setter TargetName="SelectionContent" Property="Visibility" Value="Collapsed" />
       </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
+      <!--
+        入力状態の枠は編集型だけが持つ。非編集型はキーボード操作のフォーカス枠(FocusVisualStyle)を使う。
+        編集型ではフォーカスが内部のTextBoxにあるため、IsKeyboardFocusWithinで入力中を示す。
+      -->
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEditable" Value="True" />
+          <Condition Property="IsKeyboardFocusWithin" Value="True" />
+        </MultiTrigger.Conditions>
         <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
-      </Trigger>
+      </MultiTrigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter TargetName="ComboChrome" Property="Opacity" Value="0.55" />
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -242,12 +258,6 @@
                         Margin="{TemplateBinding Padding}"
                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                         RecognizesAccessKey="True" />
-      <Border x:Name="FocusBorder"
-              Grid.ColumnSpan="2"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsChecked" Value="True">
@@ -262,9 +272,6 @@
       </Trigger>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter TargetName="CheckChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Opacity" Value="0.55" />
@@ -297,12 +304,6 @@
                         Margin="{TemplateBinding Padding}"
                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                         RecognizesAccessKey="True" />
-      <Border x:Name="FocusBorder"
-              Grid.ColumnSpan="2"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsChecked" Value="True">
@@ -311,9 +312,6 @@
       </Trigger>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter TargetName="RadioChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Opacity" Value="0.55" />
@@ -710,10 +708,6 @@
       <Trigger Property="IsSelected" Value="True">
         <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
       </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="ItemChrome" Property="BorderThickness" Value="1" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter Property="Opacity" Value="0.55" />
@@ -733,9 +727,6 @@
       </ScrollViewer>
     </Border>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ListChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter TargetName="ListChrome" Property="Opacity" Value="0.55" />
@@ -747,33 +738,30 @@
   </ControlTemplate>
 
   <!--
-    The property dialog uses this keyed ListBox role for its top navigation.
-    Keeping the role on ListBox preserves WPF's Selection/SelectionItem peers
-    and the standard selector keyboard route without adding a presentation
-    code-behind seam.
+    The property, import and chart dialogs use a standard TabControl for their top tabs.
+    TabItem selects on keyboard focus and never toggles off, so Ctrl+click, Ctrl+Space
+    and the UIA selection pattern keep exactly one page selected without code-behind.
   -->
-  <ControlTemplate x:Key="App.Canonical.TopNavigationItemTemplate" TargetType="{x:Type ListBoxItem}">
+  <ControlTemplate x:Key="App.Canonical.TopTabItemTemplate" TargetType="{x:Type TabItem}">
     <Grid SnapsToDevicePixels="True">
       <Border x:Name="NavigationItemChrome"
               Padding="{TemplateBinding Padding}"
               Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}"
               BorderThickness="{TemplateBinding BorderThickness}">
-        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+        <!-- 文字の太さと色は継承されて本文のページへ及ぶため、項目ではなく見出しの表示だけに設定する。 -->
+        <ContentPresenter x:Name="HeaderPresenter"
+                          HorizontalAlignment="Center"
                           VerticalAlignment="Center"
                           RecognizesAccessKey="True"
-                          ContentSource="Content" />
+                          TextElement.Foreground="{DynamicResource App.TextBrush}"
+                          ContentSource="Header" />
       </Border>
       <Border x:Name="SelectionIndicator"
               Height="2"
               HorizontalAlignment="Stretch"
               VerticalAlignment="Bottom"
               Background="{DynamicResource App.AccentBrush}"
-              Visibility="Collapsed"
-              IsHitTestVisible="False" />
-      <Border x:Name="FocusBorder"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
               Visibility="Collapsed"
               IsHitTestVisible="False" />
     </Grid>
@@ -784,50 +772,45 @@
       <Trigger Property="IsSelected" Value="True">
         <Setter TargetName="NavigationItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
         <Setter TargetName="SelectionIndicator" Property="Visibility" Value="Visible" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
+        <Setter TargetName="HeaderPresenter" Property="TextElement.FontWeight" Value="SemiBold" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
-        <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+        <Setter TargetName="HeaderPresenter" Property="TextElement.Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter TargetName="NavigationItemChrome" Property="Opacity" Value="0.55" />
         <Setter TargetName="SelectionIndicator" Property="Opacity" Value="0.55" />
       </Trigger>
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
-  <ControlTemplate x:Key="App.Canonical.TopNavigationTemplate" TargetType="{x:Type ListBox}">
-    <Border x:Name="TopNavigationChrome"
-            Background="{TemplateBinding Background}"
-            BorderBrush="{TemplateBinding BorderBrush}"
-            BorderThickness="{TemplateBinding BorderThickness}"
-            SnapsToDevicePixels="True">
-      <ScrollViewer x:Name="PART_ScrollViewer"
-                    Padding="{TemplateBinding Padding}"
-                    Focusable="False"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Disabled"
-                    CanContentScroll="True">
-        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
-      </ScrollViewer>
-    </Border>
+  <ControlTemplate x:Key="App.Canonical.TopTabControlTemplate" TargetType="{x:Type TabControl}">
+    <Grid SnapsToDevicePixels="True" KeyboardNavigation.TabNavigation="Local">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <Border x:Name="TabStripChrome"
+              Padding="{TemplateBinding Padding}"
+              Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}">
+        <StackPanel x:Name="HeaderPanel"
+                    Orientation="Horizontal"
+                    IsItemsHost="True"
+                    KeyboardNavigation.TabIndex="1"
+                    KeyboardNavigation.TabNavigation="Once"
+                    KeyboardNavigation.DirectionalNavigation="Contained" />
+      </Border>
+      <ContentPresenter x:Name="PART_SelectedContentHost"
+                        Grid.Row="1"
+                        KeyboardNavigation.TabIndex="2"
+                        KeyboardNavigation.TabNavigation="Local"
+                        ContentSource="SelectedContent" />
+    </Grid>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="TopNavigationChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
-        <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
-        <Setter TargetName="TopNavigationChrome" Property="Opacity" Value="0.55" />
+        <Setter TargetName="TabStripChrome" Property="Opacity" Value="0.55" />
       </Trigger>
     </ControlTemplate.Triggers>
-  </ControlTemplate>
-
-  <ControlTemplate x:Key="App.Canonical.TopNavigationContentTemplate" TargetType="{x:Type ContentControl}">
-    <ContentPresenter Margin="{TemplateBinding Padding}"
-                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                      ContentSource="Content" />
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.ExpanderHeaderToggleTemplate" TargetType="{x:Type ToggleButton}">
@@ -864,10 +847,6 @@
       <Trigger Property="IsChecked" Value="True">
         <Setter TargetName="CollapsedGlyph" Property="Visibility" Value="Collapsed" />
         <Setter TargetName="ExpandedGlyph" Property="Visibility" Value="Visible" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="HeaderChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="HeaderChrome" Property="BorderThickness" Value="1" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -957,8 +936,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.InputFocusBorderBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ButtonTemplate}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
@@ -982,7 +960,6 @@
     <Setter Property="Background" Value="{DynamicResource App.AccentBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.AccentForegroundBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.AccentFocusRingBrush}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter Property="Background" Value="{DynamicResource App.AccentHoverBrush}" />
@@ -1010,7 +987,6 @@
     <Setter Property="Background" Value="{DynamicResource App.DangerBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.DangerBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.DangerForegroundBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.DangerForegroundBrush}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter Property="Background" Value="{DynamicResource App.DangerHoverBrush}" />
@@ -1174,6 +1150,7 @@
     </Setter>
   </Style>
 
+  <!-- 入力欄は操作の方法によらず、IsKeyboardFocusWithinによる入力状態の枠で示す。キーボード用のフォーカス枠は重ねない。 -->
   <Style x:Key="App.Canonical.TextBoxStyle" TargetType="{x:Type TextBox}" BasedOn="{x:Null}">
     <Setter Property="MinHeight" Value="32" />
     <Setter Property="Padding" Value="8,3" />
@@ -1194,10 +1171,16 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
     <Setter Property="ItemContainerStyle" Value="{DynamicResource App.Canonical.ComboBoxItemStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ComboBoxTemplate}" />
+    <Style.Triggers>
+      <!-- 編集型は内部のTextBoxが入力状態の枠を示すため、キーボード操作のフォーカス枠を重ねない。 -->
+      <Trigger Property="IsEditable" Value="True">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <Style x:Key="App.Canonical.CompactComboBoxStyle" TargetType="{x:Type ComboBox}" BasedOn="{StaticResource App.Canonical.ComboBoxStyle}">
@@ -1219,7 +1202,7 @@
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.CheckBoxTemplate}" />
     <Setter Property="ContentTemplate">
       <Setter.Value>
@@ -1236,7 +1219,7 @@
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.RadioButtonTemplate}" />
     <Setter Property="ContentTemplate">
       <Setter.Value>
@@ -1248,7 +1231,7 @@
   </Style>
 
   <Style x:Key="App.Canonical.SliderStyle" TargetType="{x:Type Slider}" BasedOn="{x:Null}">
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.HorizontalSliderTemplate}" />
     <Style.Triggers>
       <Trigger Property="Orientation" Value="Vertical">
@@ -1304,11 +1287,13 @@
     <Setter Property="Padding" Value="8,5" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ListBoxItemTemplate}" />
   </Style>
 
   <Style x:Key="App.Canonical.ListBoxStyle" TargetType="{x:Type ListBox}" BasedOn="{x:Null}">
+    <!-- 位置はListBoxItemのフォーカス枠で示すため、一覧本体には枠を描かない。 -->
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
@@ -1320,44 +1305,111 @@
     <Setter Property="Template" Value="{StaticResource App.Canonical.ListBoxTemplate}" />
   </Style>
 
-  <Style x:Key="App.Canonical.TopNavigationItemStyle" TargetType="{x:Type ListBoxItem}" BasedOn="{x:Null}">
-    <Setter Property="Padding" Value="14,8" />
-    <Setter Property="HorizontalContentAlignment" Value="Center" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
-    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-    <Setter Property="Template" Value="{StaticResource App.Canonical.TopNavigationItemTemplate}" />
-  </Style>
-
-  <Style x:Key="App.Canonical.TopNavigationStyle" TargetType="{x:Type ListBox}" BasedOn="{x:Null}">
+  <!--
+    標準のテーマのスタイルは、明示したStyleの下でも背景・枠・前景を与え続けるため、使わない値は明示して無効にする。
+    TabControl は選択中の項目の HorizontalContentAlignment / VerticalContentAlignment を本文の配置に使うため、本文を広げる Stretch にする。見出しの中央寄せはテンプレートが持つ。
+  -->
+  <Style x:Key="App.Canonical.TopTabItemStyle" TargetType="{x:Type TabItem}" BasedOn="{x:Null}">
     <Setter Property="Background" Value="{x:Null}" />
     <Setter Property="BorderBrush" Value="{x:Null}" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="Focusable" Value="True" />
-    <Setter Property="IsTabStop" Value="True" />
-    <Setter Property="SelectionMode" Value="Single" />
-    <Setter Property="KeyboardNavigation.DirectionalNavigation" Value="Continue" />
-    <Setter Property="KeyboardNavigation.TabNavigation" Value="Local" />
-    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
-    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
-    <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
-    <Setter Property="ItemsPanel">
-      <Setter.Value>
-        <ItemsPanelTemplate>
-          <StackPanel Orientation="Horizontal" />
-        </ItemsPanelTemplate>
-      </Setter.Value>
-    </Setter>
-    <Setter Property="ItemContainerStyle" Value="{StaticResource App.Canonical.TopNavigationItemStyle}" />
-    <Setter Property="Template" Value="{StaticResource App.Canonical.TopNavigationTemplate}" />
-  </Style>
-
-  <Style x:Key="App.Canonical.TopNavigationContentStyle" TargetType="{x:Type ContentControl}" BasedOn="{x:Null}">
+    <Setter Property="Padding" Value="14,8" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
+    <Setter Property="Template" Value="{StaticResource App.Canonical.TopTabItemTemplate}" />
+  </Style>
+
+  <!--
+    Padding is the space around the tab strip; the page area draws no border and adds no margin.
+    The tabs wrap when the strip is narrower than the headers.
+  -->
+  <Style x:Key="App.Canonical.TopTabControlStyle" TargetType="{x:Type TabControl}" BasedOn="{x:Null}">
+    <Setter Property="Background" Value="{x:Null}" />
+    <Setter Property="BorderBrush" Value="{x:Null}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Focusable" Value="False" />
-    <Setter Property="Template" Value="{StaticResource App.Canonical.TopNavigationContentTemplate}" />
+    <Setter Property="ItemContainerStyle" Value="{StaticResource App.Canonical.TopTabItemStyle}" />
+    <Setter Property="Template" Value="{StaticResource App.Canonical.TopTabControlTemplate}" />
+  </Style>
+
+  <!-- タブ列が狭いときに折り返す上部タブ。項目の並びと動作は App.Canonical.TopTabControlTemplate と同じで、タブ列のパネルだけが異なる。 -->
+  <ControlTemplate x:Key="App.Canonical.TopTabWrapControlTemplate" TargetType="{x:Type TabControl}">
+    <Grid SnapsToDevicePixels="True" KeyboardNavigation.TabNavigation="Local">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <Border x:Name="TabStripChrome"
+              Padding="{TemplateBinding Padding}"
+              Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}">
+        <WrapPanel x:Name="HeaderPanel"
+                   IsItemsHost="True"
+                   KeyboardNavigation.TabIndex="1"
+                   KeyboardNavigation.TabNavigation="Once"
+                   KeyboardNavigation.DirectionalNavigation="Contained" />
+      </Border>
+      <ContentPresenter x:Name="PART_SelectedContentHost"
+                        Grid.Row="1"
+                        KeyboardNavigation.TabIndex="2"
+                        KeyboardNavigation.TabNavigation="Local"
+                        ContentSource="SelectedContent" />
+    </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsEnabled" Value="False">
+        <Setter TargetName="TabStripChrome" Property="Opacity" Value="0.55" />
+      </Trigger>
+    </ControlTemplate.Triggers>
+  </ControlTemplate>
+
+  <Style x:Key="App.Canonical.TopTabWrapControlStyle" TargetType="{x:Type TabControl}" BasedOn="{StaticResource App.Canonical.TopTabControlStyle}">
+    <Setter Property="Template" Value="{StaticResource App.Canonical.TopTabWrapControlTemplate}" />
+  </Style>
+  <!-- 本文の一つの縦ScrollViewerを全ページで共有する上部タブ。タブ列と本文以外の余白は呼出し側が持つ。 -->
+  <ControlTemplate x:Key="App.Canonical.TopTabScrollControlTemplate" TargetType="{x:Type v:ScrollingTabControl}">
+    <Grid SnapsToDevicePixels="True" KeyboardNavigation.TabNavigation="Local">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <Border x:Name="TabStripChrome"
+              Padding="{TemplateBinding Padding}"
+              Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}">
+        <StackPanel x:Name="HeaderPanel"
+                    Orientation="Horizontal"
+                    IsItemsHost="True"
+                    KeyboardNavigation.TabIndex="1"
+                    KeyboardNavigation.TabNavigation="Once"
+                    KeyboardNavigation.DirectionalNavigation="Contained" />
+      </Border>
+      <ScrollViewer x:Name="PART_PageScrollViewer"
+                    Grid.Row="1"
+                    Style="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}"
+                    KeyboardNavigation.TabIndex="2"
+                    KeyboardNavigation.TabNavigation="Local"
+                    VerticalScrollBarVisibility="Auto"
+                    HorizontalScrollBarVisibility="Disabled">
+        <ContentPresenter x:Name="PART_SelectedContentHost"
+                          ContentSource="SelectedContent" />
+      </ScrollViewer>
+    </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsEnabled" Value="False">
+        <Setter TargetName="TabStripChrome" Property="Opacity" Value="0.55" />
+      </Trigger>
+    </ControlTemplate.Triggers>
+  </ControlTemplate>
+
+  <Style x:Key="App.Canonical.TopTabScrollControlStyle" TargetType="{x:Type v:ScrollingTabControl}" BasedOn="{StaticResource App.Canonical.TopTabControlStyle}">
+    <Setter Property="Template" Value="{StaticResource App.Canonical.TopTabScrollControlTemplate}" />
   </Style>
 
   <ControlTemplate x:Key="App.Canonical.GroupBoxTemplate" TargetType="{x:Type GroupBox}">
@@ -1435,7 +1487,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ExpanderHeaderToggleTemplate}" />
   </Style>
 

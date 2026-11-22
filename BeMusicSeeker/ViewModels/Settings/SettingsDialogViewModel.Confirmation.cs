@@ -1412,15 +1412,16 @@ public partial class SettingsDialogViewModel
     /// <summary>右クリックの選択recordの入力だけを取消します。</summary>
     internal void CancelRightClickRecord(bool web) => rightClickActionSettingsEditor.DiscardSelectedRecord(ApplicationSettings.RightClickActionsJson, web);
 
-    /// <summary>BMS局所確定の一覧だけを検証します。他セクションの候補は参照しません。</summary>
+    /// <summary>BMS局所確定の一覧だけを検証します。他セクションの候補は参照しません。最終一覧に親子の登録があれば、動作モードによらず拒否します。同一の登録は追加時の検査が拒否します。</summary>
     /// <param name="error">既存のBMS入力検証で見つかった理由。</param>
     /// <param name="roots">操作が捕捉した一覧。省略時は表示候補を使い、採用時は他の候補へ読み替えません。</param>
     internal bool CheckBmsRootsBeforeConfirmation(out string error, IReadOnlyList<string> roots = null)
     {
         roots ??= AvailableBMSDirectories;
         if (NormalizeStandaloneBmsRootPaths(roots).Count == 0) { error = Resources.Error_InvalidStandaloneBmsRootPaths; return false; }
-        if (ApplicationSettings.OperationModeLR2DB && CollectNestedBmsSearchRootConflicts(roots).Count > 0)
-        { error = BuildNestedBmsSearchRootConflictMessage(CollectNestedBmsSearchRootConflicts(roots)); return false; }
+        IReadOnlyList<NestedBmsSearchRootConflict> nestedConflicts = CollectNestedBmsSearchRootConflicts(roots);
+        if (nestedConflicts.Count > 0)
+        { error = BuildNestedBmsSearchRootConflictMessage(nestedConflicts, standalone: !ApplicationSettings.OperationModeLR2DB); return false; }
         error = string.Empty;
         return true;
     }

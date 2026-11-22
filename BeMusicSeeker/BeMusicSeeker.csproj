@@ -103,6 +103,7 @@
     <PackageReference Include="LivetCask.EventListeners" />
     <PackageReference Include="LivetCask.Mvvm" />
     <PackageReference Include="Microsoft.Xml.SgmlReader" />
+    <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />

@@ -669,6 +669,17 @@ public partial class BMSLibrary : ObservableObject
 
     private bool duplicateWarningFullClearPending = true;
 
+    /// <summary>前回の重複検索の結果と、その検索が使った所持集合の捕捉です。再検索を前回結果からの差分にするために保持します。</summary>
+    private sealed record DuplicateSearchBase(OwnedDuplicateChartRowSnapshot Snapshot, List<DuplicateGroup> Groups);
+
+    /// <summary>結果の失効では捨てません。所持集合の全置換と、結果の外部設定で捨てて、次の検索を全体解析へ戻します。</summary>
+    private DuplicateSearchBase duplicateSearchBase;
+
+    /// <summary>
+    /// 重複検索ごとの解析結果（経路と仕事量の計数）を受け取ります。本番では未設定で、テストが全体／差分の経路と仕事量を判定するために使います。
+    /// </summary>
+    internal Action<DuplicateAnalysisResult> DuplicateAnalysisObserver { get; set; }
+
     // 所持索引とリソース索引の短い捕捉・公開順を揃える。操作全体の受付はOperationAdmissionが所有する。
     private readonly object ownedInputSnapshotGate = new();
 
@@ -1216,6 +1227,8 @@ public partial class BMSLibrary : ObservableObject
         {
             if (_DuplicateChartGroups != value)
             {
+                // 外部から設定された結果は、捕捉した所持集合から作られた保証がないため、次の検索を全体解析へ戻す。
+                Volatile.Write(ref duplicateSearchBase, null);
                 _DuplicateChartGroups = value;
                 RaisePropertyChanged(nameof(DuplicateChartGroups));
             }
@@ -1226,6 +1239,8 @@ public partial class BMSLibrary : ObservableObject
 
     private bool InvalidateDuplicateChartGroupsCache(bool publishNotification = true)
     {
+        // 分裂配置の結果は、重複検索の結果の有無と通知の抑止に関係なく、同じ契機で失効させる。
+        InvalidateSplitPlacementGroups();
         if (_DuplicateChartGroups == null)
         {
             return false;
@@ -1246,6 +1261,7 @@ public partial class BMSLibrary : ObservableObject
     {
         duplicateWarningTokens = [];
         duplicateWarningFullClearPending = true;
+        Volatile.Write(ref duplicateSearchBase, null);
     }
 
     internal IEnumerable<ChartFile> ChartFilesGarbled => GetGarbledChartFiles(isInFixedList: false);
@@ -8572,54 +8588,99 @@ public partial class BMSLibrary : ObservableObject
                             return;
                         }
                         long stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                        OwnedDuplicateChartRowSnapshot duplicateSnapshot = CreateOwnedDuplicateChartRowSnapshotUnsafe();
+                        DuplicateSearchBase baseline = Volatile.Read(ref duplicateSearchBase);
+                        OwnedDuplicateChartRowSnapshot duplicateSnapshot;
+                        DuplicateAnalysisResult analysis = null;
+                        long ownedSnapshotMs;
+                        long analyzeMs;
+                        if (baseline != null)
+                        {
+                            // 差分解析は現在の所持集合のフォルダ別索引を引くため、捕捉と同じゲートの保持中に行う。範囲は変更の影響に限られる。
+                            lock (lockOwnedChartCollection)
+                            {
+                                OwnedChartCollectionState collection = catalogOwnedCollectionOwner.Collection;
+                                duplicateSnapshot = collection.CreateDuplicateChartRowSnapshot();
+                                ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                                stageStartMs = totalStopwatch.ElapsedMilliseconds;
+                                analysis = duplicateService.AnalyzeIncremental(
+                                    baseline.Snapshot, baseline.Groups, duplicateSnapshot, collection.CreateDuplicateRowsInDirectory);
+                            }
+                        }
+                        else
+                        {
+                            duplicateSnapshot = CreateOwnedDuplicateChartRowSnapshotUnsafe();
+                            ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                            stageStartMs = totalStopwatch.ElapsedMilliseconds;
+                            analysis = duplicateService.Analyze(duplicateSnapshot);
+                        }
                         IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
-                        long ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
-                        stageStartMs = totalStopwatch.ElapsedMilliseconds;
                         long clearDuplicateStateMs = 0;
+                        analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                        DuplicateAnalysisResult analysis = duplicateService.Analyze(duplicateSnapshot);
-                        long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
-                        stageStartMs = totalStopwatch.ElapsedMilliseconds;
+                        DuplicateAnalysisObserver?.Invoke(analysis);
                         int beforeRevision = catalogOwnedCollectionOwner.CatalogRevision;
+                        bool warningsApplied = false;
+                        OwnedDuplicateChartRowSnapshot baseSnapshot = null;
                         try
                         {
                             catalogOwnedCollectionOwner.Commit(state =>
                             {
-                                state.ClearDuplicateWarnings(duplicateWarningFullClearPending
-                                    ? duplicateSnapshot.BmsCharts.Select(chart => chart.Token) : duplicateWarningTokens);
-                                duplicateWarningFullClearPending = false;
-                                duplicateWarningTokens = [];
-                                foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts))
+                                if (analysis.IsIncremental)
                                 {
-                                    ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
-                                    if (current?.Token != value.Token || current == null)
+                                    ApplyIncrementalDuplicateWarnings(state, analysis);
+                                }
+                                else
+                                {
+                                    state.ClearDuplicateWarnings(duplicateWarningFullClearPending
+                                        ? duplicateSnapshot.BmsCharts.Select(chart => chart.Token) : duplicateWarningTokens);
+                                    duplicateWarningFullClearPending = false;
+                                    duplicateWarningTokens = [];
+                                    foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts))
                                     {
-                                        continue;
-                                    }
+                                        ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
+                                        if (current?.Token != value.Token || current == null)
+                                        {
+                                            continue;
+                                        }
 
-                                    state.ApplyCurrentChartValue(current with
-                                    {
-                                        Warnings = [.. current.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)
-                                            .Concat(value.Warnings.Where(warning => warning.Kind == ChartWarningKind.DuplicateChart))]
-                                    });
-                                    duplicateWarningTokens.Add(value.Token);
+                                        state.ApplyCurrentChartValue(current with
+                                        {
+                                            Warnings = [.. current.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)
+                                                .Concat(value.Warnings.Where(warning => warning.Kind == ChartWarningKind.DuplicateChart))]
+                                        });
+                                        duplicateWarningTokens.Add(value.Token);
+                                    }
                                 }
                             });
+                            warningsApplied = true;
+                            // 警告の確定で書き換えたバケットの参照が基底と変わらないよう、確定後の捕捉を基底にする（捕捉済みの派生索引の取得で、全件走査はしない）。
+                            // 警告だけの反映は所属を変えないため、結果のグループとの対応は保たれる。
+                            baseSnapshot = CreateOwnedDuplicateChartRowSnapshotUnsafe();
                         }
                         finally
                         {
                             // Commitが確定後に例外を再送出した場合も、同じwriter内で登録済み結果の存在を記録します。
                             committedWarningChange = catalogOwnedCollectionOwner.CatalogRevision != beforeRevision;
+                            if (!warningsApplied)
+                            {
+                                // 警告の反映が確定せずに終わると、確定されなかった付与・解除と追跡集合が食い違う。
+                                // 基底を捨てて全体解析へ戻し、追跡集合も初期化して、次の検索が未追跡の警告も全体解除するようにする。
+                                MarkDuplicateWarningFullClearPending();
+                            }
                         }
                         long applyWarningsMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
                         // setterはロック内で通知先を同期に呼ぶため使わず、通知は全排他の解放後に配送する。キャッシュ命中は上で戻るため、ここでは常に新しい結果になる。
                         _DuplicateChartGroups = analysis.DuplicateGroups;
+                        Volatile.Write(ref duplicateSearchBase, new DuplicateSearchBase(baseSnapshot ?? duplicateSnapshot, analysis.DuplicateGroups));
                         groupsChanged = true;
                         long propertySetMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         totalStopwatch.Stop();
                         LogInstallPerformance("SearchDuplicateChartGroups: cacheHit=false"
+                            + " path=" + (analysis.IsIncremental ? "incremental" : "full")
+                            + " changedHashCount=" + analysis.ChangedHashCount
+                            + " recheckedDirCount=" + analysis.RecheckedDirectoryCount
+                            + " recheckedGroupCount=" + analysis.RecheckedGroupCount
                             + " totalMs=" + totalStopwatch.ElapsedMilliseconds
                             + " ownedSnapshotMs=" + ownedSnapshotMs
                             + " clearDuplicateStateMs=" + clearDuplicateStateMs
@@ -8628,8 +8689,11 @@ public partial class BMSLibrary : ObservableObject
                             + " propertySetMs=" + propertySetMs
                             + " chartCount=" + snapshot.Count
                             + " rowCount=" + snapshot.Count
-                            + " duplicateHashCount=" + duplicateSnapshot.DuplicateHashCount
-                            + " duplicateHashRowCount=" + duplicateSnapshot.DuplicateHashRowCount
+                            + (analysis.IsIncremental
+                                // 差分経路では全重複ハッシュの列を生成しない（遅延生成は全ハッシュの走査と整列を起こす）。
+                                ? " contentComparedBucketCount=" + analysis.ContentComparedBucketCount
+                                : " duplicateHashCount=" + duplicateSnapshot.DuplicateHashCount
+                                    + " duplicateHashRowCount=" + duplicateSnapshot.DuplicateHashRowCount)
                             + " connectedDirCount=" + analysis.ConnectedDirectoryCount
                             + " materializedChartCount=" + analysis.MaterializedChartCount
                             + " duplicateChartCount=" + analysis.DuplicateCharts.Count
@@ -8652,6 +8716,35 @@ public partial class BMSLibrary : ObservableObject
                     () => RaisePropertyChanged(nameof(NormalLibraryRefreshNotificationVersion)),
                     "duplicate_warning_catalog_notification_failed");
             }
+        }
+    }
+
+    /// <summary>
+    /// 差分解析の結果から、変化したハッシュの所属譜面だけの現在値の重複警告を付与・解除し、追跡集合を更新します。
+    /// すでに警告がある譜面と、警告のない解除対象は現在値を書き換えません。
+    /// </summary>
+    private void ApplyIncrementalDuplicateWarnings(OwnedChartCollectionState state, DuplicateAnalysisResult analysis)
+    {
+        state.ClearDuplicateWarnings(analysis.WarningClearTokens);
+        foreach (OwnedChartToken token in analysis.WarningClearTokens)
+        {
+            duplicateWarningTokens.Remove(token);
+        }
+        foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts))
+        {
+            ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
+            if (current == null || current.Token != value.Token)
+            {
+                continue;
+            }
+            if (!current.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart))
+            {
+                state.ApplyCurrentChartValue(current with
+                {
+                    Warnings = [.. current.Warnings, .. value.Warnings.Where(warning => warning.Kind == ChartWarningKind.DuplicateChart)]
+                });
+            }
+            duplicateWarningTokens.Add(value.Token);
         }
     }
 
@@ -9391,6 +9484,29 @@ public partial class BMSLibrary : ObservableObject
         LibraryOperationNotices notices, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
         return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, notices, reportAtTerminal, capability);
+    }
+
+    /// <summary>
+    /// 重複グループを、一つの受付と変更セッションでまとめて整理します。
+    /// 二フォルダ以上のグループは移動元を順に KEEP へ統合して KEEP 直下の重複を整理し、一フォルダのグループはそのフォルダ直下の重複を整理します。
+    /// カタログ・DB・索引・LR2同期・通知への反映と必須保守は、全グループの物理処理の後に一回だけ行います。
+    /// </summary>
+    /// <param name="request">処理するグループ。順序が処理順です。</param>
+    /// <param name="operationId">診断識別子。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。操作全体の拒否の案内だけを加えます。</param>
+    /// <param name="progress">グループの開始ごとと、全グループの物理処理の後・確定の前の反映段階への移行（<see cref="DuplicateBatchOrganizeProgressKind.Applying"/>。受理した操作は取消・停止の後も一回）の進捗の受け手。省略できます。</param>
+    /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効きます。</param>
+    /// <param name="capability">同じ受付の生存権限。省略時は新規受付を取得し、必須保守・後片付けまで保持します。</param>
+    /// <returns>操作全体の受取り、要求と同じ順のグループ結果、取消されたかどうか。</returns>
+    internal DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken,
+        LibraryFileMutationCapability capability = null)
+    {
+        return libraryMutationOwner.OrganizeDuplicateGroups(request, operationId, notices, progress, cancellationToken, capability);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)

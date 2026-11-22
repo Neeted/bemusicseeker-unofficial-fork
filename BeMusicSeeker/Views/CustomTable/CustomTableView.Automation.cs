@@ -101,7 +101,7 @@ public sealed partial class CustomTableView
     /// <summary>既存の編集能力を照会します。実開始イベントや編集受付の保存は行いません。</summary>
     private bool CanEditAutomationCell(int rowIndex, CustomTableColumn column)
     {
-        if (!IsEnabled || column == null || string.IsNullOrWhiteSpace(column.EditPropertyName)) { return false; }
+        if (!IsEnabled || column == null || string.IsNullOrWhiteSpace(column.EditPropertyName) || IsMergedColumn(column)) { return false; }
         object row = ItemsSource[rowIndex];
         if (column.EditPropertyName == "memo" && row is not PlaylistDetailRow) { return false; }
         return DataContext switch
@@ -636,13 +636,19 @@ public sealed partial class CustomTableView
     }
 
     /// <summary>列IDと生存行を使い、表示値と既存TextBox経由の一回の編集要求を提供します。</summary>
-    private sealed class CustomTableCellAutomationPeer : CustomTableLogicalAutomationPeer, IValueProvider
+    /// <remarks>
+    /// 行グループの提供元を持つ表だけ、チェックボックスのセルへトグル、ラジオボタンのセルへ選択の操作を公開します。
+    /// 操作は実クリックと同じ <see cref="CellActionRequested"/> を一度だけ送り、選択や値を直接変更しません。提供元のない表は、従来どおり値だけを公開します。
+    /// </remarks>
+    private sealed class CustomTableCellAutomationPeer : CustomTableLogicalAutomationPeer, IValueProvider, IToggleProvider, ISelectionItemProvider
     {
         private readonly CustomTableRowAutomationPeer row;
         private readonly string columnId;
         private bool unavailable;
         private string lastValue;
         private bool lastReadOnly;
+        private bool? lastChecked;
+        private bool lastEnabled;
 
         /// <summary>可視セルの初期値とpureな編集可否を捕捉し、プロパティの事前照会なしでも後続変更を通知します。</summary>
         internal CustomTableCellAutomationPeer(CustomTableRowAutomationPeer row, string columnId) : base(row.Root)
@@ -651,7 +657,61 @@ public sealed partial class CustomTableView
             this.columnId = columnId;
             lastValue = ReadValue();
             lastReadOnly = ReadIsReadOnly();
+            (lastChecked, lastEnabled) = ReadActionState();
         }
+
+        /// <summary>提供元を持つ表のチェックボックスのセルは、トグルを公開します。</summary>
+        private bool IsToggleCell => Root.Table.RowGroupSource != null && Column.CellKind == CustomTableCellKind.CheckBox;
+
+        /// <summary>提供元を持つ表のラジオボタンのセルは、選択を公開します。</summary>
+        private bool IsRadioCell => Root.Table.RowGroupSource != null && Column.CellKind == CustomTableCellKind.RadioButton;
+
+        /// <summary>操作の対象のセルのチェック状態と操作可否です。操作の対象でないセルは、(null, true) です。</summary>
+        private (bool? IsChecked, bool IsEnabled) ReadActionState()
+        {
+            if (!IsToggleCell && !IsRadioCell) { return (null, true); }
+            CustomTableCellValue value = Root.Table.GetCellValue(Root.Table.ItemsSource[row.Index], Column, out _);
+            return (value.IsChecked, value.IsEnabled);
+        }
+
+        private static ToggleState ToToggleState(bool? isChecked) => isChecked switch
+        {
+            true => ToggleState.On,
+            false => ToggleState.Off,
+            null => ToggleState.Indeterminate
+        };
+
+        /// <summary>実クリックと同じ要求を一度だけ送ります。無効のセルと値のないセルは、要求を送らず拒否します。</summary>
+        private void RequestAction()
+        {
+            CustomTableColumn column = Column;
+            Root.EnsureEnabled();
+            CustomTableView table = Root.Table;
+            (bool? isChecked, bool enabled) = ReadActionState();
+            if (!enabled) { throw new ElementNotEnabledException(); }
+            if (!isChecked.HasValue) { throw new InvalidOperationException(); }
+            table.CommitActiveEdit();
+            column = Column;
+            table.EnsureRowVisible(row.Index);
+            CustomTableColumnLayoutEntry entry = table.GetColumnLayoutSnapshot().Entries.First(item => ReferenceEquals(item.Column, column));
+            table.EnsureColumnVisible(entry, 0);
+            if (!table.TryCreateCellHit(row.Index, columnId, out CustomTableHitTestResult hit)) { throw new InvalidOperationException(); }
+            table.CellActionRequested?.Invoke(table, new CustomTableCellActionRequestedEventArgs(hit));
+        }
+
+        protected override bool IsEnabledCore()
+        {
+            CheckAvailable();
+            return Root.Table.IsEnabled && ReadActionState().IsEnabled;
+        }
+
+        ToggleState IToggleProvider.ToggleState => ToToggleState(ReadActionState().IsChecked);
+        void IToggleProvider.Toggle() => RequestAction();
+        bool ISelectionItemProvider.IsSelected => ReadActionState().IsChecked == true;
+        IRawElementProviderSimple ISelectionItemProvider.SelectionContainer => null;
+        void ISelectionItemProvider.Select() => RequestAction();
+        void ISelectionItemProvider.AddToSelection() => RequestAction();
+        void ISelectionItemProvider.RemoveFromSelection() => throw new InvalidOperationException();
 
         private CustomTableColumn Column
         {
@@ -669,8 +729,22 @@ public sealed partial class CustomTableView
         protected override string GetAutomationIdCore() { CheckAvailable(); return "cell:" + columnId; }
         protected override string GetNameCore() => Column.Header ?? string.Empty;
         protected override string GetClassNameCore() { CheckAvailable(); return "CustomTableCell"; }
-        protected override AutomationControlType GetAutomationControlTypeCore() { CheckAvailable(); return AutomationControlType.Custom; }
-        public override object GetPattern(PatternInterface patternInterface) { CheckAvailable(); return patternInterface == PatternInterface.Value ? this : null; }
+        protected override AutomationControlType GetAutomationControlTypeCore()
+        {
+            CheckAvailable();
+            return IsToggleCell ? AutomationControlType.CheckBox : IsRadioCell ? AutomationControlType.RadioButton : AutomationControlType.Custom;
+        }
+        public override object GetPattern(PatternInterface patternInterface)
+        {
+            CheckAvailable();
+            return patternInterface switch
+            {
+                PatternInterface.Value => this,
+                PatternInterface.Toggle when IsToggleCell => this,
+                PatternInterface.SelectionItem when IsRadioCell => this,
+                _ => null
+            };
+        }
         protected override List<AutomationPeer> GetChildrenCore()
         {
             CustomTableView table = Root.Table;
@@ -717,6 +791,18 @@ public sealed partial class CustomTableView
             lastReadOnly = afterReadOnly;
             if (beforeReadOnly != afterReadOnly)
             { RaisePropertyChangedEvent(ValuePatternIdentifiers.IsReadOnlyProperty, beforeReadOnly, afterReadOnly); }
+            (bool? beforeChecked, bool beforeEnabled) = (lastChecked, lastEnabled);
+            (bool? afterChecked, bool afterEnabled) = ReadActionState();
+            (lastChecked, lastEnabled) = (afterChecked, afterEnabled);
+            if (beforeChecked != afterChecked)
+            {
+                if (IsToggleCell)
+                { RaisePropertyChangedEvent(TogglePatternIdentifiers.ToggleStateProperty, ToToggleState(beforeChecked), ToToggleState(afterChecked)); }
+                else if (IsRadioCell)
+                { RaisePropertyChangedEvent(SelectionItemPatternIdentifiers.IsSelectedProperty, beforeChecked == true, afterChecked == true); }
+            }
+            if (beforeEnabled != afterEnabled)
+            { RaisePropertyChangedEvent(AutomationElementIdentifiers.IsEnabledProperty, beforeEnabled, afterEnabled); }
         }
     }
 

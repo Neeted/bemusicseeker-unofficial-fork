@@ -50,7 +50,7 @@ public sealed class PlaylistImportDialogTests
         {
             PlaylistImportDialog dialog = CreateDialog();
             PlaylistImportDialog host = dialog;
-            ((ListBox)dialog.FindName("importNavigation")).SelectedIndex = 2;
+            ((TabControl)dialog.FindName("importNavigation")).SelectedIndex = 2;
             try
             {
                 windowTest.ShowAndWaitForContentRendered(host);
@@ -152,7 +152,7 @@ public sealed class PlaylistImportDialogTests
                 new UiFilePickerResult(UiDialogStatus.Accepted, [selectedPath]));
             PlaylistImportDialog dialog = CreateDialog(dialogs);
             PlaylistImportDialog host = dialog;
-            ((ListBox)dialog.FindName("importNavigation")).SelectedIndex = 2;
+            ((TabControl)dialog.FindName("importNavigation")).SelectedIndex = 2;
             try
             {
                 Materialize(host);
@@ -194,7 +194,7 @@ public sealed class PlaylistImportDialogTests
             var dialogs = new RecordingLoadPlaylistDialogService(new UiFilePickerResult(status));
             PlaylistImportDialog dialog = CreateDialog(dialogs);
             PlaylistImportDialog host = dialog;
-            ((ListBox)dialog.FindName("importNavigation")).SelectedIndex = 2;
+            ((TabControl)dialog.FindName("importNavigation")).SelectedIndex = 2;
             try
             {
                 Materialize(host);
@@ -224,7 +224,7 @@ public sealed class PlaylistImportDialogTests
                 new UiFilePickerResult(UiDialogStatus.Failed, error: sentinel));
             PlaylistImportDialog dialog = CreateDialog(dialogs);
             PlaylistImportDialog host = dialog;
-            ((ListBox)dialog.FindName("importNavigation")).SelectedIndex = 2;
+            ((TabControl)dialog.FindName("importNavigation")).SelectedIndex = 2;
             try
             {
                 Materialize(host);
@@ -260,7 +260,7 @@ public sealed class PlaylistImportDialogTests
             };
             PlaylistImportDialog dialog = CreateDialog(dialogs);
             PlaylistImportDialog host = dialog;
-            ((ListBox)dialog.FindName("importNavigation")).SelectedIndex = 2;
+            ((TabControl)dialog.FindName("importNavigation")).SelectedIndex = 2;
             SynchronizationContext? previousContext = SynchronizationContext.Current;
             Task? route = null;
             try
@@ -324,7 +324,7 @@ public sealed class PlaylistImportDialogTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var externalTree = (TreeView)dialog.FindName("externalCandidates");
                 ToggleCandidate(externalTree, external.Uri);
-                var navigation = (ListBox)dialog.FindName("importNavigation");
+                var navigation = (TabControl)dialog.FindName("importNavigation");
                 navigation.SelectedIndex = 1;
                 vm.BuiltInGroups[0].IsExpanded = true;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -430,7 +430,7 @@ public sealed class PlaylistImportDialogTests
                 Assert.AreEqual(true, check.IsChecked); Assert.AreEqual(2, vm.SelectedCount); Assert.IsTrue(vm.ExternalGroups[0].IsExpanded);
                 ToggleControl(check); TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(false, check.IsChecked); Assert.AreEqual(0, vm.SelectedCount); Assert.IsTrue(vm.ExternalGroups[0].IsExpanded);
-                var navigation = (ListBox)dialog.FindName("importNavigation");
+                var navigation = (TabControl)dialog.FindName("importNavigation");
                 navigation.SelectedIndex = 1;
                 TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
                 var builtInTree = (TreeView)dialog.FindName("builtInCandidates");
@@ -451,13 +451,21 @@ public sealed class PlaylistImportDialogTests
                 vm.UpdateExisting(registered);
                 // 照合更新で件数文言の内訳が変わるため、その後のフィルター操作の基準を取ります。
                 string counts = vm.CountsText;
-                var hideUrls = (CheckBox)dialog.FindName("hideUrlsCheck");
-                var hideNames = (CheckBox)dialog.FindName("hideNamesCheck");
+                // 内蔵表のタブで見えているフィルターを操作し、難易度表リストのタブのフィルターが同じ値になって候補へ効くことを確かめる。
+                var hideUrls = (CheckBox)dialog.FindName("builtInHideUrlsCheck");
+                var hideNames = (CheckBox)dialog.FindName("builtInHideNamesCheck");
+                var externalHideUrls = (CheckBox)dialog.FindName("hideUrlsCheck");
+                var externalHideNames = (CheckBox)dialog.FindName("hideNamesCheck");
                 foreach ((bool urls, bool names) in new[] { (true, false), (true, true), (false, true), (false, false) })
                 {
+                    navigation.SelectedIndex = 1; TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
+                    Assert.IsTrue(hideUrls.IsVisible && hideNames.IsVisible && !externalHideUrls.IsVisible, "内蔵表のタブでは内蔵表のタブのフィルターだけが見える。");
                     if (hideUrls.IsChecked != urls) { ToggleControl(hideUrls); }
                     if (hideNames.IsChecked != names) { ToggleControl(hideNames); }
                     navigation.SelectedIndex = 0; TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
+                    Assert.IsTrue(externalHideUrls.IsVisible && externalHideNames.IsVisible && !hideUrls.IsVisible);
+                    Assert.AreEqual(urls, externalHideUrls.IsChecked, "どちらのタブのフィルターも同じ値を表す。");
+                    Assert.AreEqual(names, externalHideNames.IsChecked, "どちらのタブのフィルターも同じ値を表す。");
                     AssertCandidateVisibility(tree, first.Uri, !urls);
                     AssertCandidateVisibility(tree, second.Uri, true);
                     AssertCandidateVisibility(tree, alias.Uri, !urls);
@@ -530,6 +538,81 @@ public sealed class PlaylistImportDialogTests
         });
     }
 
+    /// <summary>入力元のタブを離れて戻っても、候補ツリーの開閉・スクロール位置、反映前を含む検索語、URI入力欄、選択一覧の順序と件数が残ることを確認し、タブの内容の作り直しによる状態の消失を検出します。</summary>
+    [TestMethod]
+    public void CompiledTabs_SwitchingAwayAndBackKeepsTreeSearchInputAndSelection()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var vm = new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy));
+            PlaylistImportCandidate[] candidates = Enumerable.Range(0, 80)
+                .Select(index => new PlaylistImportCandidate(new($"https://example.test/cand{index:D2}"), $"Cand {index:D2}", Tag1: index < 40 ? "Group A" : "Group B"))
+                .ToArray();
+            vm.UpdateCatalog(candidates, PlaylistImportCatalogState.Loaded);
+            var dialog = new PlaylistImportDialog(vm, new RecordingLoadPlaylistDialogService(new(UiDialogStatus.CancelledByUser)));
+            var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(vm.SearchText) && vm.SearchText == "Cand") { applied.TrySetResult(); }
+            }
+
+            vm.PropertyChanged += Changed;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(dialog);
+                var navigation = (TabControl)dialog.FindName("importNavigation");
+                var tree = (TreeView)dialog.FindName("externalCandidates");
+                var search = (TextBox)dialog.FindName("searchInput");
+                var uriInput = (TextBox)dialog.FindName("textBoxURIInput");
+                var selected = (ListBox)dialog.FindName("selectedCandidates");
+
+                foreach (PlaylistImportItem group in vm.ExternalGroups) { group.IsExpanded = true; }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                dialog.UpdateLayout();
+                ScrollViewer scroller = FindVisualDescendants<ScrollViewer>(tree).First();
+                scroller.ScrollToVerticalOffset(200d);
+                dialog.UpdateLayout();
+                double offset = scroller.VerticalOffset;
+                Assert.IsTrue(offset > 0d, "ツリーがスクロールできる量の候補が必要です。");
+                vm.SetSelected(candidates[3], true);
+                vm.SetSelected(candidates[1], true);
+                Uri[] selection = vm.SelectedItems.Select(x => x.Candidate!.Uri).ToArray();
+                Assert.AreEqual(2, selection.Length);
+
+                // 検索語は反映される前（500msの猶予中）に別のタブへ移る。
+                search.SetCurrentValue(TextBox.TextProperty, "Cand");
+                Assert.AreEqual("", vm.SearchText);
+                navigation.SelectedIndex = 2;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                const string draftInput = "https://example.test/draft";
+                uriInput.SetCurrentValue(TextBox.TextProperty, draftInput);
+                uriInput.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                navigation.SelectedIndex = 1;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                dialog.UpdateLayout();
+                navigation.SelectedIndex = 0;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                dialog.UpdateLayout();
+
+                TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, navigation.SelectedContent, scroller.VerticalOffset, search.Text, uriInput.Text]);
+                Assert.AreSame(tree, dialog.FindName("externalCandidates"));
+                Assert.IsTrue(tree.IsVisible);
+                Assert.AreEqual("Cand", search.Text, "反映前の検索語を失わない。");
+                Assert.AreEqual(offset, scroller.VerticalOffset, 0.5d, "ツリーのスクロール位置を失わない。");
+                Assert.IsTrue(vm.ExternalGroups.All(group => group.IsExpanded), "ツリーの開閉を失わない。");
+                Assert.AreEqual(draftInput, uriInput.Text, "URI入力欄を失わない。");
+                Assert.AreEqual(draftInput, vm.UriInput);
+                CollectionAssert.AreEqual(selection, vm.SelectedItems.Select(x => x.Candidate!.Uri).ToArray(), "選択一覧の順序を失わない。");
+                Assert.AreEqual(selection.Length, selected.Items.Count);
+
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "import-tabs-search-applied");
+                Assert.AreEqual("Cand", vm.SearchText);
+                Assert.AreEqual("Cand", search.Text);
+            }
+            finally { vm.PropertyChanged -= Changed; dialog.Close(); }
+        });
+    }
+
     /// <summary>標準・最小サイズの左右一行配置、短い注意の右寄せ、全文ToolTipと全幅選択・多数選択の削除ボタン非遮蔽を確認します。同じ表示で明→暗→明の実描画色を意味付き資源へ照合します。</summary>
     [TestMethod]
     public void Presentation_UsesSingleLineRowsAndLiveThemeAcrossBothCatalogs()
@@ -549,7 +632,7 @@ public sealed class PlaylistImportDialogTests
             try
             {
                 scope.ShowAndWaitForContentRendered(dialog);
-                var navigation = (ListBox)dialog.FindName("importNavigation");
+                var navigation = (TabControl)dialog.FindName("importNavigation");
                 var selected = (ListBox)dialog.FindName("selectedCandidates"); selected.SelectedIndex = 0;
                 foreach (Size size in new[] { new Size(920, 680), new Size(760, 500) })
                 {
@@ -572,7 +655,14 @@ public sealed class PlaylistImportDialogTests
                         Rect clear = GetVisualBounds(dialog, (Button)dialog.FindName("clearSelectedButton"));
                         Assert.IsTrue(counts.Right <= clear.Left && counts.Top < clear.Bottom && counts.Bottom > clear.Top);
                         Assert.AreEqual(0d, ((ScrollViewer)dialog.FindName("operationMessageHost")).ActualHeight);
-                        var filters = (StackPanel)dialog.FindName("candidateFilters");
+                        // タブは左列だけに置き、右の選択一覧はタブ列と横に並んで上端から常時表示する。
+                        var selectedPane = (FrameworkElement)selected.Parent;
+                        Rect tabsBounds = GetVisualBounds(dialog, navigation);
+                        Rect paneBounds = GetVisualBounds(dialog, selectedPane);
+                        Assert.IsTrue(tabsBounds.Right <= paneBounds.Left + 0.5d, "タブ列の右端は右ペインの左端以下。");
+                        Assert.IsTrue(paneBounds.Top < tabsBounds.Bottom, "右ペインの上端はタブ列の下端より上。");
+                        Assert.IsTrue(selectedPane.IsVisible && selected.IsVisible);
+                        var filters = (StackPanel)dialog.FindName(page == 0 ? "candidateFilters" : "builtInCandidateFilters");
                         FrameworkElement[] filterChecks = filters.Children.Cast<FrameworkElement>().ToArray();
                         Assert.IsTrue(GetVisualBounds(filters, filterChecks[0]).Right <= GetVisualBounds(filters, filterChecks[1]).Left);
                         if (page == 0)
@@ -588,6 +678,22 @@ public sealed class PlaylistImportDialogTests
                             Assert.IsTrue(search.Bottom <= filterBounds.Top && filterBounds.Bottom <= GetVisualBounds(dialog, tree).Top);
                         }
                     }
+                }
+                // 入力元ごとの検索・フィルター・操作は、対応するタブだけに見える。右の選択一覧は全タブで見える。
+                foreach (int page in new[] { 0, 1, 2 })
+                {
+                    navigation.SelectedIndex = page; TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
+                    Assert.AreEqual(page == 0, ((FrameworkElement)dialog.FindName("searchInput")).IsVisible, "page " + page);
+                    Assert.AreEqual(page == 0, ((FrameworkElement)dialog.FindName("selectAllMatchingCheck")).IsVisible, "page " + page);
+                    Assert.AreEqual(page == 0, ((FrameworkElement)dialog.FindName("candidateFilters")).IsVisible, "page " + page);
+                    Assert.AreEqual(page == 1, ((FrameworkElement)dialog.FindName("builtInCandidateFilters")).IsVisible, "page " + page);
+                    Assert.AreEqual(page == 2, ((FrameworkElement)dialog.FindName("openLocalFileButton")).IsVisible, "page " + page);
+                    Assert.AreEqual(page == 2, ((FrameworkElement)dialog.FindName("addUriButton")).IsVisible, "page " + page);
+                    Assert.IsTrue(selected.IsVisible, "page " + page);
+                    // 固定の操作と、URL・ファイルのタブの操作は、ウィンドウから UI Automation の木で到達できる。
+                    TabNavigationAssert.AssertReachableByAutomation(dialog, "PlaylistImportStart", "PlaylistImportCancel", "PlaylistImportClear");
+                    if (page == 2) { TabNavigationAssert.AssertReachableByAutomation(dialog, "PlaylistImportOpenFile", "PlaylistImportAddUri"); }
+                    TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, navigation.SelectedContent]);
                 }
                 navigation.SelectedIndex = 0; TestUiDispatcherHost.ProcessQueuedPresentation(); dialog.UpdateLayout();
                 var externalTree = (TreeView)dialog.FindName("externalCandidates");
@@ -613,6 +719,11 @@ public sealed class PlaylistImportDialogTests
                     foreach (TextBlock text in FindVisualDescendants<TextBlock>(selected).Where(x => x.Name is "selectedName" or "selectedStatus"))
                     { AssertBrush(dialog, text.Name == "selectedStatus" ? "App.SubtleTextBrush" : "App.TextBrush", text.Foreground); }
                     TreeViewItem leafContainer = FindVisualDescendants<TreeViewItem>(externalTree).Single(x => x.DataContext is PlaylistImportItem { Candidate: { } cnd } && cnd.Uri == candidate.Uri);
+                    // 候補行は項目全体ではなく見出し行へ枠を重ねるため、FocusVisualStyleを持たずフォーカス条件のトリガーも持たない。
+                    Assert.IsNull(leafContainer.FocusVisualStyle);
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(leafContainer);
+                    // 選択項目がないときはTab移動でツリー本体がフォーカスを受けるため、本体は共通のフォーカス枠を持つ。
+                    FocusVisualAssert.AssertKeyboardFocusRing(externalTree);
                     var leafChrome = (Border)leafContainer.Template.FindName("CandidateRowChrome", leafContainer);
                     var selectedContainer = (ListBoxItem)selected.ItemContainerGenerator.ContainerFromIndex(0);
                     var selectedChrome = (Border)selectedContainer.Template.FindName("ItemChrome", selectedContainer);

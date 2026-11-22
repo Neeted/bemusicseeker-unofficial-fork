@@ -5,7 +5,10 @@ using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>現在の重複検索結果だけで使う表示対象です。見出しではなく所属フォルダを値で捕捉します。</summary>
+/// <summary>
+/// 現在の重複検索結果、または分裂配置の結果だけで使う表示対象です。見出しではなく所属フォルダを値で捕捉します。
+/// どちらの結果を読むかは、この値を渡す画面受付の種別（<c>DuplicateFilterSelected</c> または <c>SplitPlacementFilterSelected</c>）で決まります。
+/// </summary>
 internal sealed class DuplicateViewContext
 {
     /// <summary>全件・グループ所属・フォルダ配下を区別します。</summary>
@@ -31,6 +34,12 @@ internal sealed class DuplicateViewContext
     internal static DuplicateViewContext CaptureGroup(DuplicateGroup group)
         => ForGroup(group?.Folders?.FirstOrDefault(folder => !string.IsNullOrWhiteSpace(folder)));
 
+    /// <summary>
+    /// 統合候補一覧の表示を表します。譜面一覧の入力は明示的に空で、一覧の状態は別の管理主体が持ちます。
+    /// 受付・世代・準備・失敗通知は、他の重複表示と同じ画面受付に乗せます。
+    /// </summary>
+    internal static DuplicateViewContext ForCandidateList() => new(DuplicateViewContextKind.CandidateList, string.Empty);
+
     /// <summary>従来のフォルダ配下表示を表し、同じパスのグループ全体とは区別します。</summary>
     internal static DuplicateViewContext ForFolder(string folderPath)
         => new(DuplicateViewContextKind.FolderPath, folderPath);
@@ -55,5 +64,7 @@ internal enum DuplicateViewContextKind
 {
     Root,
     GroupFolder,
-    FolderPath
+    FolderPath,
+    /// <summary>統合候補一覧です。譜面一覧は空で、一覧は専用の表が表示します。</summary>
+    CandidateList
 }

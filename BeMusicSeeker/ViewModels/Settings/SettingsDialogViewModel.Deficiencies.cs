@@ -140,7 +140,7 @@ public partial class SettingsDialogViewModel
                 IReadOnlyList<string> registeredRoots = confirmedConfig.Capture().RegisteredRoots;
                 IReadOnlyList<NestedBmsSearchRootConflict> conflicts = CollectNestedBmsSearchRootConflicts(registeredRoots);
                 if (conflicts.Count > 0)
-                { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, BuildNestedBmsSearchRootConflictMessage(conflicts)); }
+                { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, BuildNestedBmsSearchRootConflictMessage(conflicts, standalone: false)); }
                 if (!environmentDeficient && GetConfirmedBmsRoots().Count == 0)
                 { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired); }
                 // 出力先の検査例外は原因の出力先の欄へ割り当てます。重複・重なりは後に検査した側です。
@@ -181,8 +181,13 @@ public partial class SettingsDialogViewModel
         }
         else
         {
-            IReadOnlyList<string> roots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathSettings.Deserialize(settings.StandaloneBmsRootPaths, settings.BMSRootPath));
+            // 親子の検査は、存在確認で絞る前の保存値で行います。存在しない子の登録も、LR2連携と同じ条件で不備にします。
+            IReadOnlyList<string> savedRoots = StandaloneBmsRootPathSettings.Deserialize(settings.StandaloneBmsRootPaths, settings.BMSRootPath);
+            IReadOnlyList<string> roots = NormalizeStandaloneBmsRootPaths(savedRoots);
             if (roots.Count == 0) { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired); }
+            IReadOnlyList<NestedBmsSearchRootConflict> standaloneConflicts = CollectNestedBmsSearchRootConflicts(savedRoots);
+            if (standaloneConflicts.Count > 0)
+            { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, BuildNestedBmsSearchRootConflictMessage(standaloneConflicts, standalone: true)); }
             List<string> incompatible = GetLr2IncompatibleStandaloneBmsRootPaths(roots);
             if (incompatible.Count > 0)
             {

@@ -84,6 +84,16 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 }, rows);
                 AssertMarks(window, "navigationAppearance", "navigationInstall");
 
+                // 縦タブの固定領域（見出し・案内・操作）は TabControl の peer に隠れず、ウィンドウから UI Automation の木で到達できる。
+                string[] reachable =
+                [
+                    "SettingsCategoryNavigation", "SettingsCategoryGeneral", "SettingsCategoryAppearance", "SettingsCategoryPlayback", "SettingsCategoryAudio",
+                    "SettingsCategoryRecording", "SettingsCategoryPlaylist", "SettingsCategoryInstall", "SettingsCategoryBackup", "SettingsCategoryAdvanced",
+                    "SettingsCategoryRightClick", "SettingsCategoryAbout", "SettingsSelectedPageHeader", "SettingsSelectedPageContent",
+                    "SettingsDeficiencyGuidance", "SettingsClose"
+                ];
+                TabNavigationAssert.AssertReachableByAutomation(window, initial ? [.. reachable, "SettingsStartEnvironment"] : reachable);
+
                 // 欄の直下の理由は一度だけで、導入先の既存検証表示と二重にしません。
                 SelectPage(window, "navigationInstall");
                 SettingsField install = FindTarget<SettingsField>(window, SettingsDeficiencyField.InstallDirectory);
@@ -198,7 +208,7 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 Button edit = FindDescendants<Button>(CurrentPage(window)).Single(button => AutomationProperties.GetAutomationId(button) == "SettingsEditBmsDirectories");
                 edit.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreSame(window.FindName("navigationGeneral"), ((ListBox)window.FindName("settingsNavigation")).SelectedItem);
+                Assert.AreSame(window.FindName("navigationGeneral"), ((TabControl)window.FindName("settingsNavigation")).SelectedItem);
                 bms = FindTarget<SettingsField>(window, SettingsDeficiencyField.BmsDirectories);
                 viewer = FindAncestor<ScrollViewer>(bms);
                 Assert.IsTrue(IsInViewport(bms, viewer), "BMSディレクトリ欄を表示範囲へ入れます。");
@@ -212,7 +222,7 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                     prerequisite = FindDescendants<Button>(CurrentPage(window)).Single(button => AutomationProperties.GetAutomationId(button) == "SettingsOutputRequiresLr2Root");
                     prerequisite.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreSame(window.FindName("navigationGeneral"), ((ListBox)window.FindName("settingsNavigation")).SelectedItem);
+                    Assert.AreSame(window.FindName("navigationGeneral"), ((TabControl)window.FindName("settingsNavigation")).SelectedItem);
                     FrameworkElement environment = FindTarget<FrameworkElement>(window, SettingsDeficiencyField.Lr2Environment);
                     var environmentFocus = FocusManager.GetFocusedElement(FocusManager.GetFocusScope(environment)) as DependencyObject;
                     Assert.IsNotNull(environmentFocus);
@@ -235,14 +245,24 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
     /// ページ選択だけで欄へ移らない誤り、対象の欄の取り違え、フォーカスを移さない誤りを検出します。行は標準の <see cref="Button"/> のため、Enter・Spaceはクリックと同じ経路です（型を確認します）。
     /// </remarks>
     [TestMethod]
-    public void SettingsWindow_GuidanceRowActivationSelectsPageScrollsTargetIntoViewAndFocusesIt()
+    [DataRow(SettingsDeficiencyField.BeatorajaRoot, "navigationGeneral")]
+    [DataRow(SettingsDeficiencyField.Lr2BackupOutput, "navigationBackup")]
+    public void SettingsWindow_GuidanceRowActivationSelectsPageScrollsTargetIntoViewAndFocusesIt(SettingsDeficiencyField field, string targetNavigation)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string root = CreateTemporaryRoot(CaseWorkspace);
             Settings values = CreateValidCustomFolderSettings(Path.Combine(root, "lr2"), [], TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
-            values.BeatorajaRootPath = Path.Combine(root, "missing-beatoraja");
-            values.EnableBeatorajaBmtOutput = true;
+            if (field == SettingsDeficiencyField.BeatorajaRoot)
+            {
+                values.BeatorajaRootPath = Path.Combine(root, "missing-beatoraja");
+                values.EnableBeatorajaBmtOutput = true;
+            }
+            else
+            {
+                values.IsLR2BackupEnabled = true;
+                values.LR2BackupPath = Path.Combine(root, "missing-backup");
+            }
             values.Save();
             var dialogs = new RecordingRootDialogService();
             var harness = SettingsDialogHarness.Create(values, dialogs: dialogs);
@@ -252,15 +272,18 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 window = new SettingsWindow(dialogs) { DataContext = harness.Dialog, Width = 820, Height = 600 };
                 scope.ShowAndWaitForContentRendered(window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                CollectionAssert.AreEqual(new[] { SettingsDeficiencyField.BeatorajaRoot }, harness.Dialog.Deficiencies.Select(item => item.Field).ToArray());
+                CollectionAssert.AreEqual(new[] { field }, harness.Dialog.Deficiencies.Select(item => item.Field).ToArray());
 
-                // 前提: 対象の欄は一般ページの先頭表示では表示範囲外です。
-                SelectPage(window, "navigationGeneral");
-                FrameworkElement target = FindTarget<FrameworkElement>(window, SettingsDeficiencyField.BeatorajaRoot);
+                // 前提: 一般ページの対象の欄は先頭表示では表示範囲外です。
+                SelectPage(window, targetNavigation);
+                FrameworkElement target = FindTarget<FrameworkElement>(window, field);
                 ScrollViewer viewer = FindAncestor<ScrollViewer>(target);
                 viewer.ScrollToVerticalOffset(0);
                 window.UpdateLayout();
-                Assert.IsFalse(IsInViewport(target, viewer), "対象の欄が先頭表示で見えていると、表示範囲へ入れる処理を検出できません。");
+                if (field == SettingsDeficiencyField.BeatorajaRoot)
+                {
+                    Assert.IsFalse(IsInViewport(target, viewer), "対象の欄が先頭表示で見えていると、表示範囲へ入れる処理を検出できません。");
+                }
 
                 SelectPage(window, "navigationAbout");
                 Button row = GuidanceRows((FrameworkElement)window.FindName("settingsDeficiencyGuidance")).Single();
@@ -268,8 +291,9 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 row.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.AreSame(window.FindName("navigationGeneral"), ((ListBox)window.FindName("settingsNavigation")).SelectedItem);
-                target = FindTarget<FrameworkElement>(window, SettingsDeficiencyField.BeatorajaRoot);
+                Assert.AreSame(window.FindName(targetNavigation), ((TabControl)window.FindName("settingsNavigation")).SelectedItem);
+                Assert.AreSame(((TabItem)window.FindName(targetNavigation)).Content, SettingsTabs.SelectedPage(window), "カテゴリの選択と本文のページが一致する。");
+                target = FindTarget<FrameworkElement>(window, field);
                 viewer = FindAncestor<ScrollViewer>(target);
                 Assert.IsTrue(IsInViewport(target, viewer), "対象の欄を表示範囲へ入れます。");
                 var focused = FocusManager.GetFocusedElement(FocusManager.GetFocusScope(target)) as DependencyObject;
@@ -551,26 +575,46 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
     private static void AssertMarks(SettingsWindow window, params string[] marked)
     {
         TestUiDispatcherHost.ProcessQueuedPresentation();
-        foreach (ListBoxItem item in ((ListBox)window.FindName("settingsNavigation")).Items.OfType<ListBoxItem>())
+        foreach (TabItem item in ((TabControl)window.FindName("settingsNavigation")).Items.OfType<TabItem>())
         {
             bool expected = marked.Contains(item.Name);
             string status = UIElementAutomationPeer.CreatePeerForElement(item).GetItemStatus();
             Assert.AreEqual(expected ? Resources.Settings_deficiency_page_mark : string.Empty, status ?? string.Empty, item.Name);
             Assert.AreEqual(expected, SettingsNavigationMark.GetIsMarked(item), item.Name);
+            // 縦タブの見た目: 選択項目だけに左端の帯と選択背景、フォーカス枠は共通、角丸なし、フォーカス条件のトリガーなし。
+            bool selected = ReferenceEquals(item, ((TabControl)window.FindName("settingsNavigation")).SelectedItem);
+            var pill = (Border)item.Template.FindName("NavigationPill", item);
+            var band = (Border)item.Template.FindName("SelectionIndicator", item);
+            Assert.AreEqual(new CornerRadius(0), pill.CornerRadius, item.Name);
+            Assert.AreEqual(selected, !IsTransparent(band.Background), item.Name + ": 左端の帯は選択項目だけ。");
+            // 選択項目だけが選択背景を持つ。選択されていない項目の背景は、実マウスが重なっている間だけ重ね合わせの背景になる。
+            if (selected) { AssertBrushColor(item, "App.ControlSelectedBrush", pill.Background); }
+            else { Assert.IsTrue(IsTransparent(pill.Background) || item.IsMouseOver, item.Name + ": 選択背景は選択項目だけ。"); }
+            FocusVisualAssert.AssertKeyboardFocusRing(item);
+            FocusVisualAssert.AssertNoFocusConditionedTriggers(item);
             FrameworkElement mark = FindDescendants<FrameworkElement>(item).Single(element => element.Name == "DeficiencyMark");
             Assert.AreEqual(expected ? Visibility.Visible : Visibility.Collapsed, mark.Visibility, item.Name);
         }
     }
 
+    private static void AssertBrushColor(FrameworkElement resourceOwner, string resourceKey, Brush? actual)
+    {
+        var expected = (SolidColorBrush)resourceOwner.FindResource(resourceKey);
+        Assert.AreEqual(expected.Color, ((SolidColorBrush?)actual)?.Color, resourceKey);
+    }
+
+    private static bool IsTransparent(Brush? brush)
+        => brush == null || (brush is SolidColorBrush { Color.A: 0 }) || brush.Opacity == 0d;
+
     private static void SelectPage(SettingsWindow window, string navigationName)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName(navigationName);
+        ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName(navigationName);
         TestUiDispatcherHost.ProcessQueuedPresentation();
         window.UpdateLayout();
     }
 
     private static FrameworkElement CurrentPage(SettingsWindow window)
-        => (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+        => (FrameworkElement)SettingsTabs.SelectedPage(window);
 
     private static T FindTarget<T>(SettingsWindow window, SettingsDeficiencyField field) where T : FrameworkElement
         => FindDescendants<T>(CurrentPage(window)).Single(element => SettingsDeficiencyTarget.GetField(element) == field.ToString());

@@ -1003,8 +1003,8 @@ public sealed class CustomTablePhase6CacheTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             // 本番と同じく、名前を持たない合成フォントどうしを切り替える。
-            FontFamily arial = AppFontService.CreateFontFamily("Arial");
-            FontFamily meiryoUi = AppFontService.DefaultFontFamily;
+            FontFamily arial = AppFontService.CreateFontFamily("Arial", AppFontRole.Table);
+            FontFamily meiryoUi = AppFontService.DefaultTableFontFamily;
             double fontSize = BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
             // 表と同じ方式と表示倍率で測る。
             double pixelsPerDip = VisualTreeHelper.GetDpi(new Border()).PixelsPerDip;
@@ -1446,6 +1446,206 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>
+    /// 20万行の中ほど（行100500）を表示したとき、行グループの提供元への問合せ回数と、行集合の読取り回数が、グループの大きさ（1,000行と199,990行）によらず等しいことを確認します。
+    /// 表示範囲は一つのグループの内部に収まるため、問合せは一回で、結合列の値の取得は表示中の部分の最初の行だけ（一回）、通常の列は表示行ごとです。
+    /// </summary>
+    /// <remarks>
+    /// グループの範囲を一行ずつ走査する誤り（問合せや読取りがグループの大きさに比例する）、描く行ごとに提供元へ問い合わせる誤り、
+    /// グループの先頭行が画面の外にあるとき、その先頭行を別に読み込んで結合列の値を得る誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const int RowTotal = 200_000;
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) Measure(int groupSize)
+            {
+                var rows = new GroupedCountingRows(RowTotal, groupSize);
+                int plainCalls = 0, mergedCalls = 0;
+                var plain = new CustomTableColumn("Plain", "PLAIN", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 0, null,
+                    TextAlignment.Left, _ => { plainCalls++; return "p"; });
+                var merged = new CustomTableColumn("Merged", "MERGED", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 1, null,
+                    TextAlignment.Left, _ => { mergedCalls++; return "m"; }, mergesRowGroup: true);
+                var table = new CustomTableView { Width = 240d, Height = 120d, HeaderHeight = 20d, RowHeight = 20d, Columns = [plain, merged], ItemsSource = rows };
+                CustomTableRenderProbe.SetDpi(table, 1d);
+                table.Measure(new Size(240d, 120d));
+                table.Arrange(new Rect(0d, 0d, 240d, 120d));
+                table.UpdateLayout();
+                table.ApplyVisibilityChanged(true);
+                try
+                {
+                    ScrollBar bar = table.Children.OfType<ScrollBar>().Single(item => item.Orientation == Orientation.Vertical);
+                    table.UpdateLayout();
+                    rows.ResetCounts();
+                    plainCalls = mergedCalls = 0;
+                    bar.Value = 100_500;
+                    table.UpdateLayout();
+                    Assert.AreEqual(100_500, table.FirstVisibleRowIndex);
+                    return (rows.Queries, rows.Reads, mergedCalls, plainCalls);
+                }
+                finally { ReleaseTable(table); }
+            }
+
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) small = Measure(1_000);
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) large = Measure(199_990);
+            Assert.AreEqual(1, small.Queries, "表示範囲が一つのグループに収まるなら、問合せは一回");
+            Assert.AreEqual(small.Queries, large.Queries, "問合せ回数がグループの大きさに依存する");
+            Assert.AreEqual(small.Reads, large.Reads, "行集合の読取り回数がグループの大きさに依存する");
+            Assert.IsTrue(small.Reads is > 0 and < 100, "読取りは保持範囲の行だけ。読取り=" + small.Reads);
+            Assert.AreEqual(1, small.MergedCalls, "結合列の値は表示中の部分の最初の行だけから読む");
+            Assert.AreEqual(1, large.MergedCalls);
+            Assert.AreEqual(small.PlainCalls, large.PlainCalls);
+            Assert.IsTrue(small.PlainCalls > 1, "通常の列は表示行ごとに値を読む");
+        });
+    }
+
+    /// <summary>
+    /// 20万行の中ほど（行100500）で、結合列のクリック・Ctrl+クリック・Shift+クリック、キーの下、通常の列から右で結合列へ入る操作と再描画を行ったとき、
+    /// 提供元への問合せ回数と行集合の読取り回数が、グループの大きさ（1,000行と199,990行）によらず操作ごとに等しく、少数であることを確認します。
+    /// 選択の通知の選択行数は、グループの全行（大きさと等しい）で、行集合の列挙や、グループの全行の読取りはしません。
+    /// </summary>
+    /// <remarks>
+    /// グループの全行を一行ずつ選択・実体化する誤り（読取りがグループの大きさに比例する）、通知のために主行以外を読む誤り、
+    /// 範囲の端を求めるために提供元へ繰り返し問い合わせる誤り、行集合を列挙する誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void RowGroupSelection_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const int RowTotal = 200_000;
+            List<(string Name, int Queries, int Reads)> Measure(int groupSize, out List<(int SelectedIndex, int SelectedCount)> notifications)
+            {
+                var rows = new GroupedCountingRows(RowTotal, groupSize);
+                var plain = new CustomTableColumn("Plain", "PLAIN", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 0, null, TextAlignment.Left, _ => "p");
+                var merged = new CustomTableColumn("Merged", "MERGED", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 1, null,
+                    TextAlignment.Left, _ => "m", mergesRowGroup: true);
+                var table = new CustomTableView { Width = 240d, Height = 120d, HeaderHeight = 20d, RowHeight = 20d, Columns = [plain, merged], ItemsSource = rows };
+                CustomTableRenderProbe.SetDpi(table, 1d);
+                table.Measure(new Size(240d, 120d));
+                table.Arrange(new Rect(0d, 0d, 240d, 120d));
+                table.UpdateLayout();
+                table.ApplyVisibilityChanged(true);
+                var selections = new List<(int SelectedIndex, int SelectedCount)>();
+                table.SelectionChanged += (_, args) => selections.Add((args.SelectedIndex, args.SelectedCount));
+                var results = new List<(string Name, int Queries, int Reads)>();
+                try
+                {
+                    ScrollBar bar = table.Children.OfType<ScrollBar>().Single(item => item.Orientation == Orientation.Vertical);
+                    bar.Value = 100_500;
+                    table.UpdateLayout();
+                    Assert.AreEqual(100_500, table.FirstVisibleRowIndex);
+
+                    void Step(string name, Action action)
+                    {
+                        rows.ResetCounts();
+                        action();
+                        table.UpdateLayout();
+                        results.Add((name, rows.Queries, rows.Reads));
+                    }
+                    void Press(int slot, int column, ModifierKeys modifiers = ModifierKeys.None)
+                    {
+                        var point = new Point(column * 100d + 50d, table.HeaderHeight + (slot + 0.5d) * table.RowHeight);
+                        CustomTableHitTestResult hit = table.HitTestTable(point);
+                        Assert.AreEqual(100_500 + slot, hit.RowIndex);
+                        Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, modifiers, 1, point));
+                    }
+
+                    Step("クリック", () => Press(2, 1));
+                    Step("Ctrlで外す", () => Press(2, 1, ModifierKeys.Control));
+                    Step("Ctrlで加える", () => Press(2, 1, ModifierKeys.Control));
+                    Step("Shift", () => Press(4, 1, ModifierKeys.Shift));
+                    Step("再描画", () => CustomTableRenderProbe.Redraw(table));
+                    Step("通常の列から右で結合列へ", () =>
+                    {
+                        Press(3, 0);
+                        Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+                    });
+                    Step("下", () => Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None)));
+                    Step("Shift+上", () => Assert.IsTrue(table.HandleKeyDown(Key.Up, ModifierKeys.Shift)));
+                    return results;
+                }
+                finally { ReleaseTable(table); notifications = selections; }
+            }
+
+            List<(string Name, int Queries, int Reads)> small = Measure(1_000, out List<(int SelectedIndex, int SelectedCount)> smallSelections);
+            List<(string Name, int Queries, int Reads)> large = Measure(199_990, out List<(int SelectedIndex, int SelectedCount)> largeSelections);
+            Assert.AreEqual(small.Count, large.Count);
+            for (int i = 0; i < small.Count; i++)
+            {
+                Assert.AreEqual(small[i].Queries, large[i].Queries, $"{small[i].Name}: 提供元への問合せ回数がグループの大きさに依存する");
+                if (small[i].Name != "Shift+上")
+                {
+                    // 最後の移動は、先頭へ戻る距離が両者で異なり、保持範囲の読取りが変わるため、等しさではなく上限で見る。
+                    Assert.AreEqual(small[i].Reads, large[i].Reads, $"{small[i].Name}: 行集合の読取り回数がグループの大きさに依存する");
+                }
+                Assert.IsTrue(small[i].Queries <= 8, $"{small[i].Name}: 問合せは少数。問合せ={small[i].Queries}");
+                Assert.IsTrue(small[i].Reads < 100, $"{small[i].Name}: 読取りは可視範囲と主行だけ。読取り={small[i].Reads}");
+            }
+            // 選択の通知の選択行数は、操作の時点のグループの大きさ。
+            Assert.AreEqual((100_502, 1_000), smallSelections[0], "クリック（グループ [100000..100999]）");
+            Assert.AreEqual((100_502, 199_990), largeSelections[0], "クリック（グループ [0..199989]）");
+            Assert.AreEqual((-1, 0), smallSelections[1], "Ctrlで外す");
+            Assert.AreEqual((100_502, 1_000), smallSelections[2], "Ctrlで加える");
+            Assert.AreEqual((100_502, 199_990), largeSelections[2], "Ctrlで加える（大きなグループ）");
+        });
+    }
+
+    /// <summary>グループの大きさの連続したグループを返し、行集合の読取りと提供元への問合せを数える、20万行規模の行集合です。列挙を失敗にします。</summary>
+    private sealed class GroupedCountingRows(int count, int groupSize) : System.Collections.IList, ICustomTableRowGroupSource
+    {
+        private readonly object[] rows = [.. Enumerable.Range(0, count).Select(_ => new object())];
+
+        internal int Queries { get; private set; }
+
+        internal int Reads { get; private set; }
+
+        internal void ResetCounts() { Queries = 0; Reads = 0; }
+
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            Queries++;
+            int first = rowIndex / groupSize * groupSize;
+            return new CustomTableRowGroup(first, Math.Min(groupSize, count - first), rowIndex / groupSize);
+        }
+
+        public object? this[int index]
+        {
+            get { Reads++; return rows[index]; }
+            set => throw new NotSupportedException();
+        }
+
+        public int Count => count;
+
+        public bool IsFixedSize => true;
+
+        public bool IsReadOnly => true;
+
+        public bool IsSynchronized => false;
+
+        public object SyncRoot => this;
+
+        public System.Collections.IEnumerator GetEnumerator() => throw new NotSupportedException("全行列挙は禁止です。");
+
+        public int Add(object? value) => throw new NotSupportedException();
+
+        public void Clear() => throw new NotSupportedException();
+
+        public bool Contains(object? value) => throw new NotSupportedException();
+
+        public int IndexOf(object? value) => throw new NotSupportedException();
+
+        public void Insert(int index, object? value) => throw new NotSupportedException();
+
+        public void Remove(object? value) => throw new NotSupportedException();
+
+        public void RemoveAt(int index) => throw new NotSupportedException();
+
+        public void CopyTo(Array array, int index) => throw new NotSupportedException();
+    }
+
     private sealed class ResettableRows : ObservableCollection<object>
     {
         internal void Reset() => OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
@@ -1808,7 +2008,7 @@ public sealed class CustomTablePhase6CacheTests
                     Assert.AreEqual(0, hits, state);
                     Assert.AreEqual(lookups, misses, state + " 可視の全文字列を新しく整形します。");
                 }
-                AssertRebuilt("フォント", () => table.TextFontFamily = AppFontService.CreateFontFamily("Arial"));
+                AssertRebuilt("フォント", () => table.TextFontFamily = AppFontService.CreateFontFamily("Arial", AppFontRole.Table));
                 AssertRebuilt("文字サイズ", () => table.TextFontSize = table.TextFontSize + 1d);
                 AssertRebuilt("表示倍率", () => CustomTableRenderProbe.SetDpi(table, 1.25d));
                 CultureInfo other = culture.Name == "fr-FR" ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.GetCultureInfo("fr-FR");

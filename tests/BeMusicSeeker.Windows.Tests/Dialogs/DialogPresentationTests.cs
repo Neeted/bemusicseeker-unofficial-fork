@@ -20,6 +20,7 @@ using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
 using Parago.Windows;
 
 namespace BeMusicSeeker.Tests;
@@ -213,6 +214,59 @@ public sealed class DialogPresentationTests
         }
     }
 
+    /// <summary>共通のメッセージのダイアログは、空白でない警告用の本文を警告色(App.WarningTextBrush)で本文とは別の行として表示し、空・空白・nullでは表示しません。</summary>
+    /// <remarks>表示せずに組み立てる既存の入口(BuildDialogForPresentation)から実描画の最小の一件で確認し、確認ダイアログが警告の行を警告色で出す接続を保証します。警告用の本文の内容は呼出し側のケースが担当します。アイコンは警告色を使わない情報にそろえ、アイコンの色と区別します。</remarks>
+    [TestMethod]
+    public void ThemedMessageBox_ShowsNonBlankWarningTextInWarningBrushAndOmitsEmptyOrNull()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string[] shown = ["警告の一行目" + Environment.NewLine + "警告の二行目"];
+            foreach ((string? warning, bool expected) in new (string?, bool)[]
+            {
+                (shown[0], true),
+                (string.Empty, false),
+                ("   ", false),
+                (null, false)
+            })
+            {
+                Window dialog = ThemedMessageBox.BuildDialogForPresentation(
+                    owner: null,
+                    messageBoxText: "Presentation contract message",
+                    caption: "Presentation",
+                    button: MessageBoxButton.OKCancel,
+                    icon: MessageBoxImage.Information,
+                    initialResult: MessageBoxResult.Cancel,
+                    warningMessageBoxText: warning,
+                    setResult: _ => { });
+                try
+                {
+                    windowTest.ShowAndWaitForContentRendered(dialog);
+                    dialog.UpdateLayout();
+                    object warningBrush = dialog.FindResource("App.WarningTextBrush");
+                    TextBlock[] warningBlocks = [.. FindVisualDescendants<TextBlock>(dialog)
+                        .Where(block => block.TemplatedParent == null && ReferenceEquals(block.Foreground, warningBrush))];
+                    if (expected)
+                    {
+                        Assert.AreEqual(1, warningBlocks.Length, "警告用の本文は警告色の行として一つだけ表示します。");
+                        Assert.AreEqual(warning, warningBlocks[0].Text);
+                        Assert.IsTrue(
+                            FindVisualDescendants<TextBlock>(dialog).Any(block => block.Text == "Presentation contract message" && !ReferenceEquals(block.Foreground, warningBrush)),
+                            "通常の本文は警告色にしません。");
+                    }
+                    else
+                    {
+                        Assert.AreEqual(0, warningBlocks.Length, $"空・空白・nullの警告用の本文（'{warning}'）は表示しません。");
+                    }
+                }
+                finally
+                {
+                    if (dialog.IsVisible) { dialog.Close(); }
+                }
+            }
+        });
+    }
+
     /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消とroot/scoreの再試行はQuietとして確認します。</summary>
     [TestMethod]
     [DataRow("SettingsWindow")]
@@ -244,16 +298,35 @@ public sealed class DialogPresentationTests
                     fixture.HostWindow.UpdateLayout();
                 }
                 AssertSentinelStyle(sentinelHost.SentinelButton, sentinelHost.SentinelStyle);
+                TabControl? importTabs = fixture.HostWindow is PlaylistImportDialog importDialog ? (TabControl)importDialog.FindName("importNavigation") : null;
+                if (importTabs != null)
+                {
+                    // 入力元のタブは選択中のページだけが視覚木にあるため、全操作が並ぶURL・ファイルのタブで操作の一覧を照合する。
+                    importTabs.SelectedIndex = 2;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    fixture.HostWindow.UpdateLayout();
+                }
                 AssertCanonicalPresentation(fixture);
+                if (importTabs != null)
+                {
+                    foreach (int page in new[] { 0, 1 })
+                    {
+                        importTabs.SelectedIndex = page;
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        fixture.HostWindow.UpdateLayout();
+                        AssertCanonicalControlRole<TextBox>(fixture.PresentationRoot, "TextBox", "App.Canonical.TextBoxStyle");
+                        AssertCanonicalControlRole<CheckBox>(fixture.PresentationRoot, "CheckBox", "App.Canonical.CheckBoxStyle");
+                    }
+                }
                 if (fixture.HostWindow is SettingsWindow settings)
                 {
                     // 同じ外側sentinelの下で、環境カード以外の通常ラジオにも共通の描画が適用される。
-                    ((ListBox)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationPlayback");
+                    ((TabControl)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationPlayback");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     settings.UpdateLayout();
                     Assert.IsTrue(FindVisualDescendants<RadioButton>(settings).Any(radio => radio.TemplatedParent == null));
                     AssertCanonicalRadioButtonRoles(fixture);
-                    ((ListBox)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationRightClick");
+                    ((TabControl)settings.FindName("settingsNavigation")).SelectedItem = settings.FindName("navigationRightClick");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     settings.UpdateLayout();
                     foreach (ButtonExpectation expectation in new[]
@@ -1352,25 +1425,34 @@ public sealed class DialogPresentationTests
     private static void AssertCanonicalListBoxRoles(FrameworkElement presentationRoot)
     {
         const string listBoxStyleKey = "App.Canonical.ListBoxStyle";
-        const string topNavigationStyleKey = "App.Canonical.TopNavigationStyle";
-        var propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         ListBox[] listBoxes = FindVisualDescendants<ListBox>(presentationRoot)
             .Where(item => item.TemplatedParent == null)
             .ToArray();
-        foreach (ListBox listBox in listBoxes.Where(item => !ReferenceEquals(item, propertyNavigation)))
+        foreach (ListBox listBox in listBoxes)
         {
-            var topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
-            bool isTopNavigation = topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
-            string canonicalStyleKey = isTopNavigation ? topNavigationStyleKey : listBoxStyleKey;
-            Style resolvedStyle = RequireStyle(listBox, canonicalStyleKey);
-            AssertCanonicalControlRole(
-                listBox,
-                isTopNavigation ? "top-navigation ListBox" : "ListBox",
-                canonicalStyleKey,
-                resolvedStyle);
+            Style resolvedStyle = RequireStyle(listBox, listBoxStyleKey);
+            AssertCanonicalControlRole(listBox, "ListBox", listBoxStyleKey, resolvedStyle);
         }
 
-        if (propertyNavigation != null)
+        // 画面の切替は ListBox ではなく標準の TabControl / TabItem の共通スタイルへ接続する。
+        foreach (TabControl tabs in FindVisualDescendants<TabControl>(presentationRoot).Where(item => item.TemplatedParent == null))
+        {
+            // 取込は上部タブ、プロパティは本文のスクロール付きの上部タブ、設定は縦タブの共通スタイルを使う。
+            bool vertical = tabs is SettingsTabControl;
+            string tabStyleKey = vertical
+                ? "SettingsTabControlStyle"
+                : tabs is BeMusicSeeker.Views.ScrollingTabControl
+                    ? "App.Canonical.TopTabScrollControlStyle"
+                    : "App.Canonical.TopTabControlStyle";
+            string itemStyleKey = vertical ? "SettingsTabItemStyle" : "App.Canonical.TopTabItemStyle";
+            AssertCanonicalControlRole(tabs, "tab TabControl", tabStyleKey, RequireStyle(tabs, tabStyleKey));
+            foreach (TabItem item in tabs.Items.OfType<TabItem>())
+            {
+                AssertCanonicalControlRole(item, "tab TabItem", itemStyleKey, RequireStyle(item, itemStyleKey));
+            }
+        }
+
+        if (presentationRoot.FindName("propertyNavigation") is FrameworkElement)
         {
             AssertPropertyNavigationRole(presentationRoot);
         }
@@ -1499,8 +1581,7 @@ public sealed class DialogPresentationTests
             return;
         }
 
-        FrameworkElement contentHost = presentationRoot.FindName("propertyContent") as FrameworkElement
-            ?? throw new AssertFailedException("Playlist property content host must remain a separate framework element.");
+        FrameworkElement contentHost = navigation;
         PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
         AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
         Assert.AreSame(
@@ -1687,9 +1768,10 @@ public sealed class DialogPresentationTests
             ?? throw new AssertFailedException(
                 "The authority-backed custom-folder availability host must expose the disabled SelectionItem provider.");
         Assert.AreEqual(
+            AutomationControlType.TabItem,
             expectedProvider.GetAutomationControlType(),
-            availabilityPeer.GetAutomationControlType(),
             "The disabled provider must retain the authority-backed custom-folder Automation role.");
+        Assert.IsFalse(availabilityPeer.IsEnabled(), "The authority-backed availability host must be disabled.");
         Assert.AreEqual(
             expectedProvider.GetBoundingRectangle(),
             availabilityPeer.GetBoundingRectangle(),

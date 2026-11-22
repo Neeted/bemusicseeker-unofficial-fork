@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace BeMusicSeeker.Views;
@@ -120,6 +121,101 @@ internal sealed class CustomTableSelectionModel
         CurrentIndex = 0;
         AnchorIndex = 0;
         return changed;
+    }
+
+    /// <summary>両端を含む添字区間の全行が選択済みかを返します。区間数の対数に比例する処理で、行を一件ずつ調べません。</summary>
+    internal bool IsSpanSelected(int start, int end)
+    {
+        if (!IsValidIndex(start) || !IsValidIndex(end) || start > end)
+        {
+            return false;
+        }
+        int containing = FindContaining(start);
+        return containing >= 0 && intervals[containing].End >= end;
+    }
+
+    /// <summary>
+    /// 両端を含む添字区間だけを選び、主行と基点を指定どおりにして、集合または主行の変化を返します。
+    /// 行グループの全行を、行を一件ずつ扱わず一つの区間として選ぶために使います。無効な区間は選択を解除します。
+    /// </summary>
+    internal bool SelectSpan(int start, int end, int currentIndex, int anchorIndex)
+    {
+        if (!IsValidIndex(start) || !IsValidIndex(end) || start > end)
+        {
+            return Clear();
+        }
+        bool sameSet = intervals.Count == 1 && intervals[0].Start == start && intervals[0].End == end;
+        bool changed = !sameSet || CurrentIndex != currentIndex;
+        SetSingleInterval(start, end);
+        CurrentIndex = currentIndex;
+        AnchorIndex = anchorIndex;
+        return changed;
+    }
+
+    /// <summary>
+    /// 範囲の基点を保ったまま、両端を含む添字区間だけを選び、主行を指定どおりにして、集合または主行の変化を返します。基点がなければ主行を基点にします。
+    /// </summary>
+    internal bool SelectSpanKeepingAnchor(int start, int end, int currentIndex)
+    {
+        int anchor = IsValidIndex(AnchorIndex) ? AnchorIndex : currentIndex;
+        return SelectSpan(start, end, currentIndex, anchor);
+    }
+
+    /// <summary>
+    /// 両端を含む添字区間を選択へ加え、主行と基点を指定行へ揃えて、集合または主行の変化を返します。
+    /// </summary>
+    internal bool AddSpan(int start, int end, int currentIndex)
+    {
+        if (!IsValidIndex(start) || !IsValidIndex(end) || start > end || !IsValidIndex(currentIndex))
+        {
+            return false;
+        }
+        bool wasSelected = IsSpanSelected(start, end);
+        int previousCurrentIndex = CurrentIndex;
+        if (!wasSelected)
+        {
+            MergeSpan(start, end);
+        }
+        CurrentIndex = currentIndex;
+        AnchorIndex = currentIndex;
+        return !wasSelected || previousCurrentIndex != currentIndex;
+    }
+
+    /// <summary>
+    /// 両端を含む添字区間を選択から外し、<see cref="Toggle"/> と同じ規則（残りがあれば末尾の行を主行、なければ解除）で主行を決めて、基点を指定行へ揃えます。
+    /// 区間に選択がなければfalseを返します。
+    /// </summary>
+    internal bool RemoveSpan(int start, int end, int anchorIndex)
+    {
+        if (!IsValidIndex(start) || !IsValidIndex(end) || start > end)
+        {
+            return false;
+        }
+        int previousCurrentIndex = CurrentIndex;
+        int previousCount = selectedCount;
+        CutSpan(start, end);
+        CurrentIndex = selectedCount == 0 ? -1 : intervals[^1].End;
+        AnchorIndex = anchorIndex;
+        return previousCount != selectedCount || previousCurrentIndex != CurrentIndex;
+    }
+
+    /// <summary>
+    /// 右クリックと同じ規則で、両端を含む添字区間を選びます。区間の全行が選択済みなら集合と基点を保って主行だけを指定行へ移し、
+    /// そうでなければ区間だけへ置き換えて主行と基点を指定行にします。集合または主行の変化を返します。
+    /// </summary>
+    internal bool SelectSpanForRightClick(int start, int end, int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return Clear();
+        }
+        if (IsSpanSelected(start, end))
+        {
+            bool changed = CurrentIndex != index;
+            CurrentIndex = index;
+            return changed;
+        }
+        return SelectSpan(start, end, index, index);
     }
 
     internal bool SelectIndices(IEnumerable<int> indices, int currentIndex)
@@ -350,6 +446,76 @@ internal sealed class CustomTableSelectionModel
             intervals.Insert(position + 1, new Interval(index + 1, interval.End));
         }
         selectedCount--;
+    }
+
+    /// <summary>終端が指定添字以上の最初の区間の位置を二分探索で返します。なければ区間数です。</summary>
+    private int FindFirstEndingAtOrAfter(int index)
+    {
+        int low = 0;
+        int high = intervals.Count;
+        while (low < high)
+        {
+            int middle = low + ((high - low) >> 1);
+            if (intervals[middle].End >= index)
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+        return low;
+    }
+
+    /// <summary>両端を含む添字区間を選択へ併合します。重なる区間と隣接する区間は一つにまとめます。</summary>
+    private void MergeSpan(int start, int end)
+    {
+        int first = FindFirstEndingAtOrAfter(start - 1);
+        int afterLast = FindFirstStartingAfter(intervals, end + 1);
+        int mergedStart = start;
+        int mergedEnd = end;
+        if (first < afterLast)
+        {
+            mergedStart = Math.Min(start, intervals[first].Start);
+            mergedEnd = Math.Max(end, intervals[afterLast - 1].End);
+            for (int i = first; i < afterLast; i++)
+            {
+                selectedCount -= intervals[i].Length;
+            }
+            intervals.RemoveRange(first, afterLast - first);
+        }
+        intervals.Insert(first, new Interval(mergedStart, mergedEnd));
+        selectedCount += mergedEnd - mergedStart + 1;
+    }
+
+    /// <summary>両端を含む添字区間を選択から外します。区間をまたぐ選択は、外側の残りだけを残します。</summary>
+    private void CutSpan(int start, int end)
+    {
+        int first = FindFirstEndingAtOrAfter(start);
+        int afterLast = FindFirstStartingAfter(intervals, end);
+        if (first >= afterLast)
+        {
+            return;
+        }
+        Interval head = intervals[first];
+        Interval tail = intervals[afterLast - 1];
+        for (int i = first; i < afterLast; i++)
+        {
+            selectedCount -= intervals[i].Length;
+        }
+        intervals.RemoveRange(first, afterLast - first);
+        int insertAt = first;
+        if (head.Start < start)
+        {
+            intervals.Insert(insertAt++, new Interval(head.Start, start - 1));
+            selectedCount += start - head.Start;
+        }
+        if (tail.End > end)
+        {
+            intervals.Insert(insertAt, new Interval(end + 1, tail.End));
+            selectedCount += tail.End - end;
+        }
     }
 
     private void AddIndex(int index)

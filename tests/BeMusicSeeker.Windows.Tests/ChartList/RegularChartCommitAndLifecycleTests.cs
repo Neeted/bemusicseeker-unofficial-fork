@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>通常一覧の終端公開、summaryの世代判定、予備計算と停止・取消をWindowなしで検証します。</summary>
 /// <remarks>gateは実workerの走査やUI公開を止めるために使います。sort値の網羅はLibraryChartRowSortEngineTests、compiled画面接続はMainWindow側が分担します。</remarks>
 [TestClass]
-public sealed class RegularChartCommitAndLifecycleTests
+public sealed partial class RegularChartCommitAndLifecycleTests
 {
 
 

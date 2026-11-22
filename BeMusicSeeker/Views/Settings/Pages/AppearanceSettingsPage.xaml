@@ -5,7 +5,33 @@
              xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              x:Name="page" HorizontalContentAlignment="Stretch">
-  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" /></ResourceDictionary></UserControl.Resources>
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries>
+      <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+      <Style x:Key="AppearanceFontComboBoxStyle" TargetType="{x:Type ComboBox}" BasedOn="{StaticResource SettingsComboBoxStyle}">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="SelectedValuePath" Value="Key" />
+        <Setter Property="TextSearch.TextPath" Value="DisplayName" />
+        <!-- 開くたびに全フォントを読み込まないよう、表示範囲の候補だけを実体化する。 -->
+        <Setter Property="ItemsPanel">
+          <Setter.Value><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></Setter.Value>
+        </Setter>
+        <!-- 閉じた状態の選択中の候補にも同じプレビューを使う。 -->
+        <Setter Property="ItemTemplate">
+          <Setter.Value><DataTemplate><TextBlock Text="{Binding DisplayName}" FontFamily="{Binding PreviewFontFamily}" /></DataTemplate></Setter.Value>
+        </Setter>
+        <Setter Property="ItemContainerStyle">
+          <Setter.Value>
+            <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
+              <!-- ItemTemplateだけでは候補のUIA Nameが付かない。 -->
+              <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+            </Style>
+          </Setter.Value>
+        </Setter>
+      </Style>
+    </ResourceDictionary>
+  </UserControl.Resources>
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
@@ -24,33 +50,23 @@
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_font_description, Mode=OneWay}">
-      <ComboBox AutomationProperties.AutomationId="SettingsFont" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}" x:Name="appearanceFontComboBox" HorizontalAlignment="Stretch"
+      <ComboBox AutomationProperties.AutomationId="SettingsFont" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}" x:Name="appearanceFontComboBox"
+                  Style="{StaticResource AppearanceFontComboBoxStyle}"
                   ItemsSource="{Binding AppearanceFontOptions}"
-                  SelectedValuePath="Key" TextSearch.TextPath="DisplayName"
                   SelectedValue="{Binding AppearanceFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                  SelectionChanged="appearanceFontComboBoxSelectionChanged">
-        <!-- 候補はインストール済みのフォントの数だけあり、それぞれ別のフォントで描く。開いたときに全フォントを読み込まないよう、表示範囲の候補だけを実体化する。 -->
-        <ComboBox.ItemsPanel>
-          <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
-        </ComboBox.ItemsPanel>
-        <!-- 表示名を候補のフォントで描く。閉じた状態の選択中の候補にも同じテンプレートが使われる。 -->
-        <ComboBox.ItemTemplate>
-          <DataTemplate>
-            <TextBlock Text="{Binding DisplayName}" FontFamily="{Binding PreviewFontFamily}" />
-          </DataTemplate>
-        </ComboBox.ItemTemplate>
-        <ComboBox.ItemContainerStyle>
-          <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
-            <!-- ItemTemplateは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
-            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
-          </Style>
-        </ComboBox.ItemContainerStyle>
-      </ComboBox>
+                  SelectionChanged="appearanceFontComboBoxSelectionChanged" />
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_table_description, Mode=OneWay}">
       <StackPanel>
+        <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font, Mode=OneWay}">
+          <ComboBox AutomationProperties.AutomationId="SettingsTableFont" x:Name="customTableFontComboBox"
+                    Style="{StaticResource AppearanceFontComboBoxStyle}"
+                    ItemsSource="{Binding CustomTableFontOptions}"
+                    SelectedValue="{Binding CustomTableFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    SelectionChanged="appearanceFontComboBoxSelectionChanged" />
+        </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
             <Slider x:Name="sliderCustomTableFontSize" Minimum="8" Maximum="18" TickFrequency="0.5" SmallChange="0.5" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />

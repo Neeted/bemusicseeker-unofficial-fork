@@ -84,7 +84,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 presentation.CurrentWindow = window;
                 scope.ShowAndWaitForContentRendered(window);
                 var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 list.SelectedItem = original;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -237,7 +237,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("Next Charts", editor.Text);
                 Assert.AreEqual("Next Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
-                page = (FrameworkElement)((ContentControl)reopened.FindName("settingsPageContent")).Content;
+                page = (FrameworkElement)SettingsTabs.SelectedPage(reopened);
                 list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 Assert.AreEqual(renamed, list.SelectedItem);
                 rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
@@ -297,10 +297,10 @@ public sealed class SettingDialogCategoryPersistenceTests
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 window = new SettingsWindow(dialogs) { DataContext = dialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 Button rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
                 Button add = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Add));
@@ -654,12 +654,12 @@ public sealed class SettingDialogCategoryPersistenceTests
                 string staged = Directory.CreateDirectory(Path.Combine(root, "BmsDraft")).FullName;
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, failures.Count, "初期Bindingの同値通知では保存しません。");
                 owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
                 CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 Button select;
                 BeMusicSeeker.Views.Settings.SettingsPathPicker? outputPicker = null;
                 if (section == "additional")
@@ -794,9 +794,9 @@ public sealed class SettingDialogCategoryPersistenceTests
                 if (!missingPreviousDirectories) { Assert.AreNotEqual(0, owner.SettingDialog.BuildDeficiencies().Count); }
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 string otherSection = firstSection == "normal" ? "root" : "normal";
                 var start = (Button)window.FindName("buttonOK");
                 var guidance = (FrameworkElement)window.FindName("settingsDeficiencyGuidance");
@@ -952,23 +952,31 @@ public sealed class SettingDialogCategoryPersistenceTests
 
     /// <summary>
     /// 未インストールの保存済みフォント名は候補に残って選択中として表示され、先頭の候補は既定です。実際の選択欄でArialを選ぶとフォントだけを保存して適用します。
-    /// 保存に失敗した場合は一回だけ通知し、保存値・表示中のフォント・選択欄の表示を元のまま保ちます。
+    /// 両方の選択欄で保存に失敗した場合は一回だけ通知し、保存値・表示中のフォント・選択欄の表示を元のまま保ちます。
     /// </summary>
-    /// <remarks>未インストールの保存値で選択が空になる誤り、保存の失敗後もフォントを適用する誤り、選択欄が保存されなかった値を表示し続ける誤りを検出します。ArialとMeiryo UIのインストールを前提にします。</remarks>
+    /// <remarks>未インストールの保存値で選択が空になる誤り、保存の失敗後もフォントを適用する誤り、もう一方の設定にも変更が及ぶ誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure(bool failSave)
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure(bool table, bool failSave)
     {
         const string uninstalled = "BeMusicSeeker No Such Font";
+        const string otherUninstalled = "BeMusicSeeker Another Unavailable Font";
+        string propertyName = table ? nameof(SettingsDialogViewModel.CustomTableFontFamily) : nameof(SettingsDialogViewModel.AppearanceFontFamily);
+        string otherPropertyName = table ? nameof(SettingsDialogViewModel.AppearanceFontFamily) : nameof(SettingsDialogViewModel.CustomTableFontFamily);
+        string resourceKey = table ? "App.TableFontFamily" : "App.UiFontFamily";
+        string otherResourceKey = table ? "App.UiFontFamily" : "App.TableFontFamily";
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             using var fontSnapshot = AppFontResourceSnapshot.Capture();
             string root = CreateTemporaryRoot(CaseWorkspace);
             string path = Path.Combine(root, "user.config");
             Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
-            values.AppearanceFontFamily = uninstalled;
+            values.AppearanceFontFamily = table ? otherUninstalled : uninstalled;
+            values.CustomTableFontFamily = table ? uninstalled : otherUninstalled;
             values.Save();
             double rowHeight = values.CustomTableRowHeight;
             string theme = values.AppearanceTheme;
@@ -978,16 +986,22 @@ public sealed class SettingDialogCategoryPersistenceTests
             try
             {
                 // 起動時の適用に相当する状態から始める。
-                AppFontService.ApplyFontFamily(values.AppearanceFontFamily);
-                object appliedAtStart = Application.Current.Resources[AppFontService.ResourceKey];
+                AppFontService.ApplyFontFamily(values.AppearanceFontFamily, AppFontRole.Ui);
+                AppFontService.ApplyFontFamily(values.CustomTableFontFamily, AppFontRole.Table);
+                ResourceDictionary resources = Application.Current.Resources;
+                object appliedAtStart = resources[resourceKey];
+                object otherAppliedAtStart = resources[otherResourceKey];
                 window = OpenSettingsWindow(scope, owner.SettingDialog);
-                var comboBox = (ComboBox)GetCategoryControl(window, "Appearance", nameof(SettingsDialogViewModel.AppearanceFontFamily)).Control;
-                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = owner.SettingDialog.AppearanceFontOptions;
+                var comboBox = (ComboBox)GetCategoryControl(window, "Appearance", propertyName).Control;
+                var otherComboBox = (ComboBox)GetCategoryControl(window, "Appearance", otherPropertyName).Control;
+                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = table ? owner.SettingDialog.CustomTableFontOptions : owner.SettingDialog.AppearanceFontOptions;
                 Assert.AreSame(options, comboBox.ItemsSource);
-                Assert.AreSame(options, owner.SettingDialog.AppearanceFontOptions);
                 Assert.AreEqual(string.Empty, options[0].Key);
-                StringAssert.Contains(options[0].DisplayName, AppFontService.DefaultFontFamilyName);
+                StringAssert.Contains(options[0].DisplayName, table ? "Meiryo UI" : "Yu Gothic UI");
+                Assert.IsFalse(options.Any(option => option.Key == otherUninstalled));
                 Assert.AreEqual(uninstalled, ((SettingsDialogViewModel.AppearanceFontOption)comboBox.SelectedItem).Key);
+                object otherSelectionAtStart = otherComboBox.SelectedItem;
+                Assert.AreEqual(otherUninstalled, ((SettingsDialogViewModel.AppearanceFontOption)otherSelectionAtStart).Key);
                 SettingsDialogViewModel.AppearanceFontOption arial = options.Single(option => option.Key == "Arial");
 
                 if (failSave)
@@ -996,10 +1010,16 @@ public sealed class SettingDialogCategoryPersistenceTests
                     { comboBox.SelectedItem = arial; }
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(1, failures.Count);
-                    Assert.AreEqual(uninstalled, values.AppearanceFontFamily);
-                    Assert.AreEqual(uninstalled, TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
-                    Assert.AreSame(appliedAtStart, Application.Current.Resources[AppFontService.ResourceKey]);
+                    Assert.IsInstanceOfType<PortableSettingsException>(failures[0]);
+                    Assert.AreEqual(uninstalled, values[propertyName]);
+                    Assert.AreEqual(uninstalled, TestSettingsFactory.OpenSettings(path)[propertyName]);
+                    Assert.AreEqual(otherUninstalled, values[otherPropertyName]);
+                    Assert.AreEqual(otherUninstalled, TestSettingsFactory.OpenSettings(path)[otherPropertyName]);
+                    Assert.AreSame(appliedAtStart, resources[resourceKey]);
+                    Assert.AreSame(otherAppliedAtStart, resources[otherResourceKey]);
                     Assert.AreEqual(uninstalled, ((SettingsDialogViewModel.AppearanceFontOption)comboBox.SelectedItem).Key);
+                    Assert.AreEqual(uninstalled, ((SettingsDialogViewModel.AppearanceFontOption)comboBox.SelectionBoxItem).Key);
+                    Assert.AreSame(otherSelectionAtStart, otherComboBox.SelectedItem);
                     return;
                 }
 
@@ -1007,18 +1027,21 @@ public sealed class SettingDialogCategoryPersistenceTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, failures.Count);
                 Settings fresh = TestSettingsFactory.OpenSettings(path);
-                Assert.AreEqual("Arial", fresh.AppearanceFontFamily);
+                Assert.AreEqual("Arial", fresh[propertyName]);
+                Assert.AreEqual(otherUninstalled, fresh[otherPropertyName]);
                 Assert.AreEqual(rowHeight, fresh.CustomTableRowHeight);
                 Assert.AreEqual(theme, fresh.AppearanceTheme);
-                var applied = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
+                var applied = (System.Windows.Media.FontFamily)resources[resourceKey];
                 Assert.AreEqual(GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A"), GlyphFontProbe.FontUri(applied, "A"));
-                Assert.AreEqual(applied, window.FontFamily);
+                Assert.AreSame(table ? otherAppliedAtStart : applied, window.FontFamily);
+                Assert.AreSame(otherAppliedAtStart, resources[otherResourceKey]);
                 Assert.AreSame(arial, comboBox.SelectedItem);
+                Assert.AreSame(otherSelectionAtStart, otherComboBox.SelectedItem);
 
                 window.CloseForOwnerShutdown();
                 window = null;
-                Assert.AreEqual("Arial", TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
-                Assert.AreSame(applied, Application.Current.Resources[AppFontService.ResourceKey]);
+                Assert.AreEqual("Arial", TestSettingsFactory.OpenSettings(path)[propertyName]);
+                Assert.AreSame(applied, resources[resourceKey]);
             }
             finally
             {
@@ -1031,19 +1054,22 @@ public sealed class SettingDialogCategoryPersistenceTests
 
     /// <summary>
     /// フォントの選択欄は、閉じた状態の選択中の候補とドロップダウンの各候補の表示名を、アプリの表示フォントではなく候補のフォントで描きます。
-    /// 記号フォント（Wingdings）と既定の候補は既定のMeiryo UI、ArialはArialで描かれ、候補の高さは同じです。
+    /// 記号フォント（Wingdings）と既定の候補は用途ごとの既定、ArialはArialで描かれ、候補の高さは同じです。
     /// ドロップダウンは表示範囲の候補だけを実体化し、開閉とスクロールでは選択と保存値を変えません。
     /// 候補のUIオートメーション名、表示言語の変更に伴う既定の候補の表示名の更新、表示名のキー入力による選択も維持します。
     /// </summary>
     /// <remarks>
     /// 保存値をWingdingsにしてアプリ全体を記号の字形にするため、候補がアプリのフォントを継承する誤りと、すべての候補を既定で描く誤りを字形で区別できます。
-    /// 全候補を実体化する誤り、表示名での検索を失う誤りも検出します。Arial、Meiryo UI、Wingdingsのインストールを前提にします。
+    /// 全候補を実体化する誤り、表示名での検索を失う誤りも検出します。Arial、Yu Gothic UI、Meiryo UI、Wingdingsのインストールを前提にします。
     /// </remarks>
     [TestMethod]
     [DoNotParallelize]
-    public void CompiledFontSelection_DrawsCandidatesInOwnFontAndVirtualizesDropDown()
+    [DataRow(false, "Yu Gothic UI")]
+    [DataRow(true, "Meiryo UI")]
+    public void CompiledFontSelection_DrawsCandidatesInOwnFontAndVirtualizesDropDown(bool table, string defaultName)
     {
         const string symbolFont = "Wingdings";
+        string propertyName = table ? nameof(SettingsDialogViewModel.CustomTableFontFamily) : nameof(SettingsDialogViewModel.AppearanceFontFamily);
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             using var fontSnapshot = AppFontResourceSnapshot.Capture();
@@ -1052,6 +1078,7 @@ public sealed class SettingDialogCategoryPersistenceTests
             string path = Path.Combine(root, "user.config");
             Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
             values.AppearanceFontFamily = symbolFont;
+            values.CustomTableFontFamily = symbolFont;
             values.Save();
             var failures = new List<Exception>();
             MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, reportSettingsApplyFailure: failures.Add);
@@ -1063,17 +1090,18 @@ public sealed class SettingDialogCategoryPersistenceTests
                 string symbolGlyphFont = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(symbolFont), "A");
                 string[] defaultFonts =
                 [
-                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(AppFontService.DefaultFontFamilyName), "A"),
-                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(AppFontService.DefaultFontFamilyName), "あ")
+                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(defaultName), "A"),
+                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(defaultName), "あ")
                 ];
                 CollectionAssert.DoesNotContain(defaultFonts, symbolGlyphFont, "Wingdingsがインストールされ、英字を自身の字形で描く環境が前提です。");
-                CollectionAssert.DoesNotContain(defaultFonts, arialFont, "ArialとMeiryo UIを区別できる環境が前提です。");
+                CollectionAssert.DoesNotContain(defaultFonts, arialFont, $"Arialと{defaultName}を区別できる環境が前提です。");
 
                 // 起動時の適用に相当する状態から始める。継承した文字は記号の字形になる。
-                AppFontService.ApplyFontFamily(values.AppearanceFontFamily);
+                AppFontService.ApplyFontFamily(values.AppearanceFontFamily, AppFontRole.Ui);
+                AppFontService.ApplyFontFamily(values.CustomTableFontFamily, AppFontRole.Table);
                 window = OpenSettingsWindow(scope, owner.SettingDialog);
-                comboBox = (ComboBox)GetCategoryControl(window, "Appearance", nameof(SettingsDialogViewModel.AppearanceFontFamily)).Control;
-                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = owner.SettingDialog.AppearanceFontOptions;
+                comboBox = (ComboBox)GetCategoryControl(window, "Appearance", propertyName).Control;
+                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = table ? owner.SettingDialog.CustomTableFontOptions : owner.SettingDialog.AppearanceFontOptions;
                 int IndexOf(string key) => Enumerable.Range(0, options.Count).Single(index => options[index].Key == key);
                 int symbolIndex = IndexOf(symbolFont), arialIndex = IndexOf("Arial");
                 Assert.AreEqual(symbolGlyphFont, GlyphFontProbe.FontUri(window.FontFamily, "A"));
@@ -1111,10 +1139,11 @@ public sealed class SettingDialogCategoryPersistenceTests
                 double symbolItemHeight = symbolItem.ActualHeight;
 
                 // 先頭へ戻して、既定の候補とArialの候補を確認する。
-                string defaultName = options[0].DisplayName;
+                string defaultDisplayName = options[0].DisplayName;
+                StringAssert.Contains(defaultDisplayName, defaultName);
                 ComboBoxItem defaultItem = Realize(0);
-                AssertDrawnWith(defaultItem, defaultName, defaultFonts, "default item");
-                Assert.AreEqual(defaultName, AutomationName(defaultItem));
+                AssertDrawnWith(defaultItem, defaultDisplayName, defaultFonts, "default item");
+                Assert.AreEqual(defaultDisplayName, AutomationName(defaultItem));
                 Assert.AreEqual(symbolItemHeight, defaultItem.ActualHeight, 0.5d);
                 ComboBoxItem arialItem = Realize(arialIndex);
                 AssertDrawnWith(arialItem, options[arialIndex].DisplayName, [arialFont], "Arial item");
@@ -1125,7 +1154,8 @@ public sealed class SettingDialogCategoryPersistenceTests
                 ResourceService.Current.ChangeCulture(ResourceService.Current.DisplayCulture.Name.StartsWith("ja", StringComparison.OrdinalIgnoreCase) ? "en-US" : "ja-JP");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 string localizedDefaultName = options[0].DisplayName;
-                Assert.AreNotEqual(defaultName, localizedDefaultName, "二つの表示言語で既定の候補の文言が異なることが前提です。");
+                Assert.AreNotEqual(defaultDisplayName, localizedDefaultName, "二つの表示言語で既定の候補の文言が異なることが前提です。");
+                StringAssert.Contains(localizedDefaultName, defaultName);
                 defaultItem = Realize(0);
                 AssertDrawnWith(defaultItem, localizedDefaultName, defaultFonts, "localized default item");
                 Assert.AreEqual(localizedDefaultName, AutomationName(defaultItem));
@@ -1136,8 +1166,8 @@ public sealed class SettingDialogCategoryPersistenceTests
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "FontComboBox.Popup.Closed");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreSame(options[symbolIndex], comboBox.SelectedItem);
-                Assert.AreEqual(symbolFont, values.AppearanceFontFamily);
-                Assert.AreEqual(symbolFont, TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
+                Assert.AreEqual(symbolFont, values[propertyName]);
+                Assert.AreEqual(symbolFont, TestSettingsFactory.OpenSettings(path)[propertyName]);
 
                 // 閉じた選択欄へ表示名を入力すると、その表示名の候補が選ばれる。
                 comboBox.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, comboBox, options[arialIndex].DisplayName))
@@ -1146,7 +1176,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 });
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreSame(options[arialIndex], comboBox.SelectedItem);
-                Assert.AreEqual("Arial", values.AppearanceFontFamily);
+                Assert.AreEqual("Arial", values[propertyName]);
                 Assert.AreEqual(0, failures.Count);
             }
             finally
@@ -1213,9 +1243,9 @@ public sealed class SettingDialogCategoryPersistenceTests
                     Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
                     Assert.AreEqual(31d, fresh.CustomTableRowHeight);
                     Assert.IsFalse(fresh.UseBeatorajaScoreDb);
-                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAbout");
+                    ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAbout");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    var about = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                    var about = (FrameworkElement)SettingsTabs.SelectedPage(window);
                     System.Windows.Documents.Hyperlink inline = FindDescendants<TextBlock>(about)
                         .SelectMany(block => block.Inlines.OfType<System.Windows.Documents.Hyperlink>()).Single();
                     inline.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
@@ -1396,9 +1426,9 @@ public sealed class SettingDialogCategoryPersistenceTests
     /// <summary>カテゴリを実navigationで材料化し、該当Bindingを持つ編集可能なcontrolを選びます。</summary>
     private static (FrameworkElement Control, DependencyProperty Property) GetCategoryControl(SettingsWindow window, string category, string path)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigation" + category);
+        ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigation" + category);
         TestUiDispatcherHost.ProcessQueuedPresentation();
-        var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+        var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
         foreach (FrameworkElement control in FindDescendants<FrameworkElement>(page))
         {
             DependencyProperty? property = control switch

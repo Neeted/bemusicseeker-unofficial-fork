@@ -66,13 +66,15 @@
                     <ContentPresenter x:Name="PART_Header" Grid.Column="1" ContentSource="Header" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
                   </Grid>
                 </Border>
+                <!-- 見出し行だけに重ねる枠。項目全体は子孫を含むためFocusVisualStyleを使わず、TreeViewItemFocusCueが表示を決める。 -->
+                <Control x:Name="FocusCue" Style="{DynamicResource App.FocusVisualStyle}" Focusable="False" IsTabStop="False" IsHitTestVisible="False" Visibility="Collapsed" />
                 <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Margin="20,0,0,0" />
               </Grid>
               <ControlTemplate.Triggers>
                 <Trigger Property="IsExpanded" Value="False"><Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed" /></Trigger>
                 <Trigger SourceName="CandidateRowChrome" Property="IsMouseOver" Value="True"><Setter TargetName="CandidateRowChrome" Property="Background" Value="{DynamicResource App.ControlHoverBrush}" /></Trigger>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter TargetName="CandidateRowChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" /></DataTrigger>
-                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="CandidateRowChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" /></Trigger>
+                <Trigger Property="v:TreeViewItemFocusCue.IsVisible" Value="True"><Setter TargetName="FocusCue" Property="Visibility" Value="Visible" /></Trigger>
               </ControlTemplate.Triggers>
             </ControlTemplate>
           </Setter.Value>
@@ -80,6 +82,7 @@
       </Style>
       <Style TargetType="{x:Type TreeViewItem}" BasedOn="{StaticResource ImportTreeItemStyle}" />
       <Style x:Key="ImportTreeStyle" TargetType="TreeView">
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -102,46 +105,50 @@
     </ResourceDictionary>
   </v:ThemedWindow.Resources>
   <Grid>
-    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
-    <ListBox x:Name="importNavigation" Grid.ColumnSpan="3" SelectedIndex="0" Style="{StaticResource App.Canonical.TopNavigationStyle}" Margin="16,16,16,16">
-      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_external}" />
-      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_builtin}" />
-      <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" />
-    </ListBox>
-    <ContentControl Grid.Row="1" Margin="16,0,0,0" Padding="0" Style="{StaticResource App.Canonical.TopNavigationContentStyle}">
-      <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-        <Grid x:Name="externalSearch" Margin="0,0,0,8">
-          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <!-- タブは左列だけに置き、右の選択一覧を上端から常時表示する。検索・フィルターは入力元ごとのページへ置き、同じViewModelプロパティへ結び付ける。 -->
+    <v:NavigationTabControl x:Name="importNavigation" SelectedIndex="0" Style="{StaticResource App.Canonical.TopTabControlStyle}" Margin="16,0,0,0" Padding="0,16,0,16">
+      <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_external}">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <Grid x:Name="externalSearch" Margin="0,0,0,8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-          <TextBlock x:Name="searchLabel" Grid.ColumnSpan="2" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" Margin="0,0,0,4" />
+            <TextBlock x:Name="searchLabel" Grid.ColumnSpan="2" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" Margin="0,0,0,4" />
             <TextBox x:Name="searchInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=500}"
                 AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_search}" />
             <v:PlaylistImportSelectionCheckBox x:Name="selectAllMatchingCheck" Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource App.Canonical.CheckBoxStyle}"
                 IsChecked="{Binding ExternalSelectionState, Mode=OneWay}" IsEnabled="{Binding CanToggleExternalSelection}"
                 Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_select_matching}" />
           </Grid>
-        <StackPanel x:Name="candidateFilters" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-          <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-          <CheckBox x:Name="hideUrlsCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideRegisteredUrls}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_urls}" Margin="0,0,8,0" />
-          <CheckBox x:Name="hideNamesCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideSameNames}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_names}" />
-        </StackPanel>
-        <Grid x:Name="externalPage" Grid.Row="2">
-          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+          <StackPanel x:Name="candidateFilters" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <CheckBox x:Name="hideUrlsCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideRegisteredUrls}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_urls}" Margin="0,0,8,0" />
+            <CheckBox x:Name="hideNamesCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideSameNames}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_names}" />
+          </StackPanel>
+          <Grid x:Name="externalPage" Grid.Row="2">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <TextBlock x:Name="catalogStatus" Text="{Binding CatalogStatus}" TextWrapping="Wrap">
+              <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,0,0,8" /><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
+            </TextBlock>
+            <TreeView x:Name="externalCandidates" Grid.Row="1" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding ExternalGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
+          </Grid>
+        </Grid>
+      </TabItem>
+      <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_builtin}">
+        <Grid>
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <TextBlock x:Name="catalogStatus" Text="{Binding CatalogStatus}" TextWrapping="Wrap">
-            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,0,0,8" /><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style></TextBlock.Style>
-          </TextBlock>
-          <TreeView x:Name="externalCandidates" Grid.Row="1" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding ExternalGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
+          <StackPanel x:Name="builtInCandidateFilters" Orientation="Horizontal" Margin="0,0,0,8">
+            <CheckBox x:Name="builtInHideUrlsCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideRegisteredUrls}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_urls}" Margin="0,0,8,0" />
+            <CheckBox x:Name="builtInHideNamesCheck" Style="{StaticResource App.Canonical.CheckBoxStyle}" IsChecked="{Binding HideSameNames}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_hide_names}" />
+          </StackPanel>
+          <Grid x:Name="builtInPage" Grid.Row="1">
+            <TreeView x:Name="builtInCandidates" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding BuiltInGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
+          </Grid>
         </Grid>
-        <Grid x:Name="builtInPage" Grid.Row="2">
-          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="1"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-          <TreeView x:Name="builtInCandidates" Style="{StaticResource ImportTreeStyle}" ItemsSource="{Binding BuiltInGroups}" ItemTemplate="{StaticResource CandidateTemplate}" />
-        </Grid>
-        <Grid x:Name="uriPage" Grid.Row="2">
-          <Grid.Style><Style TargetType="Grid"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=importNavigation}" Value="2"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+      </TabItem>
+      <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}">
+        <Grid x:Name="uriPage">
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_url_file}" Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_input_description}" />
           <TextBox Padding="8,5,16,16" x:Name="textBoxURIInput" Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Text="{Binding UriInput, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
@@ -150,9 +157,9 @@
             <Button x:Name="addUriButton" AutomationProperties.AutomationId="PlaylistImportAddUri" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_add}" Click="AddUri" />
           </WrapPanel>
         </Grid>
-      </Grid>
-    </ContentControl>
-    <Grid Grid.Row="1" Grid.Column="2" Margin="0,0,16,0">
+      </TabItem>
+    </v:NavigationTabControl>
+    <Grid Grid.Row="0" Grid.Column="2" Margin="0,16,16,0">
       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
       <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_selected}" FontWeight="SemiBold" Margin="0,0,0,8" />
       <ListBox x:Name="selectedCandidates" Grid.Row="1" Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding SelectedItems}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -172,7 +179,7 @@
         <Button x:Name="clearSelectedButton" AutomationProperties.AutomationId="PlaylistImportClear" Grid.Column="1" Margin="8,0,0,0" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_import_clear}" Click="ClearSelected" />
       </Grid>
     </Grid>
-    <StackPanel Grid.Row="2" Grid.ColumnSpan="3">
+    <StackPanel Grid.Row="1" Grid.ColumnSpan="3">
       <ScrollViewer x:Name="operationMessageHost" MaxHeight="100" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <ScrollViewer.Style><Style TargetType="ScrollViewer" BasedOn="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}"><Style.Triggers><DataTrigger Binding="{Binding Message}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ScrollViewer.Style>
         <TextBlock x:Name="operationMessage" Text="{Binding Message}" TextWrapping="Wrap" />

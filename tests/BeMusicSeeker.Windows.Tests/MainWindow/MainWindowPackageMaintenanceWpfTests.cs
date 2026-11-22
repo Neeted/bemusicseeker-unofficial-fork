@@ -67,10 +67,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 scope.ShowAndWaitForContentRendered(settingsWindow);
                 try
                 {
-                    var navigation = (ListBox)settingsWindow.FindName("settingsNavigation");
+                    var navigation = (TabControl)settingsWindow.FindName("settingsNavigation");
                     navigation.SelectedItem = settingsWindow.FindName("navigationInstall");
                     TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
-                    var page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    var page = (FrameworkElement)SettingsTabs.SelectedPage(settingsWindow);
                     ComboBox destination = Descendants(page).OfType<ComboBox>().Single(combo => System.Windows.Data.BindingOperations.GetBinding(combo, System.Windows.Controls.Primitives.Selector.SelectedItemProperty)?.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                     Task select = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => destination.SelectedItem = b);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(select, "root-change-install-selection");
@@ -78,7 +78,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     Assert.AreEqual(b, settings.BMSInstallDir);
                     navigation.SelectedItem = settingsWindow.FindName("navigationGeneral");
                     TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
-                    page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    page = (FrameworkElement)SettingsTabs.SelectedPage(settingsWindow);
                     ((ListBox)page.FindName("bmsSearchRootPathListBox")).SelectedItem = a;
                     var remove = (Button)page.FindName("removeBmsSearchRootButton");
                     Task removal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove)));
@@ -2479,6 +2479,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => nextFolder.IsSelected = true, nextCharts[0].Path);
             TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, source, sourceCharts[0].Directory);
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => sourceFolder.IsSelected = true, sourceCharts[0].Path);
+            // 統合の対象と無関係な群を展開しておき、統合後も同じ入れ物のまま展開状態を保つことを確認する。
+            DuplicateGroup unrelated = library.DuplicateChartGroups[2];
+            TreeViewItem unrelatedItem = RealizeDuplicateGroupItem(root, unrelated);
+            Assert.IsTrue(unrelatedItem.IsExpanded);
             var table = (CustomTableView)window.FindName("customTableView");
             table.SelectedIndex = 0;
             Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
@@ -2489,7 +2493,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             PropertyChangedEventHandler committed = (_, args) =>
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
-                    && library.DuplicateChartGroups?.Count == 1 && !Directory.Exists(sourceCharts[0].Directory)
+                    && library.DuplicateChartGroups?.Count == 2 && !Directory.Exists(sourceCharts[0].Directory)
                     && Interlocked.Exchange(ref claimed, 1) == 0)
                 { reached.TrySetResult(); release.Wait(); }
             };
@@ -2507,14 +2511,25 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
                         Assert.IsNull(rejected);
                         Assert.IsFalse(library.IsWriteLockHeldInitializeMin || library.IsWriteLockHeldInitializeBMSFiles || library.IsWriteLockHeldDuplicateChartGroups);
+                        Assert.AreEqual(sourceCharts[0].Directory, viewModel.ProgressHub.Rows.Single(row => row.Key == "duplicate_maintenance").Detail,
+                            "標準構成の統合の実行中は、統合元を示す進捗行を一つ表示します。");
                     }
                     finally { release.Set(); }
                 });
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(viewModel.ProgressHub.Rows.Any(row => row.Key == "duplicate_maintenance"), "統合の終端で進捗行を消します。");
                 var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
                 CollectionAssert.AreEquivalent(nextFolders, ((DuplicateGroup)tree.SelectedItem).Folders);
                 AssertSelectionDisplay(tree, root, tree.SelectedItem, "merge auto selected", requireRealized: true);
+                // 対象グループだけが解消し、無関係なグループと次グループは同じインスタンス・同じ入れ物のまま展開状態を保つ。
+                Assert.AreSame(automatic, tree.SelectedItem, "捕捉した次グループは同じインスタンスのまま選択されます。");
+                Assert.IsFalse(library.DuplicateChartGroups!.Contains(source));
+                Assert.IsTrue(library.DuplicateChartGroups.Contains(automatic) && library.DuplicateChartGroups.Contains(unrelated), "無関係な群は同じインスタンスで維持します。");
+                CollectionAssert.AreEqual(library.DuplicateChartGroups.ToArray(), root.Items.OfType<DuplicateGroup>().ToArray(), "ツリーの項目は結果と同じ順序です。");
+                Assert.AreSame(nextItem, root.ItemContainerGenerator.ContainerFromItem(automatic), "次グループの入れ物を作り直しません。");
+                Assert.AreSame(unrelatedItem, root.ItemContainerGenerator.ContainerFromItem(unrelated), "無関係な群の入れ物を作り直しません。");
+                Assert.IsTrue(unrelatedItem.IsExpanded, "無関係な群の展開状態を保ちます。");
                 Assert.AreEqual(MainViewUpdateMode.DuplicateFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
                 Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "元のフォルダの行選択は次群へ持ち越しません。");
                 Assert.IsFalse(Directory.Exists(sourceCharts[0].Directory));
@@ -2531,7 +2546,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 release.Set();
                 library.PropertyChanged -= committed;
             }
-        });
+        }, fillerGroups: 1);
     }
 
     /// <summary>実GキーによるHash整理の削除前に通常一覧へ移り、成功後は捕捉した次群へ自動選択します。実ファイル・所持・SQLiteの整理と、別画面でも必要なgroups準備・実Binding・親L回収と、自動選択した群の入れ物だけが選択表示を持つことを確認します。</summary>
@@ -2579,6 +2594,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             "real hash file deletion"), "hash physical gate");
                         Assert.IsTrue(library.OperationAdmission.IsActive);
                         Assert.IsFalse(handler.IsCompleted);
+                        Assert.AreEqual(source.Folders[0], viewModel.ProgressHub.Rows.Single(row => row.Key == "duplicate_maintenance").Detail,
+                            "標準構成の重複削除の実行中は、対象フォルダを示す進捗行を一つ表示します。");
                         viewModel.ChartFilters.KeywordFilter = "same";
                         SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => normal.IsSelected = true, expectedPaths, null,
                             MainViewUpdateMode.FullScanAllChartsFilterSelected);
@@ -2588,6 +2605,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     finally { release.Set(); }
                 }, MainViewUpdateMode.DuplicateFilterSelected);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(viewModel.ProgressHub.Rows.Any(row => row.Key == "duplicate_maintenance"), "重複削除の終端で進捗行を消します。");
                 Assert.AreEqual(1, mutations.FileDeleteCalls);
                 Assert.AreEqual(1, original.Count(chart => File.Exists(chart.Path)));
                 string removed = original.Single(chart => !File.Exists(chart.Path)).Path;
@@ -2730,7 +2748,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：保守の完了時に捕捉した群が画面外で未生成でも、成功後の自動選択はその群を生成して選び、一覧をその群にする。
-    /// 検索結果の全置換を経ても選択表示は自動選択した群だけに付き、その後スクロールで画面外へ出して戻しても他の項目へ移らない。
+    /// 対象の群が同じフォルダの新しいインスタンスに差し替わっても、選択表示は自動選択した群だけに付き、その後スクロールで画面外へ出して戻しても他の項目へ移らない。
     /// 未生成の群を選べず旧選択が残る誤りと、一覧の全置換や旧選択による表示の持越しを検出する。
     /// </summary>
     /// <remarks>保守本体は代替し、群の準備後に結果を返す契約どおり入力する。実統合・実ハッシュ整理からの接続はActualMerge/ActualHashが分担する。</remarks>
@@ -2770,9 +2788,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         treeScroll.ScrollToEnd();
                         AwaitTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromItem(target) == null,
                             "captured group container is released before completion");
-                        // 群の準備完了後に結果を返す契約どおり、新しい検索結果へ全置換してから完了させる。
-                        library.DuplicateChartGroups = library.DuplicateChartGroups.Where(group => !ReferenceEquals(group, source)).ToList();
+                        // 群の準備完了後に結果を返す契約どおり、対象グループを同じフォルダの新しいインスタンスへ差し替えた新しい検索結果にしてから完了させる（存続グループの再判定）。
+                        var replacement = new DuplicateGroup([.. target.ChartFiles], [.. target.Folders]) { Header = target.Header };
+                        library.DuplicateChartGroups = [.. library.DuplicateChartGroups.Where(group => !ReferenceEquals(group, source))
+                            .Select(group => ReferenceEquals(group, target) ? replacement : group)];
                         completion.SetResult(DuplicateMaintenanceMutationResult.Completed(DuplicateViewContext.CaptureGroup(target)));
+                        target = replacement;
                     }
                     finally
                     {
@@ -2782,6 +2803,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 });
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertSelectionDisplay(tree, root, target, "auto selected", requireRealized: true);
+                Assert.AreSame(target, tree.SelectedItem, "選択項目は新しいインスタンスです。");
+                Assert.IsTrue(((TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(target)).IsExpanded, "存続グループは展開されます。");
                 int targetIndex = root.Items.IndexOf(target);
                 ScrollDuplicateTreeAndAssertSelection(tree, root, target, navigation, viewModel, () =>
                 {
@@ -2811,7 +2834,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[], DuplicateSelectionNavigationTasks> test,
         MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
         OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null,
-        int fillerGroups = 0, int largeGroupFolders = 0)
+        int fillerGroups = 0, int largeGroupFolders = 0, bool uniqueChartNames = false,
+        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string directory = Path.Combine(migrationWorkspace.RootDirectory, "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
@@ -2822,6 +2846,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var navigationTerminal = new MainWindowMaintenanceTreeTerminal((mode, parameter) =>
             navigation.Record((attachedViewModel ?? throw new AssertFailedException("実owner未接続です。"))
                 .RegularChartList.NavigateMaintenanceAsync(mode, parameter)));
+        // 保留ツリーの選択も同じ記録へ集め、重複表示から保留の画面へ移る要求を回収できるようにする。配送先は標準構成と同じ実ownerです。
+        var installNavigationTerminal = new MainWindowInstallTreeTerminal((mode, parameter) =>
+            navigation.Record((attachedViewModel ?? throw new AssertFailedException("実owner未接続です。"))
+                .RegularChartList.NavigateInstallAsync(mode, parameter)));
         ChartFile[] charts = [];
         Settings settings = TestBmsFactory.CreateRootSettings([directory]);
         settings.StartupSelectInstallPending = false;
@@ -2835,7 +2863,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     window.Width = 900d;
                     window.Height = 700d;
                     test(scope, viewModel, window, library, charts, navigation);
-                }, duplicateMaintenanceTerminal: terminal, maintenanceTreeTerminal: navigationTerminal,
+                }, duplicateMaintenanceTerminal: terminal, maintenanceTreeTerminal: navigationTerminal, installTreeTerminal: installNavigationTerminal,
+                dialogService: dialogService, externalShellGateway: externalShellGateway,
                 prepareViewModel: viewModel =>
                 {
                     attachedViewModel = viewModel;
@@ -2847,7 +2876,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             bool sameFolder = hashSource && group == 0;
                             string folder = Path.Combine(directory, "group" + group + "-" + (sameFolder ? 0 : member));
                             Directory.CreateDirectory(folder);
-                            string path = Path.Combine(folder, sameFolder && member == 1 ? "duplicate.bms" : "chart.bms");
+                            string path = Path.Combine(folder, sameFolder && member == 1 ? "duplicate.bms" : uniqueChartNames ? "chart-" + group + "-" + member + ".bms" : "chart.bms");
                             string title = sameFolder ? "0 cleanup" : "same";
                             File.WriteAllText(path, "#PLAYER 1\n#TITLE " + title + "\n#ARTIST group" + group + "\n#BPM 120\n");
                             paths.Add(path);
@@ -3031,6 +3060,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         int index = root.Items.IndexOf(group);
         Assert.IsTrue(index >= 0);
         var item = root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+        if (item == null)
+        {
+            // 先頭にノードが加わった分、画面外のグループは仮想化で未生成になるため、公開APIで生成する。
+            FindItemsHostPanel(root).BringIndexIntoViewPublic(index);
+            root.UpdateLayout();
+            item = root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+        }
         Assert.IsNotNull(item);
         item.IsExpanded = true;
         item.UpdateLayout();
@@ -3040,7 +3076,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     private static TreeViewItem RealizeDuplicateFolderItem(TreeViewItem root, DuplicateGroup group, string folder)
     {
         TreeViewItem parent = RealizeDuplicateGroupItem(root, group);
-        var item = parent.ItemContainerGenerator.ContainerFromIndex(parent.Items.IndexOf(folder)) as TreeViewItem;
+        int folderIndex = parent.Items.IndexOf(folder);
+        var item = parent.ItemContainerGenerator.ContainerFromIndex(folderIndex) as TreeViewItem;
+        if (item == null)
+        {
+            // 先頭にノードが加わった分、画面外の子は仮想化で未生成になるため、公開APIで生成する。
+            FindItemsHostPanel(parent).BringIndexIntoViewPublic(folderIndex);
+            parent.UpdateLayout();
+            item = parent.ItemContainerGenerator.ContainerFromIndex(folderIndex) as TreeViewItem;
+        }
         Assert.IsNotNull(item);
         return item;
     }

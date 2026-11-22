@@ -70,6 +70,9 @@ internal sealed class GridKeywordSearchQuery
 
     private static readonly string[] PlaylistSummaryFields = ["id", "output", "name", "folder", "foldername", "prefix", "symbol", "header", "data"];
 
+    /// <summary>統合候補一覧の検索で使う項目です。項目を指定しない語は、この五項目のいずれかへの一致として評価します。</summary>
+    private static readonly string[] DuplicateMergeCandidateFields = ["path", "folder", "title", "artist", "status"];
+
     private static readonly string[] PlayHistoryFields =
     [
         "title", "artist", "path", "folder", "playlist", "ref", "table", "md5", "hash", "sha256",
@@ -204,6 +207,37 @@ internal sealed class GridKeywordSearchQuery
         foreach (SearchCondition condition in conditions)
         {
             if (!MatchesCondition(condition, row))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>統合候補一覧の一行が条件を満たすかを返します。構文の解析・複数条件・否定・項目指定・正規表現は他の一覧と共通で、グループ単位の残し方は呼出し側が決めます。</summary>
+    internal bool MatchesDuplicateMergeCandidate(string path, string folder, string title, string artist, string status)
+    {
+        if (!HasTokens)
+        {
+            return true;
+        }
+        foreach (SearchCondition condition in conditions)
+        {
+            if (condition.IsInvalid || (condition.Field != null && !DuplicateMergeCandidateFields.Contains(condition.Field)))
+            {
+                return false;
+            }
+            IEnumerable<string> values = condition.Field switch
+            {
+                "path" => [path],
+                "folder" => [folder],
+                "title" => [title],
+                "artist" => [artist],
+                "status" => [status],
+                _ => [path, folder, title, artist, status]
+            };
+            bool matched = condition.Alternatives.Any(alternative => MatchesAlternative(alternative, values));
+            if (condition.IsNegated ? matched : !matched)
             {
                 return false;
             }

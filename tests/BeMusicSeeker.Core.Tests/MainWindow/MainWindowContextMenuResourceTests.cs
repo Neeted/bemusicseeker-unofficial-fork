@@ -501,28 +501,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(AppThemeService.Dark, (string)settings["AppearanceTheme"]);
     }
 
-    /// <summary>フォント名の既定値は空文字で、保存時に前後の空白を除きnullを空文字にし、存在しない名前や小文字の名前を別の名前へ書き換えないことを確認します。</summary>
-    /// <remarks>存在検査で保存値を拒否・置換する誤りと、空白が保存値に残る誤りを検出します。</remarks>
-    [TestMethod]
-    public void AppearanceFontFamilySetting_TrimsWithoutValidatingOrRenaming()
-    {
-        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
-        Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
-
-        settings.AppearanceFontFamily = "  BeMusicSeeker No Such Font  ";
-        Assert.AreEqual("BeMusicSeeker No Such Font", (string)settings["AppearanceFontFamily"]);
-        Assert.AreEqual("BeMusicSeeker No Such Font", settings.AppearanceFontFamily);
-
-        settings.AppearanceFontFamily = "meiryo ui";
-        Assert.AreEqual("meiryo ui", (string)settings["AppearanceFontFamily"]);
-
-        settings.AppearanceFontFamily = null;
-        Assert.AreEqual(string.Empty, (string)settings["AppearanceFontFamily"]);
-
-        settings["AppearanceFontFamily"] = " Arial ";
-        Assert.AreEqual("Arial", settings.AppearanceFontFamily);
-    }
-
     /// <summary>文字・行・見出しの旧NaN/無限値を補正し範囲外書込を下限/上限へ収めることを確認し、異常設定が描画へ届く誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableAppearanceSettings_NormalizeValues()

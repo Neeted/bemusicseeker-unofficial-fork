@@ -47,6 +47,8 @@ public sealed class SettingsDeficiencyListTests
     /// スタンドアロンでLR2バックアップの不備を出す誤り、設定XMLの解決失敗を一覧から落とす誤り、
     /// LR2環境の行がある間の出力先・導入先の行の抑止漏れと抑止し過ぎ、未設定の出力先の重複行、
     /// BMSディレクトリが一件もない場合の行の割当てと導入先の行の重複、導入先の理由の選択誤りを検出します。
+    /// 単独モードの親子登録（子が存在しない場合を含む）を不備にしない誤り、存在確認で絞った後に比較する誤り、
+    /// 名前の先頭だけが同じ兄弟を親子として不備にする誤りも検出します。
     /// </remarks>
     [TestMethod]
     [DataRow("valid")]
@@ -57,6 +59,9 @@ public sealed class SettingsDeficiencyListTests
     [DataRow("lr2-no-registered-root")]
     [DataRow("nested-roots")]
     [DataRow("standalone-no-root")]
+    [DataRow("standalone-nested-roots")]
+    [DataRow("standalone-nested-missing-child")]
+    [DataRow("standalone-prefix-sibling")]
     [DataRow("standalone-install-same-as-leftover-output")]
     [DataRow("score-db")]
     [DataRow("beatoraja-root")]
@@ -82,7 +87,8 @@ public sealed class SettingsDeficiencyListTests
         RunOnUiDispatcher(() =>
         {
             using var directory = new CaseRoot(CreateTemporaryRoot(CaseWorkspace));
-            bool standalone = breakCase is "standalone-no-root" or "standalone-backup" or "standalone-install-same-as-leftover-output";
+            bool standalone = breakCase is "standalone-no-root" or "standalone-backup" or "standalone-install-same-as-leftover-output"
+                or "standalone-nested-roots" or "standalone-nested-missing-child" or "standalone-prefix-sibling";
             Settings values = standalone ? CreateStandalone(directory.Path) : CreateLr2(directory.Path);
             string lr2Root = Path.Combine(directory.Path, "lr2");
             string missing = Path.Combine(directory.Path, "missing");
@@ -135,6 +141,27 @@ public sealed class SettingsDeficiencyListTests
                     values.BMSRootPath = string.Empty;
                     expected.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired));
                     break;
+                case "standalone-nested-roots":
+                case "standalone-nested-missing-child":
+                    {
+                        // 単独モードもLR2連携と同じ条件で親子を不備にします。子が存在しなくても、存在確認で絞る前の保存値で比較します。
+                        string library = Path.Combine(directory.Path, "library");
+                        string child = Path.Combine(library, "Child");
+                        if (breakCase == "standalone-nested-roots") { Directory.CreateDirectory(child); }
+                        values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([library, child]);
+                        expected.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, string.Format(
+                            CultureInfo.CurrentCulture, Resources.Validation_NestedStandaloneBmsRootPathsFormat,
+                            string.Format(CultureInfo.CurrentCulture, Resources.Validation_NestedBmsSearchRootPathLineFormat, library, child))));
+                        break;
+                    }
+                case "standalone-prefix-sibling":
+                    {
+                        // 名前の先頭が同じだけの兄弟は親子ではないため、不備になりません。
+                        string library = Path.Combine(directory.Path, "library");
+                        string sibling = Directory.CreateDirectory(Path.Combine(directory.Path, "library2")).FullName;
+                        values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([library, sibling]);
+                        break;
+                    }
                 case "standalone-install-same-as-leftover-output":
                     // スタンドアロンでは出力先を使わないため、残っている出力先の値と同じでも一般の理由です。
                     values.LR2CustomFolderOutputBaseDir = missing;

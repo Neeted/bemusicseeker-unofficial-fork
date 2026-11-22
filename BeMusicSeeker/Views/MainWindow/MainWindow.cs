@@ -593,6 +593,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         InitializeComponent();
         customTableView.ConfigureDialogs(dialogService);
         customTablePlaylistSummary.ConfigureDialogs(dialogService);
+        ConnectDuplicateMergeCandidateList(viewModel);
         KeywordSearchEditor.Configure(viewModel.ChartFilters.KeywordSearchAssistanceOwner);
         PlaylistSummaryKeywordSearchEditor.Configure(
             viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner);
@@ -4518,6 +4519,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             parameter = treeViewItem.DataContext;
         }
+        else if (treeViewItem.DataContext is DuplicateMergeCandidateListNode)
+        {
+            parameter = DuplicateViewContext.ForCandidateList();
+        }
         else
         {
             return;
@@ -4534,6 +4539,144 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             await NotifyMainWindowOperationFailureAsync(exception, "dupulicateFileCheckFolderSelect");
         }
+    }
+
+    private int splitPlacementSelectionsInFlight;
+
+    /// <summary>
+    /// 分裂配置のルート・グループ・フォルダの選択です。探索と遷移の手順は <see cref="SplitPlacementSearchWorkflowOwner"/> が持ち、ここでは接続と、画面固有の選択の区別だけを行います。
+    /// 選択中の子が結果の失効や入れ替えで除去されると、画面が親のルートを自動で選び直します。この選び直しは利用者の選択ではないため、探索もBusy案内も行いません。
+    /// </summary>
+    private async void splitPlacementCheckFolderSelect(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("tree_split_placement_check_select"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeRoot || e.OriginalSource is not TreeViewItem treeViewItem)
+        {
+            return;
+        }
+        e.Handled = true;
+        object parameter;
+        if (treeRoot == treeViewItem)
+        {
+            if (viewModel.MaintenanceTree.IsSynchronizingSplitPlacementTree)
+            {
+                await NavigateSplitPlacementRootAfterAutomaticSelectionAsync(viewModel);
+                return;
+            }
+            parameter = null;
+        }
+        else if (treeViewItem.DataContext is string or DuplicateGroup)
+        {
+            parameter = treeViewItem.DataContext;
+        }
+        else if (treeViewItem.DataContext is DuplicateMergeCandidateListNode)
+        {
+            // 統合候補一覧のノードも、他の子と同じ入口（探索の要否の判断を含む）へ、専用の表を出す文脈で入る。
+            parameter = DuplicateViewContext.ForCandidateList();
+        }
+        else
+        {
+            return;
+        }
+        await RunSplitPlacementSelectionAsync(viewModel, treeRoot, treeViewItem, parameter);
+    }
+
+    /// <summary>
+    /// 選択の手順を呼び、探索中に子が入れ替わって選択がルートへ移った場合は、終端でルートの一覧へ合わせます（探索は行いません）。
+    /// </summary>
+    private async Task RunSplitPlacementSelectionAsync(MainWindowViewModel viewModel, TreeViewItem treeRoot, TreeViewItem selected, object parameter)
+    {
+        splitPlacementSelectionsInFlight++;
+        try
+        {
+            await viewModel.SplitPlacementSearch.SelectAsync(parameter, this);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "splitPlacementCheckFolderSelect");
+        }
+        finally { splitPlacementSelectionsInFlight--; }
+        try
+        {
+            if (treeRoot != selected && !selected.IsSelected && treeRoot.IsSelected)
+            {
+                await NavigateSplitPlacementRootAfterAutomaticSelectionAsync(viewModel);
+            }
+            if (treeRoot.IsSelected && viewModel.MaintenanceTree.SplitPlacementTreeChildren.Count > 0)
+            {
+                treeRoot.IsExpanded = true;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "splitPlacementCheckFolderSelect");
+        }
+    }
+
+    /// <summary>
+    /// 自動で選び直されたルートの一覧を、探索せずに表示します（結果がなければ空、有効な結果があればその全件）。
+    /// 利用者の選択による探索がすでに進行中なら、その終端で合わせるため何もしません。
+    /// </summary>
+    private async Task NavigateSplitPlacementRootAfterAutomaticSelectionAsync(MainWindowViewModel viewModel)
+    {
+        if (splitPlacementSelectionsInFlight > 0) { return; }
+        try
+        {
+            await viewModel.RegularChartList.NavigateMaintenanceAsync(MainViewUpdateMode.SplitPlacementFilterSelected, DuplicateViewContext.ForRoot());
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "splitPlacementCheckFolderSelect");
+        }
+    }
+
+    /// <summary>選択済みのルートのクリックです。有効な結果がなければ探索します（選択の変化を伴うクリックは選択のイベントが扱います）。</summary>
+    private async void splitPlacementRootPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not TreeViewItem treeRoot || !treeRoot.IsSelected
+            || e.OriginalSource is not DependencyObject source || (source as TreeViewItem ?? WPFUtil.FindVisualParent<TreeViewItem>(source)) != treeRoot
+            || WPFUtil.FindVisualParent<System.Windows.Controls.Primitives.ToggleButton>(source) != null
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await ReselectSplitPlacementRootAsync(viewModel, treeRoot);
+    }
+
+    /// <summary>ルートでのEnterキーです。未選択なら選択し（選択のイベントが扱います）、選択済みで有効な結果がなければ探索します。</summary>
+    private async void splitPlacementRootKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TreeViewItem treeRoot || !ReferenceEquals(e.OriginalSource, treeRoot)
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        e.Handled = true;
+        if (!treeRoot.IsSelected)
+        {
+            treeRoot.IsSelected = true;
+            return;
+        }
+        await ReselectSplitPlacementRootAsync(viewModel, treeRoot);
+    }
+
+    private async Task ReselectSplitPlacementRootAsync(MainWindowViewModel viewModel, TreeViewItem treeRoot)
+    {
+        if (ShouldBlockStartupUiInteraction("tree_split_placement_check_select") || viewModel.SplitPlacementSearch.HasCurrentResult) { return; }
+        await RunSplitPlacementSelectionAsync(viewModel, treeRoot, treeRoot, null);
     }
 
     private async void garbledCheckFolderSelect(object sender, RoutedEventArgs e)
@@ -6062,9 +6205,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        // グループの変更通知はワーカースレッドから届き、Bindingは反映をDispatcherへ予約して、その間の同スレッド通知を無視する。
-        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、現在値を読み直す。後から届く反映は同じ参照なので再構築しない。
-        BindingOperations.GetBindingExpression(treeViewItemSearchDuplicated, ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+        // グループの変更通知はワーカースレッドから届き、ツリー項目の同期はUIスレッドへ予約される。
+        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、UIスレッド上でその時点の結果へ同期する。後から届く同期は同じ結果なので何も変えない。
+        viewModel.MaintenanceTree.SynchronizeDuplicateTreeItems();
         DuplicateGroup targetGroup = selection.ResolveGroup(viewModel.MaintenanceTree.DuplicateChartGroups);
         if (targetGroup == null)
         {
@@ -6087,8 +6230,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>重複ルートを展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
     private TreeViewItem RealizeDuplicateGroupTreeItem(DuplicateGroup group)
+        => RealizeGroupTreeItem(treeViewItemSearchDuplicated, group);
+
+    /// <summary>指定したルート（重複または分裂配置）を展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
+    private TreeViewItem RealizeGroupTreeItem(TreeViewItem root, DuplicateGroup group)
     {
-        TreeViewItem root = treeViewItemSearchDuplicated;
         root.IsExpanded = true;
         root.UpdateLayout();
         int index = root.Items.IndexOf(group);

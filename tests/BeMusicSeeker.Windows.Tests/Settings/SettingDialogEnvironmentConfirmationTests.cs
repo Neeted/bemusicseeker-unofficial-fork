@@ -517,7 +517,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
             string root = CreateTemporaryRoot(CaseWorkspace);
             string path = Path.Combine(root, "user.config");
             Settings values = playlistOperation
-                ? CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path))
+                ? CreateValidStandaloneSettings(Directory.CreateDirectory(Path.Combine(root, "library")).FullName, TestSettingsFactory.OpenSettings(path))
                 : CreateValidCustomFolderSettings(Path.Combine(root, "confirmed-lr2"), [], TestSettingsFactory.OpenSettings(path));
             if (playlistOperation)
             {

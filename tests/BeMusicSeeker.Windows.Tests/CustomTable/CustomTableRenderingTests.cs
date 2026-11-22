@@ -29,11 +29,11 @@ public sealed class CustomTableRenderingTests
     private static CustomTableColumn Column(string id, int width, TextAlignment alignment = TextAlignment.Left, Func<object, string>? text = null, string header = "",
         Func<object, Brush>? foreground = null, Func<object, Brush>? background = null, CustomTableCellKind kind = CustomTableCellKind.Text,
         CustomTableTextStyle? style = null, string? sortMemberPath = null, Func<object, bool?>? isChecked = null,
-        Func<object, IReadOnlyList<CustomTableTextRunStyle>>? runs = null)
+        Func<object, IReadOnlyList<CustomTableTextRunStyle>>? runs = null, bool merged = false, Func<object, bool>? enabled = null)
     {
         return new CustomTableColumn(id, header, new CustomTableColumnSettings.ColumnLayout { Width = width, Visibility = Visibility.Visible }, 0, sortMemberPath, alignment,
             text ?? (_ => string.Empty), foregroundSelector: foreground, backgroundSelector: background, cellKind: kind, textStyle: style, checkedSelector: isChecked,
-            textRunSelector: runs == null ? null : (row, _) => runs(row));
+            textRunSelector: runs == null ? null : (row, _) => runs(row), mergesRowGroup: merged, enabledSelector: enabled);
     }
 
     private static CustomTableView CreateTable(IReadOnlyList<CustomTableColumn> columns, System.Collections.IList rows, double width, double height,
@@ -273,8 +273,17 @@ public sealed class CustomTableRenderingTests
         });
     }
 
-    /// <summary>ダウンロード・状態の各種類・チェックボックスのセルで、前景色の描画がセルの内側にあり、種類ごとに異なり、値のないチェックボックスは何も描かないことを確認します。</summary>
-    /// <remarks>アイコンを描かない誤り、種類を取り違えて同じ形を描く誤り、値のないチェックボックスに枠を描く誤りを検出します。</remarks>
+    /// <summary>
+    /// ダウンロード・状態の各種類・チェックボックスのセルで、前景色の描画がセルの内側にあり、種類ごとに異なり、値のないチェックボックスは何も描かないことを確認します。
+    /// ラジオボタンは、選択済みが輪郭と中央の塗り、未選択が輪郭だけ、値なしが何もなしで、チェックボックスとは別の形です。
+    /// 操作できないチェックボックスとラジオボタンは、同じ状態でも有効時と異なる画素で描きます。
+    /// オンのチェックと選択済みラジオボタンの中央の塗りは、列の前景色（赤）ではなくパレットのチェックの色で、無効は無効色です。
+    /// </summary>
+    /// <remarks>
+    /// アイコンを描かない誤り、種類を取り違えて同じ形を描く誤り、値のないチェックボックスに枠を描く誤りを検出します。
+    /// ラジオボタンをチェックボックスの形で描く誤り、選択の有無で中央の塗りが変わらない誤り、値なしに輪郭を描く誤り、
+    /// 無効を有効と同じ画素で描く誤り、チェックや中央の塗りへ列の前景色を適用する誤りも検出します。
+    /// </remarks>
     [TestMethod]
     public void Icons_AreDrawnPerKindInsideTheCell()
     {
@@ -287,6 +296,17 @@ public sealed class CustomTableRenderingTests
             columns.Add(Column("On", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => true));
             columns.Add(Column("Off", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => false));
             columns.Add(Column("Null", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => null));
+            // 既存の表明が数える列はここまでです。ラジオボタンと無効のセルは後ろへ足し、既存の列の位置を変えません。
+            int baseCount = columns.Count;
+            columns.Add(Column("RadioOn", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => true));
+            columns.Add(Column("RadioOff", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => false));
+            columns.Add(Column("RadioNull", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => null));
+            columns.Add(Column("CheckOnDisabled", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => true, enabled: _ => false));
+            columns.Add(Column("CheckOffDisabled", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => false, enabled: _ => false));
+            columns.Add(Column("RadioOnDisabled", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => true, enabled: _ => false));
+            columns.Add(Column("RadioOffDisabled", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => false, enabled: _ => false));
+            columns.Add(Column("RadioNullDisabled", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.RadioButton, isChecked: _ => null, enabled: _ => false));
+            int Index(string id) => columns.FindIndex(column => column.Id == id);
             CustomTableView table = CreateTable(columns, Rows(1), 40d * columns.Count, 60d);
             try
             {
@@ -308,17 +328,419 @@ public sealed class CustomTableRenderingTests
                     Assert.IsTrue(RedInk(column) > 0, columns[column].Id + " の前景色の描画がセルの内側にあります。");
                     Assert.IsNotNull(pixels.FindInkBounds(Cell(column), background));
                 }
-                for (int first = 0; first < columns.Count; first++)
+                for (int first = 0; first < baseCount; first++)
                 {
-                    for (int second = first + 1; second < columns.Count; second++)
+                    for (int second = first + 1; second < baseCount; second++)
                     {
                         Assert.IsFalse(pixels.RegionEquals(Cell(first), pixels, second * 40, 20), columns[first].Id + " と " + columns[second].Id + " は異なる形です。");
                     }
                 }
-                int on = columns.Count - 3, off = columns.Count - 2, none = columns.Count - 1;
-                Assert.IsTrue(RedInk(on) > 0, "オンのチェックは前景色で描きます。");
+                int on = baseCount - 3, off = baseCount - 2, none = baseCount - 1;
+                Color checkColor = Solid(CustomTablePalette.Current.CheckBoxCheck), disabledColor = Solid(CustomTablePalette.Current.CheckBoxDisabledCheck);
+                Assert.AreNotEqual(Colors.Red, checkColor, "前提: パレットのチェックの色は列の前景色（赤）と異なります。");
+                Assert.AreEqual(0, RedInk(on), "オンのチェックは列の前景色を使いません。");
+                Assert.IsTrue(CountColor(pixels, Cell(on), checkColor) > 0, "オンのチェックはパレットのチェックの色で描きます。");
                 Assert.AreEqual(0, pixels.CountNotEqual(Cell(none), background), "値のないチェックボックスは何も描きません。");
                 Assert.IsTrue(pixels.CountNotEqual(Cell(off), background) > 0, "オフのチェックボックスは枠を描きます。");
+
+                // ラジオボタン。未選択は輪郭だけ、選択済みは中央を前景色で塗り、値なしは何も描かない。チェックボックスとは別の形。
+                int radioOn = Index("RadioOn"), radioOff = Index("RadioOff"), radioNull = Index("RadioNull");
+                Assert.AreEqual(0, RedInk(radioOn), "選択済みのラジオボタンの中央は列の前景色を使いません。");
+                Assert.AreEqual(checkColor, pixels.GetColor(radioOn * 40 + 19, 29), "選択済みのラジオボタンはパレットのチェックの色で中央を塗ります。");
+                Assert.AreEqual(0, RedInk(radioOff), "未選択のラジオボタンは中央を塗りません。");
+                Assert.IsTrue(pixels.CountNotEqual(Cell(radioOff), background) > 0, "未選択のラジオボタンは輪郭を描きます。");
+                Assert.AreEqual(0, pixels.CountNotEqual(Cell(radioNull), background), "値なしのラジオボタンは何も描きません。");
+                Assert.IsFalse(pixels.RegionEquals(Cell(radioOn), pixels, radioOff * 40, 20), "選択済みと未選択は異なる形です。");
+                Assert.IsFalse(pixels.RegionEquals(Cell(radioOn), pixels, on * 40, 20), "選択済みのラジオボタンはチェックボックスと別の形です。");
+                Assert.IsFalse(pixels.RegionEquals(Cell(radioOff), pixels, off * 40, 20), "未選択のラジオボタンはチェックボックスと別の形です（円と四角）。");
+                Int32Rect? radioBounds = pixels.FindInkBounds(Cell(radioOff), background);
+                Int32Rect? checkBounds = pixels.FindInkBounds(Cell(off), background);
+                Assert.IsTrue(radioBounds.HasValue && checkBounds.HasValue
+                    && Math.Abs(radioBounds.Value.Width - checkBounds.Value.Width) <= 1 && Math.Abs(radioBounds.Value.Height - checkBounds.Value.Height) <= 1,
+                    "ラジオボタンの大きさはチェックボックスと同じです。" + radioBounds + " / " + checkBounds);
+
+                // 無効のセルは、同じ状態の有効のセルと異なる画素で、前景色（赤）を使わない。値なしは無効でも何も描かない。
+                foreach ((string enabledId, string disabledId) in new[] { ("On", "CheckOnDisabled"), ("Off", "CheckOffDisabled"), ("RadioOn", "RadioOnDisabled"), ("RadioOff", "RadioOffDisabled") })
+                {
+                    int enabledColumn = Index(enabledId), disabledColumn = Index(disabledId);
+                    Assert.IsTrue(pixels.CountNotEqual(Cell(disabledColumn), background) > 0, disabledId + " も図形を描きます。");
+                    Assert.IsFalse(pixels.RegionEquals(Cell(enabledColumn), pixels, disabledColumn * 40, 20), disabledId + " は有効時と異なる画素です。");
+                    Assert.AreEqual(0, RedInk(disabledColumn), disabledId + " は前景色を使いません。");
+                }
+                Assert.AreEqual(disabledColor, pixels.GetColor(Index("RadioOnDisabled") * 40 + 19, 29), "無効の選択済みラジオボタンは無効色で中央を塗ります。");
+                Assert.AreEqual(0, pixels.CountNotEqual(Cell(Index("RadioNullDisabled")), background), "値なしのラジオボタンは無効でも何も描きません。");
+            }
+            finally { Release(table); }
+        });
+    }
+
+    /// <summary>
+    /// 行グループの提供元を持つ表の交互背景が、行番号ではなくグループの序数の偶奇で決まり、偶数は <c>RowBackground</c>、奇数は <c>AlternatingRowBackground</c> になることを確認します。
+    /// グループの大きさ [2,1,3,2,1,3,2,1,3] で、行番号と序数の偶奇が食い違う行（2・3・5・6）を含め、選択（行3）と警告（行5・6）が交互色より優先されること、
+    /// 奇数の序数のグループが先頭に来るまでスクロールした後（先頭行2）と、グループの途中が先頭に来た後（先頭行5）も、先頭からの序数で決まることを確認します。
+    /// </summary>
+    /// <remarks>
+    /// グループを無視して行番号の偶奇で塗る誤り、表示中の先頭行や画面上の位置から数え直した序数で塗る誤り（スクロールで色が反転する）、
+    /// グループ内の行ごとに色を替える誤り、選択・警告の優先を交互色の下へ落とす誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void RowGroups_AlternateBackgroundByGroupOrdinalWithSelectionAndWarningPriority()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            int[] ordinals = [0, 0, 1, 2, 2, 2, 3, 3, 4, 5, 5, 5, 6, 6, 7, 8, 8, 8];
+            HashSet<int> warnings = [5, 6];
+            var rows = new GroupedRows([2, 1, 3, 2, 1, 3, 2, 1, 3], index => new WarningRow(warnings.Contains(index)));
+            CustomTableView table = CreateTable([Column("A", 60), Column("B", 80)], rows, 140d, 20d + 19d * 8d);
+            try
+            {
+                CustomTablePalette palette = CustomTablePalette.Current;
+                table.SelectedIndex = 3;
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                foreach (int first in new[] { 0, 2, 5 })
+                {
+                    vertical.Value = first;
+                    SurfacePixels pixels = CustomTableRenderProbe.Redraw(table);
+                    Assert.AreEqual(first, table.FirstVisibleRowIndex);
+                    int headerPx = table.RowGeometry.HeaderHeightPx, rowPx = table.RowGeometry.RowHeightPx;
+                    for (int row = first; row < first + 8; row++)
+                    {
+                        Brush expected = row == 3 ? palette.SelectedRowBackground
+                            : warnings.Contains(row) ? palette.WarningRowBackground
+                            : (ordinals[row] & 1) == 1 ? palette.AlternatingRowBackground : palette.RowBackground;
+                        Assert.AreEqual(Solid(expected), pixels.GetColor(100, headerPx + (row - first) * rowPx + 3), $"先頭行{first} 行{row}（序数{ordinals[row]}）の背景");
+                    }
+                }
+            }
+            finally { Release(table); }
+        });
+    }
+
+    /// <summary>
+    /// グループの全行にまたがる結合列（文字・チェックボックス）が、グループごとに一つのセルとして描かれることを、倍率1.0と1.25で確認します。
+    /// グループの内部の境界には横罫線がなく（通常の列には罫線がある）、グループの下端には罫線があり、右の縦罫線は途切れません。
+    /// 内容は一度だけ、グループの範囲のうち表示中の部分の縦中央（±1画素）に描かれます。先頭行が画面外のとき、1000行のグループの中ほどが先頭のとき、
+    /// グループが表示行数より大きく最後の行が部分表示のときも同じです。選択と現在セルの強調は <see cref="MergedColumns_PaintSelectionAndCurrentCellOverTheWholeMergedCell"/> が確かめます。
+    /// </summary>
+    /// <remarks>
+    /// 行ごとに内容を描く誤り、内部の罫線を引く誤り、下端や縦罫線を落とす誤り、グループの先頭行を基準に中央を決めて先頭行が画面外だと位置がずれる誤り、
+    /// グループ全体の高さ（画面外を含む）の中央に描く誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(1d)]
+    [DataRow(1.25d)]
+    public void RowGroups_MergedColumnsDrawOneCellPerGroupCenteredOnTheVisiblePart(double dpi)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var rows = new GroupedRows([3, 2, 1000, 5]);
+            // 7行と、10 DIPだけ見える8行目。
+            CustomTableView table = CreateTable(
+                [Column("A", 60), Column("T", 60, text: _ => "H", foreground: _ => Brushes.Red, merged: true),
+                    Column("K", 40, foreground: _ => Brushes.Red, kind: CustomTableCellKind.CheckBox, isChecked: _ => true, merged: true)],
+                rows, 180d, 20d + 19d * 7d + 10d, dpi);
+            try
+            {
+                CustomTablePalette palette = CustomTablePalette.Current;
+                Color cellBorder = Solid(palette.CellBorder);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                int gl = CustomTablePixelGeometry.GridLineWidth(dpi);
+                (int Left, int Right) T = (Px(60d, dpi), Px(120d, dpi)), K = (Px(120d, dpi), Px(160d, dpi));
+
+                // slotCount行のグループの部分（先頭は表示中の slot 番目の行）を確かめる。bottomBorder は、グループの下端が完全に見えるか。
+                void AssertSegment(SurfacePixels pixels, int firstSlot, int slotCount, bool bottomBorder, Color background, string label)
+                {
+                    int headerPx = table.RowGeometry.HeaderHeightPx, rowPx = table.RowGeometry.RowHeightPx, surfacePx = table.RowGeometry.SurfaceHeightPx;
+                    int top = headerPx + firstSlot * rowPx;
+                    int bottom = Math.Min(surfacePx, top + slotCount * rowPx);
+                    int interiorBottom = bottomBorder ? bottom - gl : bottom;
+                    foreach ((string name, (int Left, int Right) slot) in new[] { ("T", T), ("K", K) })
+                    {
+                        for (int slotIndex = firstSlot; slotIndex < firstSlot + slotCount; slotIndex++)
+                        {
+                            int lineTop = headerPx + (slotIndex + 1) * rowPx - gl;
+                            if (lineTop + gl > surfacePx) { continue; }
+                            bool isBottom = slotIndex == firstSlot + slotCount - 1;
+                            Color expected = isBottom && bottomBorder ? cellBorder : background;
+                            for (int y = lineTop; y < lineTop + gl; y++)
+                            {
+                                Assert.AreEqual(expected, pixels.GetColor(slot.Left, y), $"{label} {name} スロット{slotIndex}の下端の罫線 y={y}");
+                                Assert.AreEqual(expected, pixels.GetColor(slot.Right - gl - 1, y), $"{label} {name} スロット{slotIndex}の下端の罫線 右 y={y}");
+                                if (!isBottom || !bottomBorder)
+                                {
+                                    // 通常の列は、同じ位置に罫線がある。
+                                    Assert.AreEqual(cellBorder, pixels.GetColor(5, y), $"{label} 通常の列の罫線 y={y}");
+                                }
+                            }
+                        }
+                        for (int y = top; y < bottom; y++)
+                        {
+                            Assert.AreEqual(cellBorder, pixels.GetColor(slot.Right - 1, y), $"{label} {name} 右の縦罫線 y={y}");
+                        }
+                        var area = new Int32Rect(slot.Left, top, slot.Right - gl - slot.Left, interiorBottom - top);
+                        Int32Rect? ink = pixels.FindInkBounds(area, background);
+                        Assert.IsNotNull(ink, $"{label} {name} の内容");
+                        double expectedCenter = top + (interiorBottom - top) / 2d;
+                        Assert.IsTrue(Math.Abs(ink.Value.Y + ink.Value.Height / 2d - expectedCenter) <= 1d,
+                            $"{label} {name} の内容が表示中の部分の縦中央 {ink.Value.Y + ink.Value.Height / 2d} / {expectedCenter}");
+                        Assert.IsTrue(ink.Value.Height <= Math.Max(rowPx, Px(14d, dpi)), $"{label} {name} の内容は一度だけ（高さ{ink.Value.Height}）");
+                    }
+                }
+
+                Color row = Solid(palette.RowBackground), alternating = Solid(palette.AlternatingRowBackground);
+                SurfacePixels first = CustomTableRenderProbe.Read(table);
+                AssertSegment(first, 0, 3, true, row, "先頭");
+                AssertSegment(first, 3, 2, true, alternating, "二番目");
+                AssertSegment(first, 5, 3, false, row, "最後（部分表示）");
+
+                // グループの先頭行が画面外。
+                vertical.Value = 1;
+                AssertSegment(CustomTableRenderProbe.Redraw(table), 0, 2, true, row, "先頭行が画面外");
+
+                // 1000行のグループの中ほどが先頭。表示中の全行がグループの内部で、罫線も下端もない。
+                vertical.Value = 100;
+                SurfacePixels middle = CustomTableRenderProbe.Redraw(table);
+                AssertSegment(middle, 0, 8, false, row, "1000行のグループの中ほど");
+            }
+            finally { Release(table); }
+        });
+    }
+
+    /// <summary>指定の矩形で、指定の色と完全に一致する画素の数を返します。</summary>
+    private static int CountColor(SurfacePixels pixels, Int32Rect area, Color color)
+    {
+        int count = 0;
+        for (int y = Math.Max(0, area.Y); y < Math.Min(pixels.Height, area.Y + area.Height); y++)
+        {
+            for (int x = Math.Max(0, area.X); x < Math.Min(pixels.Width, area.X + area.Width); x++)
+            {
+                if (pixels.GetColor(x, y) == color) { count++; }
+            }
+        }
+        return count;
+    }
+
+    /// <summary>表の実座標からヒットを作り、本番のセル押下処理へ渡します。物理入力に依存しません。</summary>
+    private static void PressAt(CustomTableView table, double x, double y, ModifierKeys modifiers = ModifierKeys.None)
+    {
+        var point = new Point(x, y);
+        CustomTableHitTestResult hit = table.HitTestTable(point);
+        Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+        Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, modifiers, 1, point));
+    }
+
+    /// <summary>
+    /// チェックボックスのチェックとラジオボタンの中央の塗りが、行の選択・現在セルのどちらでも、列の前景色や強調の文字色ではなくパレットのチェックの色（無効は無効色）で描かれ、
+    /// 枠の内側が未選択のときと画素単位で一致することを確認します。行グループの提供元の有無（結合列のチェックを含む）と、有効・無効を切り替えます。
+    /// 前提として、選択時・現在セルの文字色がチェックの色と異なることを表明します（同じなら検出できないため）。
+    /// </summary>
+    /// <remarks>
+    /// 現在セルや選択時の文字色を印へ使う誤り（ライト系のテーマでラジオボタンの中央の塗りが背景と同化して消える）、結合列だけ別の色で描く誤り、
+    /// 提供元の有無で色を変える誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CheckAndRadioMarks_UseThePaletteColorInEverySelectionState(bool grouped)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTablePalette palette = CustomTablePalette.Current;
+            Color checkColor = Solid(palette.CheckBoxCheck), disabledColor = Solid(palette.CheckBoxDisabledCheck);
+            Assert.AreNotEqual(Solid(palette.SelectedForeground), checkColor, "前提: 選択時の文字色はチェックの色と異なります。");
+            Assert.AreNotEqual(Solid(palette.CurrentCellForeground), checkColor, "前提: 現在セルの文字色はチェックの色と異なります。");
+            Assert.AreNotEqual(Solid(palette.SelectedForeground), disabledColor, "前提: 選択時の文字色は無効色と異なります。");
+            Assert.AreNotEqual(Solid(palette.CurrentCellForeground), disabledColor, "前提: 現在セルの文字色は無効色と異なります。");
+            foreach (bool enabled in new[] { true, false })
+            {
+                var columns = new List<CustomTableColumn>
+                {
+                    Column("A", 60, text: _ => "a"),
+                    Column("Check", 40, kind: CustomTableCellKind.CheckBox, isChecked: _ => true, enabled: _ => enabled),
+                    Column("Radio", 40, kind: CustomTableCellKind.RadioButton, isChecked: _ => true, enabled: _ => enabled)
+                };
+                if (grouped)
+                {
+                    columns.Add(Column("MergedCheck", 40, kind: CustomTableCellKind.CheckBox, isChecked: _ => true, enabled: _ => enabled, merged: true));
+                }
+                System.Collections.IList rows = grouped ? new GroupedRows([2, 2]) : Rows(4);
+                CustomTableView table = CreateTable(columns, rows, 60d + 40d * (columns.Count - 1), 20d + 19d * 4d);
+                try
+                {
+                    SurfacePixels baseline = CustomTableRenderProbe.Read(table);
+                    Color rowBackground = Solid(palette.RowBackground);
+                    int headerPx = table.RowGeometry.HeaderHeightPx, rowPx = table.RowGeometry.RowHeightPx;
+                    double RowCenterY(int row) => table.HeaderHeight + (row + 0.5d) * table.RowHeight;
+                    for (int column = 1; column < columns.Count; column++)
+                    {
+                        string id = columns[column].Id;
+                        bool merged = columns[column].MergesRowGroup;
+                        double left = 60d + 40d * (column - 1);
+                        var area = new Int32Rect((int)left, headerPx, 39, merged ? rowPx * 2 - 1 : rowPx - 1);
+                        Int32Rect? bounds = baseline.FindInkBounds(area, rowBackground);
+                        Assert.IsNotNull(bounds, id + " は未選択でも描かれます。");
+                        int centerX = bounds.Value.X + bounds.Value.Width / 2, centerY = bounds.Value.Y + bounds.Value.Height / 2;
+                        var inside = new Int32Rect(centerX - 4, centerY - 4, 8, 8);
+                        bool isRadio = columns[column].CellKind == CustomTableCellKind.RadioButton;
+                        Color expected = enabled ? checkColor : disabledColor;
+                        int baselineInk = CountColor(baseline, inside, expected);
+                        Assert.IsTrue(baselineInk > 0, id + " の印は期待の色で描かれます（未選択）。");
+
+                        void AssertState(SurfacePixels pixels, string state)
+                        {
+                            string label = $"{id} 有効={enabled} 提供元={grouped} {state}";
+                            if (isRadio)
+                            {
+                                Assert.AreEqual(expected, pixels.GetColor(centerX, centerY), label + " 中央の塗り");
+                            }
+                            Assert.AreEqual(baselineInk, CountColor(pixels, inside, expected), label + " 印の画素数");
+                            if (enabled)
+                            {
+                                Assert.IsTrue(baseline.RegionEquals(inside, pixels, inside.X, inside.Y), label + " 枠の内側は未選択と画素単位で一致");
+                            }
+                        }
+
+                        PressAt(table, 30d, RowCenterY(0));
+                        AssertState(CustomTableRenderProbe.Redraw(table), "行の選択");
+                        PressAt(table, left + 20d, RowCenterY(0));
+                        Assert.IsTrue(table.IsCurrentCell(0, columns[column]), id + " が現在セル");
+                        AssertState(CustomTableRenderProbe.Redraw(table), "現在セル");
+                    }
+                }
+                finally { Release(table); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 行グループの結合列が、全行が選択されたグループだけ結合セル全体を選択色で塗り、一部だけが選択されたグループは交互色のままで、現在セルが結合列にあれば結合セル全体を現在セルの強調で塗ることを、
+    /// 倍率1.0と1.25で確認します。全選択は画面外の行を含めて判定し（表示中の行だけを選んだグループは塗らず、画面外を含め全行を選ぶと塗る）、行の境目に隙間を作りません。
+    /// 結合列以外は行ごとの選択・現在セルのままで、下端の罫線と右の縦罫線は残り、文字は塗りと同じ色で消えません。
+    /// </summary>
+    /// <remarks>
+    /// 結合列へ行ごとの選択色を塗る誤り、表示中の行だけで全選択と判定する誤り、一部選択でも塗る誤り、現在セルを一行分だけ塗る誤り、
+    /// 行の境目の隙間、罫線を消す誤り、文字が塗りと同色で消える誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(1d)]
+    [DataRow(1.25d)]
+    public void MergedColumns_PaintSelectionAndCurrentCellOverTheWholeMergedCell(double dpi)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            // グループは [4, 3, 40] 行。表示は、見出しと7行が物理画素でちょうど収まる高さ。
+            var rows = new GroupedRows([4, 3, 40], index => new IndexedRow(index));
+            CustomTableView table = CreateTable(
+                [Column("A", 60, text: _ => "a"), Column("T", 60, text: _ => "H", merged: true),
+                    Column("K", 40, kind: CustomTableCellKind.CheckBox, isChecked: _ => true, merged: true)],
+                rows, 160d, (Px(20d, dpi) + 7 * Px(19d, dpi)) / dpi, dpi);
+            try
+            {
+                CustomTablePalette palette = CustomTablePalette.Current;
+                Color rowColor = Solid(palette.RowBackground), alternating = Solid(palette.AlternatingRowBackground), selectedColor = Solid(palette.SelectedRowBackground);
+                Color currentColor = Solid(palette.CurrentCellBackground), cellBorder = Solid(palette.CellBorder);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                int gl = CustomTablePixelGeometry.GridLineWidth(dpi);
+                (int Left, int Right) A = (0, Px(60d, dpi)), T = (Px(60d, dpi), Px(120d, dpi)), K = (Px(120d, dpi), Px(160d, dpi));
+                int headerPx = table.RowGeometry.HeaderHeightPx, rowPx = table.RowGeometry.RowHeightPx;
+                double SlotCenterY(int slot) => table.HeaderHeight + (slot + 0.5d) * table.RowHeight;
+
+                // 結合列の表示中の部分 [firstSlot, firstSlot+slotCount) の全画素が fill で、下端の罫線と右の縦罫線が残ることを確かめる。
+                void AssertMergedFill(SurfacePixels pixels, (int Left, int Right) slot, string name, int firstSlot, int slotCount, bool bottomBorder, Color fill, string label)
+                {
+                    int top = headerPx + firstSlot * rowPx;
+                    int bottom = Math.Min(table.RowGeometry.SurfaceHeightPx, top + slotCount * rowPx);
+                    int interiorBottom = bottomBorder ? bottom - gl : bottom;
+                    for (int y = top; y < interiorBottom; y++)
+                    {
+                        Assert.AreEqual(fill, pixels.GetColor(slot.Left, y), $"{label} {name} 左端 y={y}（行の境目に隙間がない）");
+                        Assert.AreEqual(fill, pixels.GetColor(slot.Right - gl - 1, y), $"{label} {name} 右端の内側 y={y}");
+                        Assert.AreEqual(cellBorder, pixels.GetColor(slot.Right - 1, y), $"{label} {name} 右の縦罫線 y={y}");
+                    }
+                    if (bottomBorder)
+                    {
+                        for (int y = interiorBottom; y < bottom; y++)
+                        {
+                            Assert.AreEqual(cellBorder, pixels.GetColor(slot.Left, y), $"{label} {name} 下端の罫線 y={y}");
+                        }
+                    }
+                }
+
+                // 行 slot の通常の列（A）の色。
+                void AssertRowColumn(SurfacePixels pixels, int slot, Color expected, string label)
+                    => Assert.AreEqual(expected, pixels.GetColor(A.Left + 2, headerPx + slot * rowPx + 2), $"{label} 通常の列 スロット{slot}");
+
+                // 文字「H」が塗りと違う色で描かれていることを確かめる（消えていない）。
+                void AssertTextVisible(SurfacePixels pixels, int firstSlot, int slotCount, bool bottomBorder, Color fill, Color expectedInk, string label)
+                {
+                    int top = headerPx + firstSlot * rowPx;
+                    int bottom = Math.Min(table.RowGeometry.SurfaceHeightPx, top + slotCount * rowPx);
+                    var area = new Int32Rect(T.Left, top, T.Right - gl - T.Left, (bottomBorder ? bottom - gl : bottom) - top);
+                    Assert.IsTrue(pixels.CountNotEqual(area, fill) > 0, $"{label} 文字が塗りと同じ色で消えていない");
+                    // 小数の倍率では文字の輪郭の混色で最頻の色が僅かにずれるため、各成分16以内で一致を見る。
+                    Color ink = pixels.DominantInkColor(area, fill);
+                    Assert.IsTrue(Math.Abs(ink.R - expectedInk.R) <= 16 && Math.Abs(ink.G - expectedInk.G) <= 16 && Math.Abs(ink.B - expectedInk.B) <= 16,
+                        $"{label} 文字の色 期待={expectedInk} 実際={ink}");
+                }
+
+                // 1. 全選択（グループ0）で現在セルが結合列以外。
+                PressAt(table, 90d, SlotCenterY(1));
+                Assert.IsTrue(table.HandleKeyDown(Key.Left, ModifierKeys.None));
+                Assert.IsTrue(table.IsCurrentCell(1, table.VisibleColumns[0]));
+                SurfacePixels p1 = CustomTableRenderProbe.Redraw(table);
+                AssertMergedFill(p1, T, "T", 0, 4, true, selectedColor, "全選択・現在セルが結合列以外");
+                AssertMergedFill(p1, K, "K", 0, 4, true, selectedColor, "全選択・現在セルが結合列以外");
+                AssertTextVisible(p1, 0, 4, true, selectedColor, Solid(palette.SelectedForeground), "全選択・現在セルが結合列以外");
+                AssertRowColumn(p1, 0, selectedColor, "全選択・現在セルが結合列以外");
+                AssertRowColumn(p1, 1, currentColor, "全選択・現在セルが結合列以外");
+                AssertRowColumn(p1, 3, selectedColor, "全選択・現在セルが結合列以外");
+                AssertRowColumn(p1, 4, alternating, "全選択・現在セルが結合列以外");
+
+                // 2. 一部選択（グループ1の行5だけ）。結合列は交互色のまま、通常の列は行ごと。
+                PressAt(table, 30d, SlotCenterY(5));
+                SurfacePixels p2 = CustomTableRenderProbe.Redraw(table);
+                AssertMergedFill(p2, T, "T", 4, 3, true, alternating, "一部選択");
+                AssertMergedFill(p2, K, "K", 4, 3, true, alternating, "一部選択");
+                AssertMergedFill(p2, T, "T", 0, 4, true, rowColor, "一部選択 グループ0");
+                AssertRowColumn(p2, 4, alternating, "一部選択");
+                AssertRowColumn(p2, 5, currentColor, "一部選択");
+                AssertRowColumn(p2, 6, alternating, "一部選択");
+
+                // 3. 先頭行が画面外のまま、表示中の行だけを選ぶ（グループ2は行7〜46、表示は行9〜15）と塗らず、画面外を含め全行を選ぶと塗る。
+                vertical.Value = 9;
+                CustomTableRenderProbe.Redraw(table);
+                Assert.AreEqual(9, table.FirstVisibleRowIndex);
+                table.SelectRowsByPredicate(row => ((IndexedRow)row).Index is >= 9 and <= 15, row => ((IndexedRow)row).Index == 9);
+                Assert.AreEqual(9, table.FirstVisibleRowIndex, "選択で表示位置が動かない前提");
+                SurfacePixels p3 = CustomTableRenderProbe.Redraw(table);
+                AssertMergedFill(p3, T, "T", 0, 7, false, rowColor, "表示中の行だけを選択");
+                AssertMergedFill(p3, K, "K", 0, 7, false, rowColor, "表示中の行だけを選択");
+                AssertRowColumn(p3, 3, selectedColor, "表示中の行だけを選択");
+                table.SelectRowsByPredicate(row => ((IndexedRow)row).Index is >= 7 and <= 46, row => ((IndexedRow)row).Index == 9);
+                Assert.AreEqual(9, table.FirstVisibleRowIndex, "選択で表示位置が動かない前提");
+                SurfacePixels p3b = CustomTableRenderProbe.Redraw(table);
+                AssertMergedFill(p3b, T, "T", 0, 7, false, selectedColor, "画面外を含め全行を選択");
+                AssertMergedFill(p3b, K, "K", 0, 7, false, selectedColor, "画面外を含め全行を選択");
+                vertical.Value = 0;
+                CustomTableRenderProbe.Redraw(table);
+
+                // 4. 全選択で現在セルが結合列。結合セル全体が現在セルの強調、他の結合列は選択色。
+                PressAt(table, 90d, SlotCenterY(1));
+                SurfacePixels p4 = CustomTableRenderProbe.Redraw(table);
+                Assert.IsTrue(table.IsCurrentCell(1, table.VisibleColumns[1]));
+                AssertMergedFill(p4, T, "T", 0, 4, true, currentColor, "全選択・現在セルが結合列");
+                AssertMergedFill(p4, K, "K", 0, 4, true, selectedColor, "全選択・現在セルが結合列");
+                AssertTextVisible(p4, 0, 4, true, currentColor, Solid(palette.CurrentCellForeground), "全選択・現在セルが結合列");
+                AssertRowColumn(p4, 1, selectedColor, "全選択・現在セルが結合列");
+
+                // 5. 一部選択で現在セルが結合列。結合セル全体が現在セルの強調、他の結合列は交互色（グループ0は行の背景）のまま。
+                table.SelectRowsByPredicate(row => ((IndexedRow)row).Index is 0 or 1, row => ((IndexedRow)row).Index == 0);
+                Assert.IsTrue(table.IsCurrentCell(0, table.VisibleColumns[1]), "前提: 現在セルは結合列のまま");
+                SurfacePixels p5 = CustomTableRenderProbe.Redraw(table);
+                AssertMergedFill(p5, T, "T", 0, 4, true, currentColor, "一部選択・現在セルが結合列");
+                AssertMergedFill(p5, K, "K", 0, 4, true, rowColor, "一部選択・現在セルが結合列");
+                AssertRowColumn(p5, 1, selectedColor, "一部選択・現在セルが結合列");
+                AssertRowColumn(p5, 2, rowColor, "一部選択・現在セルが結合列");
             }
             finally { Release(table); }
         });
@@ -335,7 +757,7 @@ public sealed class CustomTableRenderingTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            FontFamily font = arial ? AppFontService.CreateFontFamily("Arial") : AppFontService.DefaultFontFamily;
+            FontFamily font = arial ? AppFontService.CreateFontFamily("Arial", AppFontRole.Table) : AppFontService.DefaultTableFontFamily;
             CustomTableView table = CreateTable(
                 [Column("L", 80, TextAlignment.Left, _ => "HHHH"), Column("C", 80, TextAlignment.Center, _ => "HHHH"), Column("R", 80, TextAlignment.Right, _ => "HHHH"),
                     Column("N", 40, TextAlignment.Left, _ => "HHHHHHHHHHHHHHHHHHHH"), Column("E", 60)],
@@ -390,7 +812,7 @@ public sealed class CustomTableRenderingTests
             using (var cache = new CustomTableTextLayoutCache())
             {
                 CultureInfo culture = CultureInfo.CurrentCulture;
-                cache.Configure(new CustomTableTextEnvironment(AppFontService.DefaultFontFamily, null!, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, dpi, culture, CultureInfo.CurrentUICulture));
+                cache.Configure(new CustomTableTextEnvironment(AppFontService.DefaultTableFontFamily, null!, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, dpi, culture, CultureInfo.CurrentUICulture));
                 natural = cache.GetOrCreate(text, CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth;
             }
             int pad = CustomTablePixelGeometry.TextPadding(dpi), lw = CustomTablePixelGeometry.GridLineWidth(dpi);
@@ -479,11 +901,11 @@ public sealed class CustomTableRenderingTests
                 try { return CustomTableRenderProbe.Redraw(table); }
                 finally { Release(table); }
             }
-            SurfacePixels defaultPixels = Render(AppFontService.DefaultFontFamily);
-            Assert.IsFalse(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily("Arial"))), "選択したフォントでは画素が違います。");
+            SurfacePixels defaultPixels = Render(AppFontService.DefaultTableFontFamily);
+            Assert.IsFalse(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily("Arial", AppFontRole.Table))), "選択したフォントでは画素が違います。");
             foreach (string name in new[] { "BeMusicSeeker No Such Font", string.Empty, "  " })
             {
-                Assert.IsTrue(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily(name))), "名前 '" + name + "' は既定のフォントと同じ画素です。");
+                Assert.IsTrue(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily(name, AppFontRole.Table))), "名前 '" + name + "' は既定のフォントと同じ画素です。");
             }
         });
     }
@@ -895,5 +1317,43 @@ public sealed class CustomTableRenderingTests
                 CustomTableDisplayPathTestKit.Release(first);
             }
         });
+    }
+
+    /// <summary>行の位置を持つ行です。</summary>
+    private sealed class IndexedRow(int index)
+    {
+        internal int Index { get; } = index;
+    }
+
+    /// <summary>警告の強調を持つ行です。</summary>
+    private sealed class WarningRow(bool highlighted)
+    {
+        public bool HasHighlightedWarning { get; } = highlighted;
+    }
+
+    /// <summary>グループの大きさの並びから、連続したグループを返す行集合です。</summary>
+    private sealed class GroupedRows : System.Collections.ObjectModel.Collection<object>, ICustomTableRowGroupSource
+    {
+        private readonly int[] starts;
+
+        internal GroupedRows(int[] sizes, Func<int, object>? factory = null)
+        {
+            starts = new int[sizes.Length];
+            int total = 0;
+            for (int i = 0; i < sizes.Length; i++)
+            {
+                starts[i] = total;
+                total += sizes[i];
+            }
+            for (int i = 0; i < total; i++) { Add(factory?.Invoke(i) ?? new object()); }
+        }
+
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            int ordinal = Array.BinarySearch(starts, rowIndex);
+            if (ordinal < 0) { ordinal = ~ordinal - 1; }
+            int end = ordinal + 1 < starts.Length ? starts[ordinal + 1] : Count;
+            return new CustomTableRowGroup(starts[ordinal], end - starts[ordinal], ordinal);
+        }
     }
 }

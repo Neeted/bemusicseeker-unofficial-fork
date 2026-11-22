@@ -455,52 +455,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         finally { TryDeleteDirectory(root); }
     }
 
-    /// <summary>実 LR2 登録に親子を保存し、保存前検証が両対象を示す既存リソースで拒否することを確認します。</summary>
-    [TestMethod]
-    public void CheckValidationBeforeSave_RejectsNestedLr2JukeboxRoots()
-    {
-        string tempRootPath = Path.Combine(CaseWorkspace.RootDirectory, "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            string parent = Path.Combine(tempRootPath, "BMS");
-            string child = Path.Combine(parent, "Child");
-            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
-            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
-            Directory.CreateDirectory(child);
-            Directory.CreateDirectory(normalOutputBase);
-            Directory.CreateDirectory(rootOutputBase);
-            string songDbPath = Path.Combine(tempRootPath, "song.db");
-            File.WriteAllBytes(songDbPath, []);
-
-            LR2Config config = CreateConfig(tempRootPath);
-            config.SetBMSSearchDirectories([parent, child]);
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2SongDBPath = songDbPath;
-            testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            testSettings.BMSInstallDir = parent;
-            testSettings.UsePlayeruBMplay = false;
-            testSettings.UsePlayerLR2body = false;
-            testSettings.UsePlayerBMIIDXView = false;
-            MainWindowViewModel viewModel = CreateViewModel(config);
-            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-
-            bool isValid = dialog.CheckBmsRootsBeforeConfirmation(out string errMsg);
-
-            Assert.IsFalse(isValid);
-            string expectedDetail = string.Format(
-                Resources.Validation_NestedBmsSearchRootPathsFormat,
-                string.Format(Resources.Validation_NestedBmsSearchRootPathLineFormat, parent, child));
-            StringAssert.Contains(errMsg, expectedDetail);
-        }
-        finally
-        {
-            TryDeleteDirectory(tempRootPath);
-        }
-    }
-
     /// <summary>旧通常出力先が手動親ルートの配下だけで覆われる場合、過去の出力指定を理由に許可せず対象付きで拒否することを確認します。</summary>
     [TestMethod]
     public void CheckValidationBeforeSave_RejectsPreviousNormalOutputCoveredOnlyByManualParentRoot()

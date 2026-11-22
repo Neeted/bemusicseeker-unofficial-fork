@@ -14,6 +14,14 @@ internal interface IInstalledChartLookupIndex : IPrimaryHashLookup
     IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash);
 
     int GetUniquePrimaryHashCountByDirectory(string directoryPath);
+
+    /// <summary>
+    /// 主ハッシュを持つ所持譜面のパスを、大文字小文字を無視した昇順で返します。
+    /// 所持の実ファイルが存在することの裏付けを、再ハッシュや走査なしで確かめるために、DB上の所持の記録から引きます。
+    /// </summary>
+    /// <param name="lookupHash">検索する主ハッシュ。</param>
+    /// <returns>譜面のパス。該当がなければ空です。</returns>
+    IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash);
 }
 
 internal interface IPrimaryHashLookup
@@ -206,32 +214,35 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
     private static readonly ImmutableDictionary<string, int> EmptyCountMap =
         ImmutableDictionary<string, int>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly ImmutableDictionary<string, PrimaryHashEntry> EmptyEntryMap =
+        ImmutableDictionary<string, PrimaryHashEntry>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
+
     private readonly ImmutableDictionary<string, IReadOnlyList<string>> md5Directories;
 
     private readonly ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories;
 
     private readonly ImmutableSortedSet<string> knownChartDirectories;
 
-    private readonly ImmutableDictionary<string, int> primaryHashCounts;
+    private readonly ImmutableDictionary<string, PrimaryHashEntry> primaryHashEntries;
 
     private readonly ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory;
 
     private readonly int directoryReferenceCount;
 
-    private readonly InstalledLookupMapView<IReadOnlyList<string>> md5DirectoriesView;
+    private readonly InstalledLookupMapView<IReadOnlyList<string>, IReadOnlyList<string>> md5DirectoriesView;
 
-    private readonly InstalledLookupMapView<IReadOnlyList<string>> sha256DirectoriesView;
+    private readonly InstalledLookupMapView<IReadOnlyList<string>, IReadOnlyList<string>> sha256DirectoriesView;
 
-    private readonly InstalledLookupMapView<int> primaryHashCountsView;
+    private readonly InstalledLookupMapView<PrimaryHashEntry, int> primaryHashCountsView;
 
-    private readonly InstalledLookupMapView<int> uniquePrimaryHashCountsByDirectoryView;
+    private readonly InstalledLookupMapView<int, int> uniquePrimaryHashCountsByDirectoryView;
 
     public InstalledChartLookupIndexSnapshot()
         : this(
             EmptyDirectoryMap,
             EmptyDirectoryMap,
             EmptyDirectorySet,
-            EmptyCountMap,
+            EmptyEntryMap,
             EmptyCountMap,
             directoryReferenceCount: 0,
             storeWorkObserver: null)
@@ -242,7 +253,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         ImmutableDictionary<string, IReadOnlyList<string>> md5Directories,
         ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories,
         ImmutableSortedSet<string> knownChartDirectories,
-        ImmutableDictionary<string, int> primaryHashCounts,
+        ImmutableDictionary<string, PrimaryHashEntry> primaryHashEntries,
         ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory,
         int directoryReferenceCount,
         Action<string> storeWorkObserver)
@@ -250,14 +261,14 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         this.md5Directories = md5Directories ?? EmptyDirectoryMap;
         this.sha256Directories = sha256Directories ?? EmptyDirectoryMap;
         this.knownChartDirectories = knownChartDirectories ?? EmptyDirectorySet;
-        this.primaryHashCounts = primaryHashCounts ?? EmptyCountMap;
+        this.primaryHashEntries = primaryHashEntries ?? EmptyEntryMap;
         this.uniquePrimaryHashCountsByDirectory = uniquePrimaryHashCountsByDirectory ?? EmptyCountMap;
         this.directoryReferenceCount = directoryReferenceCount;
         StoreWorkObserver = storeWorkObserver;
-        md5DirectoriesView = new(this.md5Directories, () => StoreWorkObserver);
-        sha256DirectoriesView = new(this.sha256Directories, () => StoreWorkObserver);
-        primaryHashCountsView = new(this.primaryHashCounts, () => StoreWorkObserver);
-        uniquePrimaryHashCountsByDirectoryView = new(this.uniquePrimaryHashCountsByDirectory, () => StoreWorkObserver);
+        md5DirectoriesView = new(this.md5Directories, stored => stored, () => StoreWorkObserver);
+        sha256DirectoriesView = new(this.sha256Directories, stored => stored, () => StoreWorkObserver);
+        primaryHashCountsView = new(this.primaryHashEntries, entry => entry.Count, () => StoreWorkObserver);
+        uniquePrimaryHashCountsByDirectoryView = new(this.uniquePrimaryHashCountsByDirectory, stored => stored, () => StoreWorkObserver);
     }
 
     /// <summary>
@@ -267,7 +278,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
     /// <param name="md5Directories">MD5 ごとのソート済み directory bucket。</param>
     /// <param name="sha256Directories">SHA-256 ごとのソート済み directory bucket。</param>
     /// <param name="knownChartDirectories">譜面を含む既知 directory の root。</param>
-    /// <param name="primaryHashCounts">primary hash の所持数 root。</param>
+    /// <param name="primaryHashEntries">primary hash ごとの所持数と所持譜面パスを一つの値にまとめた root。</param>
     /// <param name="uniquePrimaryHashCountsByDirectory">directory ごとの distinct primary hash 数 root。</param>
     /// <param name="directoryReferenceCount">MD5/SHA bucket の distinct directory 参照数。</param>
     /// <param name="storeWorkObserver">実際の差分 store 処理を任意に観測する内部 callback。</param>
@@ -276,7 +287,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         ImmutableDictionary<string, IReadOnlyList<string>> md5Directories,
         ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories,
         ImmutableSortedSet<string> knownChartDirectories,
-        ImmutableDictionary<string, int> primaryHashCounts,
+        ImmutableDictionary<string, PrimaryHashEntry> primaryHashEntries,
         ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory,
         int directoryReferenceCount,
         Action<string> storeWorkObserver = null)
@@ -285,7 +296,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             md5Directories,
             sha256Directories,
             knownChartDirectories,
-            primaryHashCounts,
+            primaryHashEntries,
             uniquePrimaryHashCountsByDirectory,
             directoryReferenceCount,
             storeWorkObserver);
@@ -329,7 +340,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
     public IReadOnlyDictionary<string, int> UniquePrimaryHashCountsByDirectory => uniquePrimaryHashCountsByDirectoryView;
 
     /// <summary>distinct primary hash 数を返します。</summary>
-    public int DistinctPrimaryHashCount => primaryHashCounts.Count;
+    public int DistinctPrimaryHashCount => primaryHashEntries.Count;
 
     public bool ContainsPrimaryHash(string lookupHash)
     {
@@ -349,8 +360,8 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
 
     public int GetPrimaryHashCount(string lookupHash)
     {
-        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts.TryGetValue(lookupHash, out int count)
-            ? count
+        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashEntries.TryGetValue(lookupHash, out PrimaryHashEntry entry)
+            ? entry.Count
             : 0;
     }
 
@@ -368,6 +379,14 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             return md5DirectoryList;
         }
         return [];
+    }
+
+    /// <summary>primary hash に対応する所持譜面のパスを、大文字小文字を無視した昇順で返します。</summary>
+    /// <param name="lookupHash">検索する primary hash。</param>
+    /// <returns>所持譜面のパス。該当がなければ空です。</returns>
+    public IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
+    {
+        return PrimaryHashEntry.ToSortedPaths(primaryHashEntries, lookupHash);
     }
 
     /// <summary>指定 directory に属する distinct primary hash 数を返します。</summary>
@@ -392,17 +411,21 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
     /// immutable map root の read-only view です。列挙時だけ任意の内部観測 callback を呼び、
     /// snapshot 自体の root は複製しません。
     /// </summary>
-    private sealed class InstalledLookupMapView<TValue> : IReadOnlyDictionary<string, TValue>
+    private sealed class InstalledLookupMapView<TStored, TValue> : IReadOnlyDictionary<string, TValue>
     {
-        private readonly ImmutableDictionary<string, TValue> root;
+        private readonly ImmutableDictionary<string, TStored> root;
+
+        private readonly Func<TStored, TValue> project;
 
         private readonly Func<Action<string>> observerProvider;
 
         internal InstalledLookupMapView(
-            ImmutableDictionary<string, TValue> root,
+            ImmutableDictionary<string, TStored> root,
+            Func<TStored, TValue> project,
             Func<Action<string>> observerProvider)
         {
             this.root = root ?? throw new ArgumentNullException(nameof(root));
+            this.project = project ?? throw new ArgumentNullException(nameof(project));
             this.observerProvider = observerProvider ?? throw new ArgumentNullException(nameof(observerProvider));
         }
 
@@ -417,7 +440,7 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             get
             {
                 Observe("installed_root_map_lookup");
-                return root[key];
+                return project(root[key]);
             }
         }
 
@@ -430,16 +453,18 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         public bool TryGetValue(string key, out TValue value)
         {
             Observe("installed_root_map_lookup");
-            return root.TryGetValue(key, out value);
+            bool found = root.TryGetValue(key, out TStored stored);
+            value = found ? project(stored) : default;
+            return found;
         }
 
         public IEnumerator<KeyValuePair<string, TValue>> GetEnumerator()
         {
             Observe("installed_root_map_enumeration");
-            foreach (KeyValuePair<string, TValue> item in root)
+            foreach (KeyValuePair<string, TStored> item in root)
             {
                 Observe("installed_root_map_key_visited");
-                yield return item;
+                yield return new KeyValuePair<string, TValue>(item.Key, project(item.Value));
             }
         }
 
@@ -493,9 +518,10 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     private readonly Dictionary<string, int> knownChartDirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
 
-    private ImmutableDictionary<string, int> primaryHashCounts = EmptyCountMap;
-
-    private readonly Dictionary<string, Dictionary<string, int>> primaryHashPathCounts = new(StringComparer.OrdinalIgnoreCase);
+    // 所持数と所持譜面パスを一つの値へまとめ、譜面ごとの変更不能な辞書への挿入回数を増やしません。
+    // 公開 snapshot が root を共有できるよう immutable で持ちます。同じパスが重なる場合は重なった数だけ並べます。
+    private ImmutableDictionary<string, PrimaryHashEntry> primaryHashEntries =
+        ImmutableDictionary<string, PrimaryHashEntry>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Dictionary<string, int>> directoryPrimaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -520,7 +546,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
     /// </summary>
     internal Action<string> StoreWorkObserver { get; set; }
 
-    public int DistinctPrimaryHashCount => primaryHashCounts.Count;
+    public int DistinctPrimaryHashCount => primaryHashEntries.Count;
 
     internal int HashCount => md5DirectoryCounts.Count + sha256DirectoryCounts.Count;
 
@@ -533,19 +559,14 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     public int GetPrimaryHashCount(string lookupHash)
     {
-        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts.TryGetValue(lookupHash, out int count)
-            ? count
+        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashEntries.TryGetValue(lookupHash, out PrimaryHashEntry entry)
+            ? entry.Count
             : 0;
     }
 
     internal IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
     {
-        return !string.IsNullOrWhiteSpace(lookupHash)
-            && primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts)
-            ? [.. pathCounts.Keys
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]
-            : [];
+        return PrimaryHashEntry.ToSortedPaths(primaryHashEntries, lookupHash);
     }
 
     /// <summary>
@@ -586,8 +607,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         AddKnownDirectory(directory);
         AddDirectoryHash(md5DirectoryCounts, md5, directory);
         AddDirectoryHash(sha256DirectoryCounts, sha256, directory);
-        AddPrimaryHash(primaryHash);
-        AddPrimaryHashPath(primaryHash, path);
+        AddPrimaryHash(primaryHash, path);
         AddDirectoryPrimaryHash(directory, primaryHash);
     }
 
@@ -602,8 +622,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         RemoveKnownDirectory(directory);
         RemoveDirectoryHash(md5DirectoryCounts, md5, directory);
         RemoveDirectoryHash(sha256DirectoryCounts, sha256, directory);
-        RemovePrimaryHash(primaryHash);
-        RemovePrimaryHashPath(primaryHash, path);
+        RemovePrimaryHash(primaryHash, path);
         RemoveDirectoryPrimaryHash(directory, primaryHash);
     }
 
@@ -637,7 +656,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             md5DirectoryLists,
             sha256DirectoryLists,
             knownChartDirectories,
-            primaryHashCounts,
+            primaryHashEntries,
             uniquePrimaryHashCountsByDirectory,
             directoryReferenceCount,
             StoreWorkObserver);
@@ -739,58 +758,43 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         }
     }
 
-    private void AddPrimaryHash(string lookupHash)
+    private void AddPrimaryHash(string lookupHash, string path)
     {
-        if (!string.IsNullOrWhiteSpace(lookupHash))
-        {
-            int count = primaryHashCounts.TryGetValue(lookupHash, out int currentCount)
-                ? currentCount + 1
-                : 1;
-            primaryHashCounts = primaryHashCounts.SetItem(lookupHash, count);
-            StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
-            MarkDirty();
-        }
-    }
-
-    private void RemovePrimaryHash(string lookupHash)
-    {
-        if (!string.IsNullOrWhiteSpace(lookupHash)
-            && primaryHashCounts.TryGetValue(lookupHash, out int currentCount))
-        {
-            primaryHashCounts = currentCount <= 1
-                ? primaryHashCounts.Remove(lookupHash)
-                : primaryHashCounts.SetItem(lookupHash, currentCount - 1);
-            StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
-            MarkDirty();
-        }
-    }
-
-    private void AddPrimaryHashPath(string lookupHash, string path)
-    {
-        if (string.IsNullOrWhiteSpace(lookupHash) || string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(lookupHash))
         {
             return;
         }
-        if (!primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts))
-        {
-            pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            primaryHashPathCounts[lookupHash] = pathCounts;
-        }
-        Increment(pathCounts, path);
+        bool hasPath = !string.IsNullOrWhiteSpace(path);
+        primaryHashEntries = primaryHashEntries.SetItem(
+            lookupHash,
+            primaryHashEntries.TryGetValue(lookupHash, out PrimaryHashEntry current)
+                ? new PrimaryHashEntry(current.Count + 1, hasPath ? current.Paths.Add(path) : current.Paths)
+                : new PrimaryHashEntry(1, hasPath ? ImmutableArray.Create(path) : ImmutableArray<string>.Empty));
+        StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
+        MarkDirty();
     }
 
-    private void RemovePrimaryHashPath(string lookupHash, string path)
+    private void RemovePrimaryHash(string lookupHash, string path)
     {
-        if (string.IsNullOrWhiteSpace(lookupHash) || string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(lookupHash)
+            || !primaryHashEntries.TryGetValue(lookupHash, out PrimaryHashEntry current))
         {
             return;
         }
-        if (primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts)
-            && Decrement(pathCounts, path)
-            && pathCounts.Count == 0)
+        ImmutableArray<string> paths = current.Paths;
+        if (!string.IsNullOrWhiteSpace(path))
         {
-            primaryHashPathCounts.Remove(lookupHash);
+            int index = paths.IndexOf(path, 0, StringComparer.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                paths = paths.RemoveAt(index);
+            }
         }
+        primaryHashEntries = current.Count <= 1
+            ? primaryHashEntries.Remove(lookupHash)
+            : primaryHashEntries.SetItem(lookupHash, new PrimaryHashEntry(current.Count - 1, paths));
+        StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
+        MarkDirty();
     }
 
     private void AddDirectoryPrimaryHash(string directory, string lookupHash)
@@ -985,6 +989,28 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
     private void MarkDirty()
     {
         snapshotDirty = true;
+    }
+}
+
+/// <summary>
+/// primary hash ごとの所持数と所持譜面パスを一つにまとめた値です。
+/// 一つの不変辞書へ一回で挿入できるため、所持索引の構築時間は件数だけを持つ場合と同じ挿入回数に保たれます。
+/// </summary>
+/// <param name="Count">所持数。</param>
+/// <param name="Paths">所持譜面のパス（重なる場合は重なった数だけ）。パスが空の所持は数にだけ入ります。</param>
+internal readonly record struct PrimaryHashEntry(int Count, ImmutableArray<string> Paths)
+{
+    /// <summary>主ハッシュの所持譜面のパスを、大文字小文字を無視した昇順の一覧で返します。</summary>
+    internal static IReadOnlyList<string> ToSortedPaths(
+        ImmutableDictionary<string, PrimaryHashEntry> root,
+        string lookupHash)
+    {
+        return !string.IsNullOrWhiteSpace(lookupHash) && root.TryGetValue(lookupHash, out PrimaryHashEntry entry)
+            ? [.. entry.Paths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]
+            : [];
     }
 }
 

@@ -240,6 +240,16 @@ internal sealed partial class LibraryMutationOwner
         => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(sourceDirectory,
             BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot));
 
+    /// <summary>
+    /// 呼出し時点の確定登録を一度だけ捕捉し、<see cref="ContainsRegisteredBmsRoot(string)"/> と同じ判定を行う述語を返します。
+    /// 多数のフォルダを判定する呼出し側が、フォルダごとに登録を取り直さず、同じ登録の組で判定するために使います。
+    /// </summary>
+    internal Func<string, bool> CaptureRegisteredBmsRootPredicate()
+    {
+        IReadOnlyList<string> roots = BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot);
+        return directory => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(directory, roots);
+    }
+
     /// <summary>登録範囲を消費する要求の拒否理由を、この操作の収集先へ加えます。</summary>
     internal static void AddCannotMoveRegisteredBmsRootNotice(LibraryOperationNotices notices, string sourceDirectory)
         => AddNotice(notices, string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),
@@ -535,8 +545,15 @@ internal sealed partial class LibraryMutationOwner
                     Reason = "resolve_failed"
                 }));
 
-            List<ChartPackage> pendingPackageSnapshots = ClonePendingPackageSnapshots(packageLifecycleOwner.PendingPackages);
-            InstallDestinationOverlayChartRefSnapshot installDestinationOverlay = CreateInstallDestinationOverlayChartRefSnapshot();
+            // 導入先の状態は、フォルダ全体の削除を承認した場合にだけ計画へ使います。承認がなければ、
+            // 保留パッケージの複製と導入先の重ね合わせを捕捉せず、削除ごとに数へ比例する処理を避けます。
+            bool needsInstallDestinationContext = approvedWholeFolderDeletePaths.Count > 0;
+            List<ChartPackage> pendingPackageSnapshots = needsInstallDestinationContext
+                ? ClonePendingPackageSnapshots(packageLifecycleOwner.PendingPackages)
+                : [];
+            InstallDestinationOverlayChartRefSnapshot installDestinationOverlay = needsInstallDestinationContext
+                ? CreateInstallDestinationOverlayChartRefSnapshot()
+                : InstallDestinationOverlayChartRefSnapshot.Empty;
             plan = libraryFileOperationsService.BuildLibraryChartRemovalPlan(
                 prepared.Selection,
                 validCanonicalCharts,
@@ -629,6 +646,26 @@ internal sealed partial class LibraryMutationOwner
         return new LibraryCatalogMutationFacts(removalRequests, [], []);
     }
 
+    /// <summary>
+    /// 物理削除で確定した事実を、与えられた変更セッションへ追加します。単体の削除は自分のセッションへ、
+    /// 重複グループの一括整理は操作全体のセッションへ、同じ処理で追加します。
+    /// 削除に成功しなかった対象と、物理変更を試みなかった対象は確定事実に含めません。
+    /// </summary>
+    /// <param name="notificationPolicy">保存行パス通知の方針。一括整理は、セッション全体の方針を変えないよう抑止を渡します。</param>
+    private static void AppendLibraryChartRemovalToSession(
+        LibraryMutationSession session,
+        LibraryCatalogMutationFacts catalogFacts,
+        LibraryPackageReferenceFacts packageReferenceFacts,
+        LibraryChartRemovalOutcome filesystemOutcome,
+        IReadOnlyList<string> deletedFolderPaths,
+        LibraryStorageRowPathNotificationPolicy notificationPolicy)
+    {
+        session.AppendCatalogChange(catalogFacts, packageReferenceFacts, filesystemOutcome.Targets
+            .Where(target => target.State == LibraryChartRemovalState.Confirmed)
+            .Select(target => new LibraryMutationSessionTarget(target.Path, string.Empty)), notificationPolicy);
+        session.AppendResourceDirectoryRemovals(deletedFolderPaths);
+    }
+
     private LibraryChartRemovalOutcome RemoveLibraryChartsCore(
         LibraryChartRemovalPreflight prepared,
         bool sendToRecycleBin,
@@ -670,10 +707,9 @@ internal sealed partial class LibraryMutationOwner
         try
         {
             using LibraryMutationSession session = BeginLibraryMutationSession(mutationCapability, "delete_library", postLeaseNotifications, notices);
-            session.AppendCatalogChange(catalogFacts, packageReferenceFacts, filesystemOutcome.Targets
-                .Where(target => target.State == LibraryChartRemovalState.Confirmed)
-                .Select(target => new LibraryMutationSessionTarget(target.Path, string.Empty)));
-            session.AppendResourceDirectoryRemovals(deletedFolderPaths);
+            AppendLibraryChartRemovalToSession(
+                session, catalogFacts, packageReferenceFacts, filesystemOutcome, deletedFolderPaths,
+                LibraryStorageRowPathNotificationPolicy.Notify);
             sessionReceipt = session.Commit();
         }
         catch (Exception failure) { catalogFailure = failure; }
@@ -1299,16 +1335,46 @@ internal sealed partial class LibraryMutationOwner
         out List<ChartFile> preparedSourceCharts,
         out IPrimaryHashLookup existingHashes)
     {
-        LibraryMergeResult sourceResult = libraryFileOperationsService.PrepareMergeDirectory(
+        return PrepareMergeDirectory(
             sourceDirectory,
             destinationDirectory,
-            ToLibraryChartRefs(sourceCharts),
+            sourceCharts,
             installDestinationOverlayCharts,
             packageLifecycleOwner.PendingPackages,
             packageLifecycleOwner.InstalledPackages,
             excluded => (excluded ?? []).Any()
                 ? CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, hashSnapshotReason, operationId)
-                : EmptyPrimaryHashLookup.Instance);
+                : EmptyPrimaryHashLookup.Instance,
+            out success,
+            out preparedSourceCharts,
+            out existingHashes);
+    }
+
+    /// <summary>
+    /// 統合元一件の準備を行います。保留・導入済みのパッケージと導入先の重ね合わせは、呼出元が捕捉した値を使います。
+    /// 一括整理は、移動元ごとに全件を捕捉し直さないよう、操作内で一度捕捉した値を渡します。
+    /// </summary>
+    /// <param name="createHashSnapshotExcluding">統合元の譜面を除いた所持ハッシュの判定を作る処理。呼出元が別に判定を持つ場合は空の判定を返します。</param>
+    private LibraryPackageReferenceFacts PrepareMergeDirectory(
+        string sourceDirectory,
+        string destinationDirectory,
+        IEnumerable<ChartFile> sourceCharts,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<ChartPackage> installedPackages,
+        Func<IEnumerable<ChartFile>, IPrimaryHashLookup> createHashSnapshotExcluding,
+        out bool success,
+        out List<ChartFile> preparedSourceCharts,
+        out IPrimaryHashLookup existingHashes)
+    {
+        LibraryMergeResult sourceResult = libraryFileOperationsService.PrepareMergeDirectory(
+            sourceDirectory,
+            destinationDirectory,
+            ToLibraryChartRefs(sourceCharts),
+            installDestinationOverlayCharts,
+            pendingPackages,
+            installedPackages,
+            createHashSnapshotExcluding);
         success = sourceResult.Success;
         lock (catalogOwnedCollectionOwner.Gate)
         {

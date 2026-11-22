@@ -437,7 +437,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
 
     private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
-    private IReadOnlyList<AppearanceFontOption> appearanceFontOptions;
+    private (IReadOnlyList<AppearanceFontOption> Ui, IReadOnlyList<AppearanceFontOption> Table)? fontOptions;
 
     private readonly IReadOnlyList<BeatorajaBmtHashOutputModeOption> beatorajaBmtHashOutputModeOptions;
 
@@ -2320,7 +2320,8 @@ public partial class SettingsDialogViewModel : ViewModel
         return conflicts;
     }
 
-    private static string BuildNestedBmsSearchRootConflictMessage(IReadOnlyList<NestedBmsSearchRootConflict> conflicts)
+    /// <summary>親子登録の理由を組み立てます。LR2連携は設定XMLの見直しを案内する文言、単独モードはBMSディレクトリ一覧だけを案内する文言を使います。</summary>
+    private static string BuildNestedBmsSearchRootConflictMessage(IReadOnlyList<NestedBmsSearchRootConflict> conflicts, bool standalone)
     {
         const int maxVisibleConflictCount = 10;
         IReadOnlyList<NestedBmsSearchRootConflict> safeConflicts = conflicts ?? [];
@@ -2338,7 +2339,11 @@ public partial class SettingsDialogViewModel : ViewModel
             conflictLines += Environment.NewLine
                 + FormatResource(BeMusicSeeker.Properties.Resources.Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat, omittedCount);
         }
-        return FormatResource(BeMusicSeeker.Properties.Resources.Validation_NestedBmsSearchRootPathsFormat, conflictLines);
+        return FormatResource(
+            standalone
+                ? BeMusicSeeker.Properties.Resources.Validation_NestedStandaloneBmsRootPathsFormat
+                : BeMusicSeeker.Properties.Resources.Validation_NestedBmsSearchRootPathsFormat,
+            conflictLines);
     }
 
     private IReadOnlyList<CustomFolderOutputBaseCandidate> CreateCurrentCustomFolderOutputBaseCandidates(CustomFolderOutputSettingsSnapshot target = null)
@@ -2823,13 +2828,16 @@ public partial class SettingsDialogViewModel : ViewModel
     public sealed class AppearanceFontOption : ViewModel
     {
         private readonly string installedDisplayName;
+        private readonly AppFontRole role;
 
         private System.Windows.Media.FontFamily previewFontFamily;
 
-        internal AppearanceFontOption(string key, string installedDisplayName)
+        /// <summary>設定欄の用途に合わせて、既定の表示名とプレビューの代替フォントを選びます。</summary>
+        internal AppearanceFontOption(string key, string installedDisplayName, AppFontRole role)
         {
             Key = key;
             this.installedDisplayName = installedDisplayName;
+            this.role = role;
         }
 
         /// <summary>設定へ保存するフォント名です。</summary>
@@ -2841,7 +2849,7 @@ public partial class SettingsDialogViewModel : ViewModel
             get
             {
                 return Key.Length == 0
-                    ? string.Format(Resources.Appearance_font_default, AppFontService.DefaultFontFamilyName)
+                    ? string.Format(Resources.Appearance_font_default, AppFontService.GetDefaultFontFamilyName(role))
                     : installedDisplayName;
             }
         }
@@ -2849,52 +2857,65 @@ public partial class SettingsDialogViewModel : ViewModel
         /// <summary>
         /// 選択欄で表示名を描くフォントです。フォントの読込みを表示する候補だけに限るため、最初に要求されたときに作って保持します。
         /// </summary>
-        public System.Windows.Media.FontFamily PreviewFontFamily => previewFontFamily ??= AppFontService.CreatePreviewFontFamily(Key);
+        public System.Windows.Media.FontFamily PreviewFontFamily => previewFontFamily ??= AppFontService.CreatePreviewFontFamily(Key, role);
 
+        /// <summary>表示言語が変わったときに既定の候補の表示名を更新します。</summary>
         internal void RefreshDisplayName()
         {
             RaisePropertyChanged(nameof(DisplayName));
         }
     }
 
-    /// <summary>
-    /// 既定と、インストール済みのフォントの候補です。フォントの列挙は時間がかかるため、
-    /// 外観ページが最初に要求したときに一度だけ行います。
-    /// </summary>
-    public IReadOnlyList<AppearanceFontOption> AppearanceFontOptions
+    /// <summary>通常UIの既定と、インストール済み・保存済みのフォントの候補です。</summary>
+    public IReadOnlyList<AppearanceFontOption> AppearanceFontOptions => (fontOptions ??= BuildAppearanceFontOptions()).Ui;
+
+    /// <summary>主画面の一覧の既定と、インストール済み・保存済みのフォントの候補です。</summary>
+    public IReadOnlyList<AppearanceFontOption> CustomTableFontOptions => (fontOptions ??= BuildAppearanceFontOptions()).Table;
+
+    private (IReadOnlyList<AppearanceFontOption> Ui, IReadOnlyList<AppearanceFontOption> Table) BuildAppearanceFontOptions()
     {
-        get
+        // 外観ページが最初に必要としたときだけ列挙し、両方の選択欄で同じ時点の候補と表示言語を使う。
+        IReadOnlyList<AppInstalledFontFamily> installedFamilies = AppFontService.GetInstalledFontFamilies();
+        CultureInfo displayCulture = ResourceService.Current.DisplayCulture;
+        return (BuildOptions(AppFontRole.Ui, ApplicationSettings.AppearanceFontFamily),
+            BuildOptions(AppFontRole.Table, ApplicationSettings.CustomTableFontFamily));
+
+        AppearanceFontOption[] BuildOptions(AppFontRole role, string savedName)
         {
-            return appearanceFontOptions ??= AppFontService
-                .BuildFontChoices(AppFontService.GetInstalledFontFamilies(), ResourceService.Current.DisplayCulture, ApplicationSettings.AppearanceFontFamily)
-                .Select(choice => new AppearanceFontOption(choice.Name, choice.DisplayName))
-                .Prepend(new AppearanceFontOption(string.Empty, string.Empty))
+            return AppFontService.BuildFontChoices(installedFamilies, displayCulture, savedName)
+                .Select(choice => new AppearanceFontOption(choice.Name, choice.DisplayName, role))
+                .Prepend(new AppearanceFontOption(string.Empty, string.Empty, role))
                 .ToArray();
         }
     }
 
-    /// <summary>通常の文字に使うフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
+    /// <summary>通常UIのフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
     public string AppearanceFontFamily
     {
-        get
+        get => ApplicationSettings.AppearanceFontFamily;
+        set => SetAppearanceFontFamily(value, AppearanceFontFamily, AppFontRole.Ui, nameof(AppearanceFontFamily));
+    }
+
+    /// <summary>主画面の一覧のフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
+    public string CustomTableFontFamily
+    {
+        get => ApplicationSettings.CustomTableFontFamily;
+        set => SetAppearanceFontFamily(value, CustomTableFontFamily, AppFontRole.Table, nameof(CustomTableFontFamily));
+    }
+
+    private void SetAppearanceFontFamily(string value, string currentName, AppFontRole role, string propertyName)
+    {
+        if (value == null)
         {
-            return ApplicationSettings.AppearanceFontFamily;
+            // 選択欄が候補の入替え中に渡す一時的な未選択では、保存済みのフォントを既定へ戻さない。
+            RaisePropertyChanged(propertyName);
+            return;
         }
-        set
+        string normalizedName = AppFontService.NormalizeFontFamilyName(value);
+        if (currentName != normalizedName && TryCommitSetting(propertyName, (propertyName, normalizedName)))
         {
-            if (value == null)
-            {
-                // 選択欄が候補の入替え中に渡す一時的な未選択では、保存済みのフォントを既定へ戻さない。
-                RaisePropertyChanged(nameof(AppearanceFontFamily));
-                return;
-            }
-            string normalizedName = AppFontService.NormalizeFontFamilyName(value);
-            if (ApplicationSettings.AppearanceFontFamily != normalizedName)
-            {
-                if (!TryCommitSetting(nameof(AppearanceFontFamily), (nameof(Settings.AppearanceFontFamily), normalizedName))) { return; }
-                AppFontService.ApplyFontFamily(normalizedName);
-                RaisePropertyChanged(nameof(AppearanceFontFamily));
-            }
+            AppFontService.ApplyFontFamily(normalizedName, role);
+            RaisePropertyChanged(propertyName);
         }
     }
 
@@ -2949,8 +2970,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>主画面の一覧のフォント、文字サイズ、行と見出しの高さをそれぞれ既定値へ戻します。</summary>
     public void ResetCustomTableAppearanceDefaults()
     {
+        CustomTableFontFamily = string.Empty;
         CustomTableFontSize = Settings.DefaultCustomTableFontSize;
         CustomTableRowHeight = Settings.DefaultCustomTableRowHeight;
         CustomTableHeaderHeight = Settings.DefaultCustomTableHeaderHeight;
@@ -3933,7 +3956,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 option.RefreshDisplayName();
             }
             // 列挙済みのフォント名は列挙時の表示言語のまま保ち、既定の候補の文言だけを更新する。
-            settingDialogViewModel.appearanceFontOptions?[0].RefreshDisplayName();
+            settingDialogViewModel.fontOptions?.Ui[0].RefreshDisplayName();
+            settingDialogViewModel.fontOptions?.Table[0].RefreshDisplayName();
         });
         // 起動構成が捕捉する値は保存済み設定の読込み後に揃えます。画面の再表示では再読込みしません。
         this.settingsEditSession.Reload();
@@ -5078,12 +5102,25 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>単独モードのBMS候補を検証・確認後に追加し、確定値は変更しません。</summary>
     public Task AddStandaloneBmsRootPathsAsync(IEnumerable<string> paths) => RunSettingsOperationAsync(() => AddStandaloneBmsRootPathsCoreAsync(paths));
 
-    /// <summary>受理済みの単独BMS候補編集を、設定受付を取り直さず実行します。</summary>
+    /// <summary>
+    /// 追加するBMS登録が、現在の候補一覧および同じ追加内の他の登録と同一または親子になる場合に拒否します。
+    /// LR2連携モードと単独モードで同じ条件を使います。比較相手は確定一覧ではなく候補一覧で、一組でも該当すれば追加の全件を拒否します。
+    /// </summary>
+    private void ThrowIfBmsRootAdditionOverlaps(IReadOnlyList<string> requestedPaths)
+    {
+        if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
+            || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
+                && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
+        {
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap);
+        }
+    }
+
+    /// <summary>受理済みの単独BMS候補編集を、設定受付を取り直さず実行します。同一・親子の登録はLR2連携モードと同じく拒否します。</summary>
     private async Task AddStandaloneBmsRootPathsCoreAsync(IEnumerable<string> paths)
     {
         try
         {
-            string before = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             List<string> requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])];
             ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
             string requestedPath = requestedPaths.FirstOrDefault();
@@ -5091,23 +5128,20 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase)) || !await PrepareBmsCandidateEditAsync()) { return; }
+            ThrowIfBmsRootAdditionOverlaps(requestedPaths);
+            if (!await PrepareBmsCandidateEditAsync()) { return; }
             requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(requestedPaths)];
             if (requestedPaths.Count == 0) { return; }
             requestedPath = requestedPaths[0];
-            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))) { return; }
+            ThrowIfBmsRootAdditionOverlaps(requestedPaths);
             DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
             foreach (string path in requestedPaths)
             {
-                if (!BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))
-                {
-                    BmsRootPathList.Add(path);
-                }
+                BmsRootPathList.Add(path);
             }
             SelectedStandaloneBmsRootPath = BmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
                 ?? BmsRootPathList.FirstOrDefault(path => CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(requestedPath, path))
                 ?? BmsRootPathList.FirstOrDefault();
-            string after = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             RaisePropertyChanged(nameof(BmsRootPathList));
             RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
@@ -5148,10 +5182,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
                 }
-                if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
-                    || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
-                        && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
-                { throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap); }
+                ThrowIfBmsRootAdditionOverlaps(requestedPaths);
             }
             ValidateAddition();
             if (!await PrepareBmsCandidateEditAsync()) { return; }

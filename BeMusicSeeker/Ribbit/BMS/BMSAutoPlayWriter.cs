@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Ribbit.Logging;
 using Ribbit.Media;
@@ -46,12 +47,18 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
     /// <param name="filePathWithoutExtension">非空の、拡張子を除いた出力ファイルpathです。同名directoryが存在してもファイル名として扱います。</param>
     /// <param name="normalize">PCM全体へ適用する正規化方式です。</param>
     /// <param name="normalizationAmplifier">正規化後に適用する追加amplifierです。</param>
+    /// <param name="cancellationToken">合成の各ブロックと書出しの供給ごとに確認する取消トークンです。取消時は <see cref="OperationCanceledException"/> を返し、書出しを始めていた場合は未完成の出力ファイルを削除します。</param>
+    /// <param name="reportSynthesisProgress">合成済みフレームの割合(0以上1以下)の通知先です。合成の開始時に0、各ブロックの後に通知し、合成の完了時に1を通知します。音声処理の呼出し側から呼ぶため、軽い処理だけを渡します。</param>
+    /// <param name="reportWriting">合成の完了後、出力ファイルを作る前に一度だけ呼ぶ通知先です。</param>
     public void Write(
         EncoderType encodetype,
         float quality,
         string filePathWithoutExtension,
         Normalization normalize = Normalization.NONE,
-        float normalizationAmplifier = 1f)
+        float normalizationAmplifier = 1f,
+        CancellationToken cancellationToken = default,
+        Action<double> reportSynthesisProgress = null,
+        Action reportWriting = null)
     {
         if (normalize is not Normalization.NONE
             and not Normalization.PEAK_LEVEL
@@ -103,11 +110,14 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
                    base.AudioSchedule,
                    base.AudioResourcesByIndex,
                    base.ResourceSession,
-                   new BassMixerSourceNativeBoundary()))
+                   new BassMixerSourceNativeBoundary(),
+                   directVoices: base.DirectVoices))
         {
             long renderedFrames = 0;
+            reportSynthesisProgress?.Invoke(0d);
             while (renderedFrames < totalFrames)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int intervalFrames = checked((int)System.Math.Min(
                     PullBlockFrames,
                     totalFrames - renderedFrames));
@@ -122,10 +132,13 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
                     intervalFrames);
                 renderedFrames = nextRenderFrame;
                 scheduledMixer.AdvanceAndRetire();
+                reportSynthesisProgress?.Invoke((double)renderedFrames / totalFrames);
             }
 
             scheduledMixer.AdvanceAndRetire();
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        reportWriting?.Invoke();
 
         AudioPcmLevels levels = AudioPcmRenderer.Measure(renderedPcm, renderer.ChannelCount);
         double gain = GetNormalizationGain(normalize, levels, normalizationAmplifier);
@@ -155,12 +168,22 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
                 throw new ArgumentOutOfRangeException(nameof(encodetype), encodetype, "Unknown encoder type.");
         }
 
-        BassAudioWriter.ValidateOutputPeakForEncoder(finalPeak);
-        BassAudioWriter.SetTagInfo(tagInfo);
-        NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
-        BassAudioWriter.StartRecording();
-        BassAudioWriter.WritePcm(renderedPcm);
-        BassAudioWriter.StopRecording();
+        try
+        {
+            BassAudioWriter.ValidateOutputPeakForEncoder(finalPeak);
+            BassAudioWriter.SetTagInfo(tagInfo);
+            NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
+            cancellationToken.ThrowIfCancellationRequested();
+            BassAudioWriter.StartRecording();
+            BassAudioWriter.WritePcm(renderedPcm, cancellationToken);
+            BassAudioWriter.StopRecording();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 完全に書き出せなかった出力を残さず、取消を呼出元へ返します。
+            BassAudioWriter.TryDiscardIncompleteOutput();
+            throw;
+        }
         ResetPlaybackState();
     }
 

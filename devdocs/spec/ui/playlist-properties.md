@@ -69,7 +69,7 @@ LR2連携では、保存の事前検査を[共通配置条件](../playlist/lr2-c
 
 カテゴリは、UI Automationの選択操作に対応します。選択を下線で示し、フォーカスと無効状態を区別します。左右キー・Home・Endで移動し、無効な項目は飛ばします。本文は独立したスクロール領域とし、カテゴリを変更すると先頭へ戻しますが、編集値は保持します。
 
-上部の選択、更新日時、確定操作は、本文のスクロールから独立して固定します。本文のScrollViewerはペイン端まで配置し、本文Paddingと固定領域の左右を16 DIPに揃えます。上部ナビゲーションの内容スタイルには追加の余白を持たせず、本文の余白を一回だけ適用します。採用する最小寸法でも、末尾の入力・確定・取消へ到達でき、横スクロールバーをフッターへ延ばしません。画面右下の更新表示は `Update: yyyy/MM/dd` とします。
+上部の選択、更新日時、確定操作は、本文のスクロールから独立して固定します。本文のScrollViewerはペイン端まで配置し、本文Paddingと固定領域の左右を16 DIPに揃えます。上部のタブの内容領域には追加の余白を持たせず、本文の余白を一回だけ適用します。採用する最小寸法でも、末尾の入力・確定・取消へ到達でき、横スクロールバーをフッターへ延ばしません。画面右下の更新表示は `Update: yyyy/MM/dd` とします。
 
 フォルダ一覧は利用可能な高さに伸ばし、収まらなければその一覧内をスクロールします。空文字だけを既存の「名前なし」ラベルで表示し、保存済みの非空の空白名は原値で表示します。上下移動・自然順・名前を変えない保存では、表示ラベルをキーに使わず原値を保持します。手動改名の入力は[保存仕様](../playlist/storage-and-export.md#手動編集と失敗)に従います。説明を含む他の内容も、画面を縮小したときに到達可能にします。出力先は幅いっぱいに表示し、出力項目は上寄せの等幅2列とします。説明文は折り返し、横スクロールを要求しません。
 
@@ -154,7 +154,7 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性の�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 本文余白と固定領域、最小寸法での末尾到達 | `PlaylistPropertyDialog.xaml`、共通本文ScrollViewerと上部ナビゲーション | `PlaylistSummaryBulkEditTests.PlaylistPropertyDialog_ResizeKeepsGeneralEditorsReachable` は末尾editor到達と上部選択・更新日時・操作の固定を確認する。既存の `PlaylistPropertyDialog_FolderOrderScrollsIndependentlyAndGrowsWithWindow` と `PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories` は独立一覧と選択・draft保持を分担する。 |
+| 本文余白と固定領域、最小寸法での末尾到達 | `PlaylistPropertyDialog.xaml`、共通本文ScrollViewerと上部のタブ | `PlaylistSummaryBulkEditTests.PlaylistPropertyDialog_ResizeKeepsGeneralEditorsReachable` は末尾editor到達と上部選択・更新日時・操作の固定を確認する。既存の `PlaylistPropertyDialog_FolderOrderScrollsIndependentlyAndGrowsWithWindow` と `PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories` は独立一覧と選択・draft保持を分担する。 |
 | 三つの編集準備の短期P、現正本の初期値、空・失効・準備例外 | `PlaylistWorkspaceViewModel.PropertyEditing`、`PlaylistSummaryBulkEdit` | [`PlaylistWorkspaceActionWorkflowTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)の`PlaylistEditPreparation_*`、`PlaylistPropertyPreparation_ResolvesCurrentAndHoldsAdmissionThroughHydration`。実hydrationの通知gateと新規準備の設定gateでP保持を観測し、準備Task終端の解放、未登録draftと取消を確認する。 |
 | 一括対象の一要求一回の正本捕捉、重複・IDなし・曖昧ID | `PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistBulkPreparationAndApply_CaptureCurrentCollectionOncePerRequest`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)。小さい実対象集合のコピー・列挙回数で開始と差分なし適用を確認し、同ID別参照・同参照二重登録の拒否を分担する。順序保持は初出順のListと参照集合による実装を静的確認する。 |
 | 六操作の全対象現行性、同ID置換・別storeの拒否と開き直し | `PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit`、`PlaylistSummaryBuild` | [`PlaylistSummaryBulkEditTests.BulkApply_RejectsEntireStaleSelectionBeforeChanges`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)は六操作の全件退役・無変更対象を含む一部退役で実DB・BMT bytes・正本・入力保持を確認し、別storeはBMTで代表確認する。`BulkBmtApply_ExternalReplacementRejectsOldDraftAndReopenedDraftSaves`は実外部再同期による同ID別参照から旧draft拒否、旧選択の開き直しと保存までを確認する。実WPFでの通知と入力保持は既存modal cleanupケースが分担する。 |

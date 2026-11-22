@@ -164,18 +164,27 @@
   </Style>
   <Style TargetType="{x:Type Expander}" BasedOn="{StaticResource SettingsExpanderStyle}" />
 
-  <Style x:Key="settingsNavigationItemStyle"
-         TargetType="{x:Type ListBoxItem}"
-         BasedOn="{StaticResource App.Canonical.ListBoxItemStyle}">
+  <!--
+    設定画面の縦タブ。選択は標準のTabItemに任せ、選択中の項目だけに左端の帯と選択背景を出す。
+    不備の印は SettingsNavigationMark が項目の AutomationProperties.ItemStatus へ写した状態を使う。
+  -->
+  <Style x:Key="SettingsTabItemStyle"
+         TargetType="{x:Type TabItem}"
+         BasedOn="{x:Null}">
+    <!-- 標準のテーマのスタイルが与える背景・枠・前景は、明示して無効にする。 -->
+    <Setter Property="Background" Value="{x:Null}" />
+    <Setter Property="BorderBrush" Value="{x:Null}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Margin" Value="12,2" />
     <Setter Property="Padding" Value="12,9" />
+    <!-- TabControl は選択中の項目の内容の配置を本文の配置に使う。本文は幅いっぱいに広げ、上端へ寄せる。 -->
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template">
       <Setter.Value>
-        <ControlTemplate TargetType="{x:Type ListBoxItem}">
+        <ControlTemplate TargetType="{x:Type TabItem}">
           <Border x:Name="NavigationPill"
                   Padding="{TemplateBinding Padding}"
                   Background="{TemplateBinding Background}"
@@ -190,10 +199,14 @@
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <Border x:Name="SelectionIndicator" Width="3" />
-              <ContentPresenter Grid.Column="2"
-                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+              <!-- 文字の太さと色は継承されて本文のページへ及ぶため、項目ではなく見出しの表示だけに設定する。 -->
+              <ContentPresenter x:Name="HeaderPresenter"
+                                Grid.Column="2"
+                                HorizontalAlignment="Stretch"
                                 VerticalAlignment="Center"
-                                RecognizesAccessKey="True" />
+                                RecognizesAccessKey="True"
+                                TextElement.Foreground="{DynamicResource App.TextBrush}"
+                                ContentSource="Header" />
               <!-- 不備のあるページの印。状態の文言は SettingsNavigationMark が項目の AutomationProperties.ItemStatus へ写す。 -->
               <settings:SettingsStatusIcon x:Name="DeficiencyMark"
                                             Grid.Column="3"
@@ -212,13 +225,10 @@
             <Trigger Property="IsSelected" Value="True">
               <Setter TargetName="NavigationPill" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
               <Setter TargetName="SelectionIndicator" Property="Background" Value="{DynamicResource App.AccentBrush}" />
-              <Setter Property="FontWeight" Value="SemiBold" />
-            </Trigger>
-            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-              <Setter TargetName="NavigationPill" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
+              <Setter TargetName="HeaderPresenter" Property="TextElement.FontWeight" Value="SemiBold" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+              <Setter TargetName="HeaderPresenter" Property="TextElement.Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
               <Setter TargetName="NavigationPill" Property="Opacity" Value="0.6" />
             </Trigger>
             <Trigger Property="settings:SettingsNavigationMark.IsMarked" Value="True">
@@ -228,6 +238,71 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+  </Style>
+
+  <!--
+    縦のタブ列は上端から下端まで届かせ、右の列に見出し・本文・下部領域を置く。
+    本文だけが一つの縦ScrollViewerでスクロールし、見出しと下部領域は固定する。
+    タブ列はScrollViewerで包まない。テンプレート内のScrollViewerは、TabControlがHandlesScrollingを持たないため
+    タブ項目から上がった矢印・Home/Endを処理済みにし、方向移動とTabControlのHome/Endを止める。
+    11項目は最小の高さ（MinHeight 600）に収まる。
+  -->
+  <ControlTemplate x:Key="SettingsTabControlTemplate" TargetType="{x:Type settings:SettingsTabControl}">
+    <Grid SnapsToDevicePixels="True" KeyboardNavigation.TabNavigation="Local">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="216" />
+        <ColumnDefinition Width="1" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Border Grid.Column="0"
+              Padding="{TemplateBinding Padding}"
+              Background="{DynamicResource App.SurfaceBrush}"
+              KeyboardNavigation.TabIndex="1">
+        <StackPanel x:Name="HeaderPanel"
+                    IsItemsHost="True"
+                    Orientation="Vertical"
+                    KeyboardNavigation.TabNavigation="Once"
+                    KeyboardNavigation.DirectionalNavigation="Contained" />
+      </Border>
+      <Border Grid.Column="1" Background="{DynamicResource App.SeparatorBrush}" />
+      <Grid Grid.Column="2" KeyboardNavigation.TabIndex="2">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="1" />
+          <RowDefinition Height="*" />
+          <RowDefinition Height="1" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <settings:SettingsPageHeaderText x:Name="PART_PageHeader"
+                   Grid.Row="0"
+                   Margin="{StaticResource App.Layout.BodyPadding}"
+                   AutomationProperties.AutomationId="SettingsSelectedPageHeader"
+                   FontSize="26"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource App.TextBrush}"
+                   Text="{Binding SelectedItem.Header, RelativeSource={RelativeSource TemplatedParent}}" />
+        <Border Grid.Row="1" Background="{DynamicResource App.SeparatorBrush}" />
+        <ScrollViewer x:Name="PART_PageScrollViewer"
+                      Grid.Row="2"
+                      Style="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      CanContentScroll="False">
+          <ContentPresenter x:Name="PART_SelectedContentHost"
+                            ContentSource="SelectedContent" />
+        </ScrollViewer>
+        <Border Grid.Row="3" Background="{DynamicResource App.SeparatorBrush}" />
+        <ContentPresenter Grid.Row="4" Content="{TemplateBinding Footer}" />
+      </Grid>
+    </Grid>
+  </ControlTemplate>
+
+  <Style x:Key="SettingsTabControlStyle"
+         TargetType="{x:Type settings:SettingsTabControl}"
+         BasedOn="{StaticResource App.Canonical.TopTabControlStyle}">
+    <Setter Property="Padding" Value="0,16" />
+    <Setter Property="ItemContainerStyle" Value="{StaticResource SettingsTabItemStyle}" />
+    <Setter Property="Template" Value="{StaticResource SettingsTabControlTemplate}" />
   </Style>
 
   <Style x:Key="SettingsGroupBoxStyle"
@@ -279,6 +354,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsSection}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.SectionMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -323,6 +400,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsField}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -425,9 +504,6 @@
               <Setter TargetName="RadioChrome" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
               <Setter TargetName="RadioGlyph" Property="Visibility" Value="Visible" />
             </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
               <Setter TargetName="Card" Property="Opacity" Value="0.55" />
@@ -439,6 +515,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsOptionRow}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -471,6 +549,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsPathPicker}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
@@ -547,6 +627,8 @@
   <Style TargetType="{x:Type settings:SettingsListEditor}"
          BasedOn="{StaticResource {x:Type settings:SettingsField}}" />
   <Style TargetType="{x:Type settings:SettingsStatusBanner}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="0,8,0,16" />
     <Setter Property="Padding" Value="16,8" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />

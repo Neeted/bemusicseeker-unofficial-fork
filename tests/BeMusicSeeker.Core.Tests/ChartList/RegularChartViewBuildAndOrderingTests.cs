@@ -1044,6 +1044,83 @@ public sealed class RegularChartViewBuildAndOrderingTests
         CollectionAssert.AreEqual(new[] { matching, other }, groupSource.SourceCharts.ToArray());
     }
 
+    /// <summary>
+    /// 分裂配置の一覧（<c>SplitPlacementFilterSelected</c>）が、実際の探索の結果から、ルートは全グループの全譜面（グループが持つBMSONと兄弟譜面を含む）、
+    /// グループは所属フォルダの値で解決したそのグループの譜面だけ、フォルダはそのパス配下（子孫を含み、名前の先頭だけが同じ兄弟フォルダを含めない）の結果にある譜面だけを表示し、
+    /// 捕捉したグループ・フォルダが結果にない場合と結果がない場合は例外なしの空の一覧になることを確認します。
+    /// 結果にない譜面（グループに属さないフォルダの譜面・BMSON）は、通常のライブラリの行として足しません。
+    /// 検出する誤り：未解決の全件への拡大、重複の結果の読取り、結果にない譜面の混入、BMSONの脱落、同じ接頭辞の兄弟フォルダの混入。
+    /// </summary>
+    [TestMethod]
+    [DataRow("root", "a|b|b2|b.bmson|bb|c|sub|d")]
+    [DataRow("group", "a|b|b2|b.bmson")]
+    [DataRow("groupByOtherFolderCase", "a|b|b2|b.bmson")]
+    [DataRow("folder", "b|b2|b.bmson|sub")]
+    [DataRow("folderCase", "b|b2|b.bmson|sub")]
+    [DataRow("folderOutsideResult", "")]
+    [DataRow("groupOutsideResult", "")]
+    [DataRow("emptyGroup", "")]
+    [DataRow("rootWithoutResult", "")]
+    [DataRow("groupWithoutResult", "")]
+    public void RegularEntry_SelectsSplitPlacementSubsetFromSearchResult(string selection, string expected)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(songDbPath =>
+        {
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            ChartFile[] bms =
+            [
+                SplitPlacementTestSupport.Chart(@"C:\BMS\A\a.bms", 1, "a"), SplitPlacementTestSupport.Chart(@"C:\BMS\B\b.bms", 2, "b"),
+                SplitPlacementTestSupport.Chart(@"C:\BMS\B\b2.bms", 5, "b2"), SplitPlacementTestSupport.Chart(@"C:\BMS\BB\bb.bms", 7, "bb"),
+                SplitPlacementTestSupport.Chart(@"C:\BMS\C\c.bms", 3, "c"), SplitPlacementTestSupport.Chart(@"C:\BMS\B\Sub\sub.bms", 8, "sub"),
+                SplitPlacementTestSupport.Chart(@"C:\BMS\D\d.bms", 9, "d"), SplitPlacementTestSupport.Chart(@"C:\BMS\Z\z.bms", 10, "z")
+            ];
+            ChartFile[] bmson =
+            [
+                SplitPlacementTestSupport.Chart(@"C:\BMS\B\b.bmson", 6, "b.bmson", ChartFileKind.Bmson),
+                SplitPlacementTestSupport.Chart(@"C:\BMS\Z\z.bmson", 11, "z.bmson", ChartFileKind.Bmson)
+            ];
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = bms, BmsonCharts = bmson };
+            SplitPlacementTestSupport.SetIndex(library,
+                new(@"C:\BMS\A", SplitPlacementTestSupport.Keys(1, 10)), new(@"C:\BMS\B", SplitPlacementTestSupport.Keys(1, 10)),
+                new(@"C:\BMS\BB", SplitPlacementTestSupport.Keys(100, 10)), new(@"C:\BMS\C", SplitPlacementTestSupport.Keys(100, 10)),
+                new(@"C:\BMS\B\Sub", SplitPlacementTestSupport.Keys(200, 10)), new(@"C:\BMS\D", SplitPlacementTestSupport.Keys(200, 10)),
+                new(@"C:\BMS\Z", SplitPlacementTestSupport.Keys(500, 10)));
+            if (!selection.EndsWith("WithoutResult", StringComparison.Ordinal)) { library.SearchSplitPlacementGroups(SplitPlacementSearchCriteria.Default, null, CancellationToken.None); }
+            DuplicateGroup? first = library.SplitPlacementGroups?.SingleOrDefault(group => group.Folders.Contains(@"C:\BMS\A"));
+            DuplicateViewContext context = selection switch
+            {
+                "root" or "rootWithoutResult" => DuplicateViewContext.ForRoot(),
+                "group" or "groupWithoutResult" => DuplicateViewContext.CaptureGroup(first ?? new DuplicateGroup([], [@"C:\BMS\A"])),
+                "groupByOtherFolderCase" => DuplicateViewContext.ForGroup(@"c:\bms\b"),
+                "folder" => DuplicateViewContext.ForFolder(@"C:\BMS\B"),
+                "folderCase" => DuplicateViewContext.ForFolder(@"c:\bms\b"),
+                "folderOutsideResult" => DuplicateViewContext.ForFolder(@"C:\BMS\Z"),
+                "groupOutsideResult" => DuplicateViewContext.ForGroup(@"C:\BMS\Z"),
+                _ => DuplicateViewContext.ForGroup(string.Empty)
+            };
+            if (selection != "rootWithoutResult" && selection != "groupWithoutResult")
+            {
+                Assert.AreEqual(3, library.SplitPlacementGroups!.Count, "探索の結果は三グループ");
+            }
+            Assert.IsNull(library.DuplicateChartGroups, "重複検索の結果は使わない");
+
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.SplitPlacementFilterSelected);
+            request.Library = library;
+            request.IncludeBmsonRows = false;
+            request.TreeParameter = context;
+            request.Stopwatch = Stopwatch.StartNew();
+            RegularChartListEntryResult result = owner.ApplyRegularView(request);
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
+            string[] actual = [.. table.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Title)];
+            string[] wanted = expected.Length == 0 ? [] : expected.Split('|');
+            CollectionAssert.AreEquivalent(wanted, actual);
+        });
+    }
+
     /// <summary>score依存の通常と部分orderを公開後、score失効で両方とも退役させ、一方の旧orderだけが残る誤りを検出します。</summary>
     [TestMethod]
     public void DependencyInvalidation_PrunesDefaultAndSubsetOrderCachesTogether()

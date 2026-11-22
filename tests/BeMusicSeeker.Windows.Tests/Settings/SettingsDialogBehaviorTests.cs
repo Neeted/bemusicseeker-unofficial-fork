@@ -657,9 +657,9 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(PlayerPanelState.TITLE_LARGE, playbackView.EffectivePlayerPanelState);
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = harness.Dialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)SettingsTabs.SelectedPage(window);
                 ((RadioButton)page.FindName("radioButtonPlayBMIIDXView")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                 Assert.IsTrue(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayerBMIIDXView);
                 Assert.AreSame(current, owner.PlaybackPanel.NowPlayingChart);
@@ -2040,6 +2040,178 @@ public sealed class SettingsDialogBehaviorTests
         values.UseExternalPanelImage = false; values.UsePlayeruBMplay = false; values.UsePlayerLR2body = false; values.UsePlayerBMIIDXView = false;
         values.ScanBmsFilesOnStartup = false; values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
         values.Save(); return values;
+    }
+
+    /// <summary>
+    /// 条件：確定済みの登録がある単独モード・LR2連携モードで、BMSディレクトリを追加する。追加の組合せは、候補の子・候補の親・大文字化して末尾に区切りを付けた同一パス・同じ追加内の親子・確定前に追加した候補の子（以上は拒否）と、名前の先頭だけが同じ兄弟・候補から外した確定登録の子（以上は受理）です。
+    /// 期待結果：拒否では候補の並びが変わらず、エラー通知（重なりの文言・エラー見出し）がちょうど一件で確認ダイアログはなく、user.config（LR2連携ではXMLも）のバイト列が変わりません。受理では候補へ加わり、通知がなく、保存もしません。
+    /// 検出する誤り：文字列の前方一致で判定する、片方向だけ判定する、同じ追加内の組を見ない、確定一覧と比べる、大小文字・末尾の区切りの違いを見落とす、単独モードだけ素通しにする、拒否で一部だけ候補へ加える。
+    /// </summary>
+    [TestMethod]
+    [DataRow("standalone", "child-of-candidate")]
+    [DataRow("standalone", "parent-of-candidate")]
+    [DataRow("standalone", "same-case-separator")]
+    [DataRow("standalone", "batch-parent-child")]
+    [DataRow("standalone", "child-of-unconfirmed-candidate")]
+    [DataRow("standalone", "prefix-sibling")]
+    [DataRow("standalone", "child-of-removed-confirmed")]
+    [DataRow("lr2", "child-of-candidate")]
+    [DataRow("lr2", "parent-of-candidate")]
+    [DataRow("lr2", "same-case-separator")]
+    [DataRow("lr2", "batch-parent-child")]
+    [DataRow("lr2", "child-of-unconfirmed-candidate")]
+    [DataRow("lr2", "prefix-sibling")]
+    [DataRow("lr2", "child-of-removed-confirmed")]
+    [DoNotParallelize]
+    public void BmsRootAddition_RejectsSameOrNestedRootsAndAcceptsPrefixSibling(string mode, string relation)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            bool lr2 = mode == "lr2";
+            using var directory = new TemporaryDirectory(CaseWorkspace, "bms-root-add");
+            string library = Path.Combine(directory.Path, "roots");
+            string parent = Directory.CreateDirectory(Path.Combine(library, "p")).FullName;
+            string child = Directory.CreateDirectory(Path.Combine(parent, "c")).FullName;
+            string other = Directory.CreateDirectory(Path.Combine(library, "q")).FullName;
+            string otherChild = Directory.CreateDirectory(Path.Combine(other, "c")).FullName;
+            string prefixSibling = Directory.CreateDirectory(Path.Combine(library, "p2")).FullName;
+            string unrelated = Directory.CreateDirectory(Path.Combine(library, "x")).FullName;
+            string[] confirmed = relation switch
+            {
+                "parent-of-candidate" => [child],
+                "child-of-removed-confirmed" => [parent, unrelated],
+                _ => [parent],
+            };
+            (Settings values, string? xmlPath) = PrepareBmsRegistration(directory.Path, lr2, confirmed, confirmed[0]);
+            string configPath = Path.Combine(directory.Path, "user.config");
+            var dialogs = new RecordingDialogService();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, dialogs: dialogs);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            if (relation == "child-of-removed-confirmed") { await dialog.RemoveBmsSearchRootPathAsync(parent); }
+            if (relation == "child-of-unconfirmed-candidate")
+            {
+                await dialog.AddBmsSearchRootPathsAsync([other]);
+                Assert.AreEqual(0, dialogs.MessageCount);
+            }
+            string[] toAdd = relation switch
+            {
+                "child-of-candidate" => [child],
+                "parent-of-candidate" => [parent],
+                "same-case-separator" => [parent.ToUpperInvariant() + Path.DirectorySeparatorChar],
+                "batch-parent-child" => [other, otherChild],
+                "child-of-unconfirmed-candidate" => [otherChild],
+                "prefix-sibling" => [prefixSibling],
+                "child-of-removed-confirmed" => [child],
+                _ => throw new ArgumentOutOfRangeException(nameof(relation)),
+            };
+            bool rejected = relation is not ("prefix-sibling" or "child-of-removed-confirmed");
+            string[] candidatesBefore = dialog.AvailableBMSDirectories.ToArray();
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[]? xmlBefore = xmlPath is null ? null : File.ReadAllBytes(xmlPath);
+            int messagesBefore = dialogs.MessageCount;
+
+            await dialog.AddBmsSearchRootPathsAsync(toAdd);
+
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            if (xmlPath is not null) { CollectionAssert.AreEqual(xmlBefore, File.ReadAllBytes(xmlPath)); }
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            if (rejected)
+            {
+                CollectionAssert.AreEqual(candidatesBefore, dialog.AvailableBMSDirectories.ToArray());
+                Assert.AreEqual(messagesBefore + 1, dialogs.MessageCount);
+                Assert.AreEqual(Resources.Error_BmsSearchDirectoriesOverlap, dialogs.LastMessageText);
+                Assert.AreEqual(Resources.Error, dialogs.LastMessageCaption);
+            }
+            else
+            {
+                Assert.AreEqual(messagesBefore, dialogs.MessageCount);
+                foreach (string added in toAdd)
+                {
+                    Assert.IsTrue(dialog.AvailableBMSDirectories.Contains(added, StringComparer.OrdinalIgnoreCase), added);
+                }
+            }
+        }, nameof(BmsRootAddition_RejectsSameOrNestedRootsAndAcceptsPrefixSibling));
+    }
+
+    /// <summary>
+    /// 条件：旧版で保存された確定登録 {P, P\C} を追加検査を通さずに書き込み、無関係な D を追加してから確定し、次に C を外して確定する。単独モードとLR2連携モードの両方で行う。
+    /// 期待結果：D の追加は受理される。そのままの確定は両モードで拒否され、通知は親 P と子 P\C の書式どおり一件で、媒体のバイト列・確定一覧・差分再読込みが変わらず候補 {P, C, D} も保たれる。C を外した確定は {P, D} を保存・公開し、通知は増えず、不備の一覧からBMSディレクトリの行が消える。
+    /// 検出する誤り：保存前の親子検査に単独モードの分岐が残る、確定済みの親子が無関係な追加を妨げる、拒否時に媒体や確定一覧を変える、片方を外しても保存できない。
+    /// </summary>
+    [TestMethod]
+    [DataRow("standalone")]
+    [DataRow("lr2")]
+    [DoNotParallelize]
+    public void BmsRootConfirmation_RejectsNestedFinalListInBothModesUntilOneIsRemoved(string mode)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            bool lr2 = mode == "lr2";
+            using var directory = new TemporaryDirectory(CaseWorkspace, "bms-root-nested-confirm");
+            string library = Path.Combine(directory.Path, "roots");
+            string parent = Directory.CreateDirectory(Path.Combine(library, "p")).FullName;
+            string child = Directory.CreateDirectory(Path.Combine(parent, "c")).FullName;
+            string unrelated = Directory.CreateDirectory(Path.Combine(library, "d")).FullName;
+            (Settings values, string? xmlPath) = PrepareBmsRegistration(directory.Path, lr2, [parent, child], parent);
+            string configPath = Path.Combine(directory.Path, "user.config");
+            var dialogs = new RecordingDialogService();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, dialogs: dialogs);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            string[] confirmedBefore = dialog.ConfirmedBMSDirectories.ToArray();
+            CollectionAssert.AreEquivalent(new[] { parent, child }, confirmedBefore);
+
+            await dialog.AddBmsSearchRootPathsAsync([unrelated]);
+
+            Assert.AreEqual(0, dialogs.MessageCount, "確定済みの親子は、無関係な追加を妨げません。");
+            CollectionAssert.AreEquivalent(new[] { parent, child, unrelated }, dialog.AvailableBMSDirectories.ToArray());
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[]? xmlBefore = xmlPath is null ? null : File.ReadAllBytes(xmlPath);
+            int reloads = harness.State.FileDiffReloadCount;
+
+            await dialog.CommitBmsRootsAsync();
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(
+                string.Format(lr2 ? Resources.Validation_NestedBmsSearchRootPathsFormat : Resources.Validation_NestedStandaloneBmsRootPathsFormat,
+                    string.Format(Resources.Validation_NestedBmsSearchRootPathLineFormat, parent, child)),
+                dialogs.LastMessageText);
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            if (xmlPath is not null) { CollectionAssert.AreEqual(xmlBefore, File.ReadAllBytes(xmlPath)); }
+            CollectionAssert.AreEqual(confirmedBefore, dialog.ConfirmedBMSDirectories.ToArray());
+            Assert.AreEqual(reloads, harness.State.FileDiffReloadCount);
+            CollectionAssert.AreEquivalent(new[] { parent, child, unrelated }, dialog.AvailableBMSDirectories.ToArray());
+
+            await dialog.RemoveBmsSearchRootPathAsync(child);
+            await dialog.CommitBmsRootsAsync();
+
+            Assert.AreEqual(1, dialogs.MessageCount, "一方を外した確定は通知を出しません。");
+            CollectionAssert.AreEquivalent(new[] { parent, unrelated }, dialog.ConfirmedBMSDirectories.ToArray());
+            Assert.AreEqual(reloads + 1, harness.State.FileDiffReloadCount);
+            Assert.IsFalse(dialog.Deficiencies.Any(item => item.Field == SettingsDeficiencyField.BmsDirectories),
+                SettingsDeficiency.FormatDiagnostic(dialog.Deficiencies));
+        }, nameof(BmsRootConfirmation_RejectsNestedFinalListInBothModesUntilOneIsRemoved));
+    }
+
+    /// <summary>確定登録を追加検査を通さずに直接書き込み、導入先を指定して保存します。LR2連携では設定XMLの検索ルートへ直接書きます。</summary>
+    private static (Settings Values, string? XmlPath) PrepareBmsRegistration(string directory, bool lr2, IReadOnlyList<string> roots, string install)
+    {
+        Settings values = OpenPersistedSettings(directory);
+        string? xmlPath = null;
+        if (lr2)
+        {
+            (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory, roots);
+            xmlPath = layout.ConfigPath;
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = directory; values.LR2ConfigXmlPath = layout.ConfigPath; values.LR2SongDBPath = layout.SongDbPath;
+        }
+        else
+        {
+            values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(roots);
+            values.BMSRootPath = roots[0];
+        }
+        values.BMSInstallDir = install;
+        values.Save();
+        return (values, xmlPath);
     }
 
     private static void RunOnUiDispatcher(Func<Task> operation, string operationName)

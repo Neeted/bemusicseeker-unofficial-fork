@@ -22,7 +22,8 @@ internal sealed class AppFontResourceSnapshot : IDisposable
         ResourceDictionary resources = Application.Current.Resources;
         object[] keys =
         [
-            AppFontService.ResourceKey,
+            AppFontService.UiResourceKey,
+            AppFontService.TableResourceKey,
             SystemFonts.MenuFontFamilyKey,
             SystemFonts.StatusFontFamilyKey,
             SystemFonts.MessageFontFamilyKey

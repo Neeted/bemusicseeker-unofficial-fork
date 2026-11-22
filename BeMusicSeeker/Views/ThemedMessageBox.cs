@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Data;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Views;
@@ -40,8 +41,9 @@ internal static class ThemedMessageBox
     /// <param name="options">WPF message box option。</param>
     /// <param name="warningMessageBoxText">本文とは別に警告色で表示する補助本文。</param>
     /// <param name="modalScopeFactory">表示中の modal window を owner として登録する境界。省略時は scope を追加しません。</param>
+    /// <param name="acknowledgmentText">肯定前にチェックを求める文言。省略時はチェック欄を表示しません。</param>
     /// <returns>message box の表示結果。</returns>
-    internal static ThemedMessageBoxResponse ShowWithStatus(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None, string warningMessageBoxText = null, Func<Window, IDisposable> modalScopeFactory = null)
+    internal static ThemedMessageBoxResponse ShowWithStatus(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None, string warningMessageBoxText = null, Func<Window, IDisposable> modalScopeFactory = null, string acknowledgmentText = null)
     {
         MessageBoxResult result = NormalizeDefaultResult(button, defaultResult);
         bool wasButtonSelected = false;
@@ -49,7 +51,7 @@ internal static class ThemedMessageBox
         {
             result = selected;
             wasButtonSelected = true;
-        });
+        }, acknowledgmentText);
 
         if ((options & MessageBoxOptions.RightAlign) == MessageBoxOptions.RightAlign)
         {
@@ -134,6 +136,7 @@ internal static class ThemedMessageBox
     /// <param name="initialResult">initial default result used for keyboard defaults.</param>
     /// <param name="warningMessageBoxText">optional warning text shown below the message.</param>
     /// <param name="setResult">callback that receives the selected result.</param>
+    /// <param name="acknowledgmentText">肯定前にチェックを求める文言。省略時はチェック欄を表示しません。</param>
     /// <returns>表示前の本番ダイアログ。</returns>
     internal static Window BuildDialogForPresentation(
         Window owner,
@@ -143,7 +146,8 @@ internal static class ThemedMessageBox
         MessageBoxImage icon,
         MessageBoxResult initialResult,
         string warningMessageBoxText,
-        Action<MessageBoxResult> setResult)
+        Action<MessageBoxResult> setResult,
+        string acknowledgmentText = null)
     {
         var dialog = new ThemedWindow
         {
@@ -214,6 +218,18 @@ internal static class ThemedMessageBox
             messagePanel.Children.Add(warningMessage);
         }
 
+        CheckBox acknowledgment = null;
+        if (acknowledgmentText != null)
+        {
+            acknowledgment = new CheckBox
+            {
+                Content = acknowledgmentText,
+                Margin = new Thickness(0, 12, 0, 0)
+            };
+            acknowledgment.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.CheckBoxStyle");
+            messagePanel.Children.Add(acknowledgment);
+        }
+
         var messageScroll = new ScrollViewer
         {
             Content = messagePanel,
@@ -248,6 +264,14 @@ internal static class ThemedMessageBox
                 IsDefault = pair.Key == initialResult || (initialResult == MessageBoxResult.None && IsAffirmative(pair.Key)),
                 IsCancel = pair.Key == MessageBoxResult.Cancel || (button == MessageBoxButton.YesNo && pair.Key == MessageBoxResult.No),
             };
+            if (acknowledgment != null && IsAffirmative(pair.Key))
+            {
+                dialogButton.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(CheckBox.IsChecked))
+                {
+                    Source = acknowledgment,
+                    Mode = BindingMode.OneWay
+                });
+            }
             AutomationProperties.SetAutomationId(dialogButton, $"ThemedMessageBox{pair.Key}");
             dialogButton.SetResourceReference(
                 FrameworkElement.StyleProperty,

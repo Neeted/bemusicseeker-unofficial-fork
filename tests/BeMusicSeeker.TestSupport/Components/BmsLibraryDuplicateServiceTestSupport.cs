@@ -79,6 +79,15 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public Action<string>? BeforeDeleteDirectory { get; set; }
 
+        /// <summary>ごみ箱へ送る削除（<see cref="DeleteFileShell"/>）に成功したファイルを、実行順に記録します。実際のごみ箱は使わず、ファイルを直接削除します。</summary>
+        public List<string> ShellDeletedFiles { get; } = [];
+
+        /// <summary>trueを返すパスのファイルの移動・複製（移動元のパス、移動先のパス）を失敗させます。既存の<see cref="FailNextMutationCount"/>とは独立です。統合の物理処理は元を残すため、複製で移します。</summary>
+        public Func<string, string, bool>? FailFileTransferWhen { get; set; }
+
+        /// <summary>trueを返すパスのファイルの、ごみ箱へ送る削除を失敗させます。失敗した削除は記録せず、ファイルを残します。</summary>
+        public Func<string, bool>? FailDeleteFileShellWhen { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -90,6 +99,7 @@ internal static class BmsLibraryDuplicateServiceTestSupport
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
+            ThrowForConfiguredTransfer(sourcePath, destinationPath);
             string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
@@ -128,6 +138,7 @@ internal static class BmsLibraryDuplicateServiceTestSupport
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
+            ThrowForConfiguredTransfer(sourcePath, destinationPath);
             string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
@@ -162,7 +173,12 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            if (FailDeleteFileShellWhen?.Invoke(filePath) == true)
+            {
+                throw new IOException("The test recycle-bin delete failed for the configured path.");
+            }
             DeleteFileDirect(filePath, options);
+            ShellDeletedFiles.Add(filePath);
         }
 
         public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
@@ -182,6 +198,14 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public void SetTimestamps(string path, bool isDirectory, System.DateTime? creationTime, System.DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
+        }
+
+        private void ThrowForConfiguredTransfer(string sourcePath, string destinationPath)
+        {
+            if (FailFileTransferWhen?.Invoke(sourcePath, destinationPath) == true)
+            {
+                throw new IOException("The test file transfer failed for the configured path.");
+            }
         }
 
         private void ThrowForConfiguredMutation()

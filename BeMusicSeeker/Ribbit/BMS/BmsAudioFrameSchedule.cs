@@ -185,6 +185,24 @@ internal sealed class BmsAudioFrameSchedule
         return runs;
     }
 
+    /// <summary>発音の打切り後の実出力終端を、予約・復元・直接合成の判定で共通に求めます。</summary>
+    /// <param name="audioEvent">対象の発音イベントです。</param>
+    /// <param name="resource">発音に使う復号済み音源です。</param>
+    /// <param name="sampleRate">実効mixer rateです。</param>
+    /// <returns>排他的な終端mixer frameです。解決済みのbmson終端、または元EOFと次の同index発音の早い方です。</returns>
+    internal static long GetEndFrame(BmsAudioFrameEvent audioEvent, BmsAudioResource resource, int sampleRate)
+    {
+        if (audioEvent.EndFrame is long resolvedEnd)
+        {
+            return resolvedEnd;
+        }
+
+        long naturalEnd = checked(audioEvent.StartFrame + resource.GetOutputFrameCount(sampleRate));
+        return audioEvent.NextSameIndexStartFrame is long nextStart
+            ? System.Math.Min(naturalEnd, nextStart)
+            : naturalEnd;
+    }
+
     /// <summary>指定indexの量子化済みイベントをframe昇順で取得します。</summary>
     internal IReadOnlyList<BmsAudioFrameEvent> GetEventsForWavIndex(int wavIndex) =>
         eventsByWavIndex.TryGetValue(wavIndex, out BmsAudioFrameEvent[]? values)

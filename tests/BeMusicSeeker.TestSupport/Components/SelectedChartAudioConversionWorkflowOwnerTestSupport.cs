@@ -172,17 +172,67 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
 
         internal string LastMessage { get; private set; } = string.Empty;
 
+        /// <summary>案内として要求された内容を、要求の順に保持します。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        /// <summary>案内の要求を受けた時点で呼ぶ通知です。要求の時点の状態（受付の解放など）を観測するために使います。</summary>
+        internal Action<UiMessageRequest>? MessageObserver { get; set; }
+
+        /// <summary>直近の進捗画面の要求です。題名・ラベル・所有者を観測するために使います。</summary>
+        internal UiProgressRequest? ProgressRequest { get; private set; }
+
+        private DoWorkEventArgs? progressArguments;
+
+        /// <summary>進捗画面の操作が取消を実際に検知した（取消の確認が取消として観測された）かです。</summary>
+        internal bool ProgressCancellationObserved => Volatile.Read(ref progressArguments)?.Cancel == true;
+
         internal int PickerCalls { get; private set; }
 
         internal Func<Task<UiFolderPickerResult>>? FolderPickerHandler { get; set; }
 
-        internal Func<Task<UiProgressResult>>? ProgressHandler { get; set; }
+        /// <summary>
+        /// 進捗画面を表示できたかを表します。falseでは画面が操作を呼ばず、<see cref="ProgressResult"/> をそのまま返します。
+        /// </summary>
+        internal bool ProgressDisplayed { get; set; } = true;
+
+        /// <summary>
+        /// 開始済みの操作のTaskを受け取り、画面の結果を返す処理です。指定時は操作の終端を待たず、この処理の結果を返します。
+        /// 未指定なら操作の終端を待ち、<see cref="ProgressResult"/> を返します。
+        /// </summary>
+        internal Func<Task, Task<UiProgressResult>>? ProgressHandler { get; set; }
+
+        /// <summary>操作が進捗画面へ報告した割合と文言を、報告順に保持します。</summary>
+        internal IReadOnlyList<(int Percent, string Message)> ProgressReports
+        {
+            get { lock (progressReports) { return progressReports.ToArray(); } }
+        }
+
+        /// <summary>報告を記録した直後に呼ぶ通知です。段階の表示が届いたことを待つために使います。</summary>
+        internal Action<int, string>? ProgressReported { get; set; }
+
+        private readonly List<(int Percent, string Message)> progressReports = [];
+
+        /// <summary>
+        /// 操作を呼ぶ直前に、利用者が取消ボタンを押した状態にします。操作の開始前の取消の要求を、時機に依存せず確定的に作るために使います。
+        /// </summary>
+        internal bool CancelProgressBeforeOperation { get; set; }
+
+        private BackgroundWorker? progressWorker;
+
+        /// <summary>利用者が進捗画面の取消ボタンを押した状態にします。次の報告の取消確認で取消として観測されます。</summary>
+        internal void RequestProgressCancellation()
+        {
+            (Volatile.Read(ref progressWorker) ?? throw new InvalidOperationException("The progress operation has not started."))
+                .CancelAsync();
+        }
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             events.Add("message");
             MessageCalls++;
             LastMessage = request.MessageBoxText;
+            Messages.Add(request);
+            MessageObserver?.Invoke(request);
             if (MessageFailure != null) { throw MessageFailure; }
             return Task.FromResult(MessageResult);
         }
@@ -221,16 +271,29 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
             CancellationToken cancellationToken = default)
         {
             ProgressLabel = request.Label;
+            ProgressRequest = request;
             events.Add("progress");
+            if (!ProgressDisplayed)
+            {
+                return ProgressResult;
+            }
+            using var worker = new BackgroundWorker { WorkerReportsProgress = true, WorkerSupportsCancellation = true };
+            Volatile.Write(ref progressWorker, worker);
+            worker.ProgressChanged += (_, e) =>
+            {
+                (int ProgressPercentage, string) report = (e.ProgressPercentage, e.UserState?.ToString() ?? string.Empty);
+                lock (progressReports) { progressReports.Add(report); }
+                ProgressReported?.Invoke(report.ProgressPercentage, report.Item2);
+            };
+            var arguments = new DoWorkEventArgs(null);
+            Volatile.Write(ref progressArguments, arguments);
+            if (CancelProgressBeforeOperation) { worker.CancelAsync(); }
+            Task operationTask = operation(new UiProgressContext(new ProgressDialogContext(worker, arguments)));
             if (ProgressHandler != null)
             {
-                return await ProgressHandler();
+                return await ProgressHandler(operationTask);
             }
-            if (ProgressResult.Status == UiDialogStatus.Accepted)
-            {
-                using var worker = new BackgroundWorker();
-                await operation(new UiProgressContext(new ProgressDialogContext(worker, new DoWorkEventArgs(null))));
-            }
+            await operationTask;
             return ProgressResult;
         }
     }

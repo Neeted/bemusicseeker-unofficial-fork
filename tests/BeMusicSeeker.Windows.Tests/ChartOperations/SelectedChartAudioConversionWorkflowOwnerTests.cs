@@ -699,10 +699,163 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
-    private static byte[] CreatePcmWave()
+    /// <summary>
+    /// 本番の実行側へ1秒以上の2譜面を直接渡し、取消位置ごとに、段階の順序・合成の割合・出力・解放を確認します。
+    /// 取消なしでは各譜面が解析、読込み、合成、書出しの順に報告され、合成の割合は単調に増え、0と1の間を通って最後は1になります。
+    /// 2譜面目の読込みの報告で取り消すと、1譜面目の出力だけが残り、2譜面目は合成の報告も出力もありません。
+    /// 2譜面目の合成の途中で取り消すと、合成の割合は1に達せず書出しもなく、採番した未完成の出力は残らず、同名の既存ファイルは保全されます。
+    /// </summary>
+    /// <remarks>
+    /// 取消の位置は実行側の進捗通知の中で作り、固定時間の待機を使いません。実BASS・encoderと共有設定を使うため並列実行しません。
+    /// 段階の順序の取り違え、取消の取りこぼし、未完成ファイルの残留、既存ファイルの削除、encoderとsessionの解放漏れを検出します。
+    /// </remarks>
+    [DoNotParallelize]
+    [TestMethod]
+    [DataRow("None")] // 3-6: 取り消さずに2譜面を変換する。
+    [DataRow("SecondLoadingSources")] // 3-7: 2譜面目の読込みの報告で取り消す。
+    [DataRow("SecondSynthesis")] // 3-8: 2譜面目の合成の途中で取り消す。
+    public void ProductionExecutorReportsStagesAndHonorsCancellationAtEveryPosition(string cancelAt)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        var lease = new BassAudioSessionLease();
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            // 1.5秒(72000frame)の音源を一つ鳴らす譜面を二つ作ります。出力名は譜面のTITLEで決まります。
+            File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave(frameCount: 72000));
+            string[] paths = new[] { "First", "Second" }.Select(title =>
+            {
+                string path = Path.Combine(root, title + ".bmson");
+                File.WriteAllText(path, "{\"info\":{\"init_bpm\":120,\"title\":\"" + title + "\"},\"sound_channels\":[{\"name\":\"tone.wav\",\"notes\":[{\"y\":0}]}]}");
+                return path;
+            }).ToArray();
+            string secondOutput = Path.Combine(root, "Second.wav");
+            byte[] existingBytes = [1, 2, 3, 4];
+            if (cancelAt == "SecondSynthesis")
+            {
+                File.WriteAllBytes(secondOutput, existingBytes);
+            }
+
+            using var cancellation = new CancellationTokenSource();
+            var progress = new List<SelectedChartAudioConversionProgress>();
+            var results = new List<SelectedChartAudioConversionFileResult>();
+            void ReportProgress(SelectedChartAudioConversionProgress value)
+            {
+                lock (progress) { progress.Add(value); }
+                bool cancelNow = cancelAt switch
+                {
+                    "SecondLoadingSources" => value.ChartIndex == 1 && value.Stage == SelectedChartAudioConversionStage.LoadingSources,
+                    "SecondSynthesis" => value.ChartIndex == 1 && value.Stage == SelectedChartAudioConversionStage.Synthesizing && value.SynthesisFraction > 0d,
+                    _ => false
+                };
+                if (cancelNow) { cancellation.Cancel(); }
+            }
+
+            var executor = new BassSelectedChartAudioConversionExecutor(BassAudioWriter.TryReleaseEncoder, BassAudioPlayer.Free, lease);
+            var settings = new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
+                SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float");
+            executor.Execute(
+                paths.Select(path => CreateTarget(path, ChartOperationCapabilities.ConvertToAudio).Chart).ToArray(),
+                root,
+                settings,
+                cancellation.Token,
+                results.Add,
+                ReportProgress);
+
+            SelectedChartAudioConversionProgress[] reports = progress.ToArray();
+            SelectedChartAudioConversionProgress[] SecondReports() => reports.Where(value => value.ChartIndex == 1).ToArray();
+            SelectedChartAudioConversionStage[] StageOrder(IEnumerable<SelectedChartAudioConversionProgress> source)
+            {
+                var order = new List<SelectedChartAudioConversionStage>();
+                foreach (SelectedChartAudioConversionProgress value in source)
+                {
+                    if (order.Count == 0 || order[^1] != value.Stage) { order.Add(value.Stage); }
+                }
+                return order.ToArray();
+            }
+            SelectedChartAudioConversionStage[] fullOrder =
+            [
+                SelectedChartAudioConversionStage.Analyzing,
+                SelectedChartAudioConversionStage.LoadingSources,
+                SelectedChartAudioConversionStage.Synthesizing,
+                SelectedChartAudioConversionStage.Writing
+            ];
+            // 1譜面目はどの場合も最後まで報告され、1秒以上の曲の合成は0と1の間を一回以上通って1で終わります。
+            SelectedChartAudioConversionProgress[] firstReports = reports.Where(value => value.ChartIndex == 0).ToArray();
+            CollectionAssert.AreEqual(fullOrder, StageOrder(firstReports));
+            double[] firstSynthesis = firstReports.Where(value => value.Stage == SelectedChartAudioConversionStage.Synthesizing)
+                .Select(value => value.SynthesisFraction).ToArray();
+            CollectionAssert.AreEqual(firstSynthesis.Order().ToArray(), firstSynthesis);
+            Assert.IsTrue(firstSynthesis.Any(value => value > 0d && value < 1d));
+            Assert.AreEqual(1d, firstSynthesis[^1]);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "First.wav")));
+            Assert.IsNull(results[0].Error);
+            Assert.IsNull(lease.Session);
+            Assert.IsNull(BassAudioWriter.EncoderCommandLine);
+
+            switch (cancelAt)
+            {
+                case "None":
+                    CollectionAssert.AreEqual(fullOrder, StageOrder(SecondReports()));
+                    double[] secondSynthesis = SecondReports().Where(value => value.Stage == SelectedChartAudioConversionStage.Synthesizing)
+                        .Select(value => value.SynthesisFraction).ToArray();
+                    CollectionAssert.AreEqual(secondSynthesis.Order().ToArray(), secondSynthesis);
+                    Assert.IsTrue(secondSynthesis.Any(value => value > 0d && value < 1d));
+                    Assert.AreEqual(1d, secondSynthesis[^1]);
+                    Assert.AreEqual(2, results.Count);
+                    Assert.IsTrue(results.All(result => result.Succeeded));
+                    Assert.IsTrue(File.Exists(secondOutput));
+                    break;
+                case "SecondLoadingSources":
+                    // 2譜面目は読込みの報告で止まり、合成の報告も出力もありません。
+                    CollectionAssert.AreEqual(
+                        new[] { SelectedChartAudioConversionStage.Analyzing, SelectedChartAudioConversionStage.LoadingSources },
+                        StageOrder(SecondReports()));
+                    Assert.AreEqual(1, results.Count);
+                    Assert.IsFalse(File.Exists(secondOutput));
+                    break;
+                case "SecondSynthesis":
+                    SelectedChartAudioConversionProgress[] synthesis = SecondReports()
+                        .Where(value => value.Stage == SelectedChartAudioConversionStage.Synthesizing).ToArray();
+                    Assert.IsTrue(synthesis.Length > 0);
+                    Assert.IsTrue(synthesis.All(value => value.SynthesisFraction < 1d));
+                    Assert.IsFalse(SecondReports().Any(value => value.Stage == SelectedChartAudioConversionStage.Writing));
+                    Assert.AreEqual(1, results.Count);
+                    // 採番した未完成の出力は残らず、既存の完成ファイルは保全されます。
+                    CollectionAssert.AreEquivalent(
+                        new[] { "First.bmson", "First.wav", "Second.bmson", "Second.wav", "tone.wav" },
+                        Directory.GetFiles(root).Select(Path.GetFileName).ToArray());
+                    CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(secondOutput));
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(cancelAt));
+            }
+        }
+        finally
+        {
+            BassAudioWriter.TryReleaseEncoder();
+            if (lease.Session != null)
+            {
+                lease.TryRelease(BassAudioPlayer.Free);
+            }
+
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = previousFrequency;
+            BassAudioPlayer.Format = previousFormat;
+            BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+            DeleteRoot(root);
+        }
+    }
+
+    private static byte[] CreatePcmWave(int frameCount = 4800)
     {
         const int sampleRate = 48000;
-        const int frameCount = 4800;
         const int bytesPerFrame = sizeof(short);
         int dataLength = frameCount * bytesPerFrame;
         using var stream = new MemoryStream();

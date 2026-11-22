@@ -456,6 +456,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         string root = CreateRoot(caseWorkspace);
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppingShown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<SelectedChartAudioConversionResult>? operation = null;
         try
         {
@@ -465,7 +466,11 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
                 ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
-                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                ProgressReported = (_, message) =>
+                {
+                    if (message == Resources.AudioConversionStageStoppingPlayback) { stoppingShown.TrySetResult(); }
+                }
             };
             var executor = new RecordingExecutor(events) { ExecuteAction = (_, _, _, _, report) => report(new SelectedChartAudioConversionFileResult(chartPath)) };
             var playback = new RecordingPlayback(events)
@@ -475,8 +480,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
             operation = owner.RunAsync(new SelectedChartAudioConversionRequest([CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)]));
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "audio-conversion.playback-stop");
+            await TestUiDispatcherHost.AwaitNotificationAsync(stoppingShown.Task, operation, "audio-conversion.stopping-stage");
+            // 進捗画面が先に開いており、停止が未完了の間は再生停止の段階だけが番号と譜面なしで割合0のまま表示されます。
+            Assert.AreEqual("picker|progress|playback", events.Join("|"));
             Assert.IsFalse(operation.IsCompleted);
             Assert.AreEqual(0, executor.CallCount);
+            Assert.IsTrue(dialogs.ProgressReports.All(report => report.Percent == 0
+                && report.Message == Resources.AudioConversionStageStoppingPlayback));
             cleanup.SetResult();
             await operation;
             Assert.AreEqual(1, executor.CallCount);
@@ -602,11 +612,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(0, dialogs.ConfirmCalls);
             Assert.AreEqual(EncoderDirectoryMarker, executedSettings.EncoderExeDirectory);
             StringAssert.Contains(dialogs.LastMessage, FormatOutputFormat("MP3 LAME"));
-            Assert.IsTrue(events.IndexOf("picker") < events.IndexOf("playback"));
-            Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("progress"));
-            Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("execute"));
-            Assert.IsTrue(events.IndexOf("execute") < events.IndexOf("message"));
-            Assert.IsTrue(events.IndexOf("progress") < events.IndexOf("message"));
+            // 出力先の選択、進捗画面、再生停止、実行、完了通知の順です。
+            Assert.AreEqual("picker|progress|playback|execute|message", events.Join("|"));
         }
         finally
         {
@@ -846,7 +853,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
                 ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
-                ProgressHandler = async () =>
+                ProgressHandler = async _ =>
                 {
                     await workerStarted.Task;
                     throw progressFailure;
@@ -954,10 +961,12 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
-    /// <summary>進捗失敗は実workerへ取消を伝えて終端を待ち、取消callback例外で元原因を失う誤りや成功通知を検出します。</summary>
+    /// <summary>進捗画面を表示できない場合は再生停止も実行も完了通知もなく、表示後に進捗の経路が失敗した場合は実workerへ取消を伝えて終端を待ち、いずれも受付を解放して元原因を保つことを確認します。取消callback例外で元原因を失う誤りや成功通知を検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
-    public async Task RunAsync_ProgressFailureCancelsExecutionAndDoesNotShowCompletion()
+    [DataRow(false)] // 3-2: 進捗画面を表示できない。
+    [DataRow(true)] // 3-3: 表示後に進捗の経路が失敗する。
+    public async Task RunAsync_ProgressFailureCancelsExecutionAndDoesNotShowCompletion(bool displayed)
     {
         using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = CreateRoot(caseWorkspace);
@@ -972,7 +981,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
                 ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: progressFailure),
-                ProgressHandler = async () =>
+                ProgressDisplayed = displayed,
+                ProgressHandler = async _ =>
                 {
                     await workerStarted.Task;
                     return new UiProgressResult(UiDialogStatus.Failed, error: progressFailure);
@@ -988,20 +998,297 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                     cancellationToken.WaitHandle.WaitOne();
                 }
             };
-            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            var playback = new RecordingPlayback(events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
 
             InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
-                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
-                ])));
+                () => owner.RunAsync(request));
 
             Assert.AreSame(progressFailure, observed.InnerException);
-            Assert.AreEqual(1, executor.CallCount);
+            Assert.AreEqual(displayed ? 1 : 0, executor.CallCount);
+            Assert.AreEqual(displayed ? 1 : 0, playback.StopCalls);
             Assert.AreEqual(0, dialogs.MessageCalls);
-            StringAssert.Contains(events.Join("|"), "playback");
+
+            // 受付は解放され、次の要求を受け付けます。
+            dialogs.ProgressDisplayed = true;
+            dialogs.ProgressHandler = null;
+            dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Accepted);
+            executor.ExecuteAction = (_, _, _, _, report) => report(new SelectedChartAudioConversionFileResult("song.bms"));
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, (await owner.RunAsync(request)).Status);
         }
         finally
         {
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>再生停止の失敗は、変換を始めず完了通知もなく、元の例外のまま呼出元へ返り受付が解放されることを確認します。</summary>
+    /// <remarks>停止の失敗を進捗の経路の失敗や実行側の失敗へ読み替える誤りを検出します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_PlaybackStopFailureReturnsTheOriginalExceptionWithoutStartingConversion()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var stopFailure = new InvalidOperationException("playback stop failed");
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root])
+            };
+            var executor = new RecordingExecutor(events);
+            var playback = new RecordingPlayback(events) { StopAction = () => throw stopFailure };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
+
+            InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => owner.RunAsync(request));
+
+            Assert.AreSame(stopFailure, observed);
+            Assert.AreEqual(0, executor.CallCount);
+            Assert.AreEqual(0, dialogs.MessageCalls);
+            playback.StopAction = null;
+            executor.ExecuteAction = (_, _, _, _, report) => report(new SelectedChartAudioConversionFileResult("song.bms"));
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, (await owner.RunAsync(request)).Status);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>再生停止の段階で取り消すと、停止の完了を待ち、変換を始めずに全件未処理の取消を返すことを確認します。</summary>
+    /// <remarks>停止の完了を待たずに画面を閉じる誤りと、取消後に変換を始める誤りを検出します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_CancellationDuringPlaybackStopWaitsForStopAndDoesNotStartConversion()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        var stopEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppingShown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<SelectedChartAudioConversionResult>? run = null;
+        try
+        {
+            string firstPath = CreateChartFile(root, "first.bms");
+            string secondPath = CreateChartFile(root, "second.bms");
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressReported = (_, _) => stoppingShown.TrySetResult()
+            };
+            dialogs.ProgressHandler = async operationTask =>
+            {
+                await stoppingShown.Task;
+                dialogs.RequestProgressCancellation();
+                await stopEntered.Task;
+                // 停止が未完了の間は、取消を受けても進捗の操作は終わりません。
+                Assert.IsFalse(operationTask.IsCompleted);
+                stopRelease.SetResult();
+                await operationTask;
+                return new UiProgressResult(UiDialogStatus.CancelledByUser);
+            };
+            var executor = new RecordingExecutor(events);
+            var playback = new RecordingPlayback(events)
+            {
+                StopCompletion = () => { stopEntered.TrySetResult(); return stopRelease.Task; }
+            };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+
+            run = owner.RunAsync(new SelectedChartAudioConversionRequest([
+                CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
+                CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
+            ]));
+            SelectedChartAudioConversionResult result = await run;
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, result.Status);
+            Assert.AreEqual(2, result.TotalCount);
+            Assert.AreEqual(0, result.CompletedCount);
+            Assert.AreEqual(2, result.UnprocessedCount);
+            Assert.AreEqual(0, executor.CallCount);
+        }
+        finally
+        {
+            stopRelease.TrySetResult();
+            if (run != null) { try { await run; } catch { } }
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>2譜面の変換で、実行側が報告する段階と合成の割合が「[i/2] 段階名 パス」と百分率で表示されることを確認します。</summary>
+    /// <remarks>
+    /// 割合は解析・読込みで0、1譜面目の合成の半分で25、書出しで50、2譜面目の合成の半分で75、書出しで100です。
+    /// 偽の実行側は各段階で止まり、その段階の表示が届いたことを待ってから進みます。段階名の取り違えと割合の計算誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public async Task RunAsync_DisplaysStageNamesChartPathsAndWeightlessPercent()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        try
+        {
+            string firstPath = CreateChartFile(root, "first.bms");
+            string secondPath = CreateChartFile(root, "second.bms");
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root])
+            };
+            object gate = new();
+            (int Percent, string Message) expected = default;
+            TaskCompletionSource? arrived = null;
+            dialogs.ProgressReported = (percent, message) =>
+            {
+                lock (gate)
+                {
+                    if (arrived != null && expected == (percent, message)) { arrived.TrySetResult(); }
+                }
+            };
+            void Step(
+                Action<SelectedChartAudioConversionProgress> report,
+                int chartIndex,
+                SelectedChartAudioConversionStage stage,
+                double fraction,
+                int percent,
+                string stageName,
+                string path)
+            {
+                var waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                lock (gate)
+                {
+                    expected = (percent, $"[{chartIndex + 1}/2] {stageName} {path}");
+                    arrived = waiter;
+                }
+                report(new SelectedChartAudioConversionProgress(chartIndex, stage, fraction));
+                Assert.IsTrue(waiter.Task.Wait(TimeSpan.FromSeconds(30)), "表示が届きませんでした: " + expected);
+            }
+
+            var executor = new RecordingExecutor(events)
+            {
+                ProgressScript = (report, _) =>
+                {
+                    foreach ((int index, string path, int baseline) in new[] { (0, firstPath, 0), (1, secondPath, 50) })
+                    {
+                        Step(report, index, SelectedChartAudioConversionStage.Analyzing, 0d, baseline, Resources.AudioConversionStageAnalyzing, path);
+                        Step(report, index, SelectedChartAudioConversionStage.LoadingSources, 0d, baseline, Resources.AudioConversionStageLoadingSources, path);
+                        Step(report, index, SelectedChartAudioConversionStage.Synthesizing, 0.5d, baseline + 25, Resources.AudioConversionStageSynthesizing, path);
+                        Step(report, index, SelectedChartAudioConversionStage.Writing, 0d, baseline + 50, Resources.AudioConversionStageWriting, path);
+                    }
+                },
+                ExecuteAction = (_, _, _, _, report) =>
+                {
+                    report(new SelectedChartAudioConversionFileResult(firstPath));
+                    report(new SelectedChartAudioConversionFileResult(secondPath));
+                }
+            };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+
+            SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([
+                CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
+                CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
+            ]));
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
+            // 連続する同じ表示は一つにまとめ、再生停止の段階が番号と譜面パスなしで割合0であることも確認します。
+            var collapsed = new List<(int Percent, string Message)>();
+            foreach ((int Percent, string Message) report in dialogs.ProgressReports)
+            {
+                if (collapsed.Count == 0 || collapsed[^1] != report) { collapsed.Add(report); }
+            }
+            CollectionAssert.AreEqual(
+                new (int, string)[]
+                {
+                    (0, Resources.AudioConversionStageStoppingPlayback),
+                    (0, $"[1/2] {Resources.AudioConversionStageAnalyzing} {firstPath}"),
+                    (0, $"[1/2] {Resources.AudioConversionStageLoadingSources} {firstPath}"),
+                    (25, $"[1/2] {Resources.AudioConversionStageSynthesizing} {firstPath}"),
+                    (50, $"[1/2] {Resources.AudioConversionStageWriting} {firstPath}"),
+                    (50, $"[2/2] {Resources.AudioConversionStageAnalyzing} {secondPath}"),
+                    (50, $"[2/2] {Resources.AudioConversionStageLoadingSources} {secondPath}"),
+                    (75, $"[2/2] {Resources.AudioConversionStageSynthesizing} {secondPath}"),
+                    (100, $"[2/2] {Resources.AudioConversionStageWriting} {secondPath}")
+                },
+                collapsed.ToArray());
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>合成中に取り消すと、進捗の操作が実行の終端まで完了せず、取消の通知先が失敗しても結果が取消であることを確認します。</summary>
+    /// <remarks>取消で途中終了した譜面は未処理として数え、失敗の一覧へ出しません。実作業の終了前に画面を閉じる誤りを検出します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_CancellationDuringSynthesisHoldsTheProgressUntilExecutionTerminates()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        using var releaseWorker = new ManualResetEventSlim();
+        var synthesisShown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressReported = (_, message) =>
+                {
+                    if (message.Contains(Resources.AudioConversionStageSynthesizing, StringComparison.Ordinal)) { synthesisShown.TrySetResult(); }
+                }
+            };
+            bool operationCompletedBeforeTermination = true;
+            dialogs.ProgressHandler = async operationTask =>
+            {
+                await synthesisShown.Task;
+                dialogs.RequestProgressCancellation();
+                await cancellationSeen.Task;
+                operationCompletedBeforeTermination = operationTask.IsCompleted;
+                releaseWorker.Set();
+                await operationTask;
+                return new UiProgressResult(UiDialogStatus.CancelledByUser);
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ProgressScript = (report, cancellationToken) =>
+                {
+                    cancellationToken.Register(() =>
+                    {
+                        cancellationSeen.TrySetResult();
+                        throw new InvalidOperationException("cancellation callback failed");
+                    });
+                    report(new SelectedChartAudioConversionProgress(0, SelectedChartAudioConversionStage.Synthesizing, 0.5d));
+                },
+                ExecuteAction = (_, _, _, cancellationToken, _) =>
+                {
+                    cancellationToken.WaitHandle.WaitOne();
+                    releaseWorker.Wait();
+                }
+            };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+
+            SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]));
+
+            Assert.IsFalse(operationCompletedBeforeTermination);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, result.Status);
+            Assert.AreEqual(0, result.CompletedCount);
+            Assert.AreEqual(1, result.UnprocessedCount);
+            Assert.AreEqual(0, result.FileResults.Count);
+        }
+        finally
+        {
+            releaseWorker.Set();
             DeleteRoot(root);
         }
     }
@@ -1028,7 +1315,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
                 ProgressResult = new UiProgressResult(UiDialogStatus.CancelledByUser),
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
-                ProgressHandler = async () =>
+                ProgressHandler = async _ =>
                 {
                     await workerStarted.Task;
                     return new UiProgressResult(UiDialogStatus.CancelledByUser);
@@ -1418,16 +1705,21 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal Action<IReadOnlyList<ChartFile>, string, SelectedChartAudioConversionSettingsSnapshot, CancellationToken, Action<SelectedChartAudioConversionFileResult>> ExecuteAction { get; set; } = null!;
 
+        /// <summary>実行の開始直後に、進捗の通知先と取消トークンを受け取って段階を報告する偽の実行側の処理です。</summary>
+        internal Action<Action<SelectedChartAudioConversionProgress>, CancellationToken>? ProgressScript { get; set; }
+
         public void Execute(
             IReadOnlyList<ChartFile> bmsFiles,
             string saveDirectory,
             SelectedChartAudioConversionSettingsSnapshot settings,
             CancellationToken cancellationToken,
-            Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
+            Action<SelectedChartAudioConversionFileResult> reportFileCompleted,
+            Action<SelectedChartAudioConversionProgress> reportProgress)
         {
             CallCount++;
             SaveDirectory = saveDirectory;
             events.Add("execute");
+            ProgressScript?.Invoke(reportProgress, cancellationToken);
             ExecuteAction?.Invoke(bmsFiles, saveDirectory, settings, cancellationToken, reportFileCompleted);
         }
     }

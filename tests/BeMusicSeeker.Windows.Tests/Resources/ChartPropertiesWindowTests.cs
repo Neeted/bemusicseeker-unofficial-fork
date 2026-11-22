@@ -81,7 +81,11 @@ public sealed class ChartPropertiesWindowTests
                     Assert.AreEqual(value.Text, value.SelectedText);
                     Assert.IsTrue(ApplicationCommands.Copy.CanExecute(null, value));
                 }
-                var navigation = (ListBox)window.FindName("categoryNavigation");
+                var navigation = (TabControl)window.FindName("categoryNavigation");
+                Assert.AreSame(navigation.FindResource("App.Canonical.TopTabWrapControlStyle"), navigation.Style, "三分類は共通の上部タブ（折り返し）スタイルへ接続する。");
+                Assert.IsInstanceOfType<WrapPanel>(navigation.Template.FindName("HeaderPanel", navigation), "幅不足のときタブ列は折り返す。");
+                Assert.AreEqual(3, navigation.Items.Count);
+                TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, navigation.SelectedContent]);
                 string[] names = ["listIssues", "listUnusedDefinitions", "listUndefinedReferences"];
                 string[] expected = ["missing.wav", Resources.None, Resources.None];
                 for (int i = 0; i < names.Length; i++)
@@ -104,6 +108,7 @@ public sealed class ChartPropertiesWindowTests
                     ApplicationCommands.SelectAll.Execute(null, text);
                     Assert.AreEqual(text.Text, text.SelectedText);
                     Assert.IsTrue(ApplicationCommands.Copy.CanExecute(null, text));
+                    TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, navigation.SelectedContent, text.Text]);
                 }
                 var source = PresentationSource.FromVisual(window);
                 Assert.IsNotNull(source);

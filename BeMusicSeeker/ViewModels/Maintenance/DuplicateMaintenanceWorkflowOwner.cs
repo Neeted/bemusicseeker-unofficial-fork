@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -28,6 +29,14 @@ internal sealed class DuplicateMaintenanceRefreshSuppressionChangedEventArgs : D
 
     internal bool IsSuppressed { get; }
 }
+
+/// <summary>
+/// 重複保守（フォルダ統合・同一フォルダ内の重複削除）の背景の変更処理が実行中かどうかを表す事実です。
+/// 表示文言は持たず、受け手が現在の表示言語で行へ投影します。
+/// </summary>
+/// <param name="IsActive">背景の変更処理を開始する直前にtrue、その終端でfalseになります。</param>
+/// <param name="TargetPath">統合では統合元フォルダ、重複削除では対象フォルダです。終了時は空です。</param>
+internal sealed record DuplicateMaintenanceProgressSnapshot(bool IsActive, string TargetPath);
 
 internal enum DuplicateFolderKeyboardActionKind
 {
@@ -68,6 +77,29 @@ internal interface IDuplicateMaintenanceStore
         string destinationDirectory,
         long operationId,
         LibraryOperationNotices notices);
+
+    /// <summary>
+    /// 重複グループの一括整理を、一つの受付と変更セッションで実行します。確認は求めません。
+    /// 操作全体の拒否（Busy・カタログ未収束）の案内は操作の収集先へ一件だけ加え、グループごとの理由は案内に積みません。
+    /// </summary>
+    /// <param name="progress">グループの開始ごと、と反映段階への移行（<see cref="DuplicateBatchOrganizeProgressKind.Applying"/>）で呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。</param>
+    /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効き、処理中のグループは最後まで進みます。</param>
+    DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        BMSLibrary library,
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 分裂配置の結果を、適用中の探索条件で探索し直します。呼出し側が受理済みの共通受付を保持している間に呼び、取消の合図は渡しません
+    /// （整理を受理した後の結果の回復であり、取消の対象にしないため）。有効な結果があれば探索せずに戻ります。
+    /// テストで失敗を注入できるよう、操作の窓口として分けています。
+    /// </summary>
+    /// <param name="criteria">適用中の探索条件。</param>
+    void SearchSplitPlacementGroups(BMSLibrary library, SplitPlacementSearchCriteria criteria)
+        => library.SearchSplitPlacementGroups(criteria, progress: null, CancellationToken.None);
 
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
@@ -208,7 +240,7 @@ internal sealed class DuplicateMaintenanceMutationResult
     }
 }
 
-internal sealed class DuplicateMaintenanceWorkflowOwner
+internal sealed partial class DuplicateMaintenanceWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
@@ -227,10 +259,17 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private readonly IDuplicateMaintenanceStore store;
     private readonly Func<Exception, Task> exitForUnrestoredDestination;
+    private readonly DuplicateMergeCandidateListOwner candidateList;
+    private readonly DuplicateMergeCandidateListOwner splitPlacementCandidateList;
+    private readonly Func<SplitPlacementSearchCriteria> splitPlacementCriteriaProvider;
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
     /// <param name="nestedFolderCountProvider">統合元の配下にあるフォルダの件数を、UIスレッドを塞がずに数える境界です。確認を表示する場合だけ呼び、省略時は実ファイルシステムを数えます。</param>
+    /// <param name="candidateList">統合候補一覧の管理主体です。一括整理（<see cref="OrganizeSelectedGroupsAsync"/>）が、表示中でSELECTがオンのグループを捕捉する入力です。省略時は一括整理を使えません。</param>
+    /// <param name="splitPlacementCandidateList">分裂配置の統合候補一覧の管理主体です。分裂配置の一覧からの一括整理（<see cref="OrganizeSelectedSplitPlacementGroupsAsync"/>）の入力です。省略時はその入口を使えません。</param>
+    /// <param name="splitPlacementCriteriaProvider">適用中の分裂配置の探索条件を返します。値の所有は <see cref="SplitPlacementSearchWorkflowOwner"/> の一か所だけで、
+    /// 一括整理の後の有効性の判定と探索し直しが、実行の時点の値を読みます。省略時は既定の探索条件です。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -243,8 +282,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<DuplicateGroup, DuplicateViewContext> duplicateGroupNextSelectionProvider,
         IDuplicateMaintenanceStore store = null,
         Func<Exception, Task> exitForUnrestoredDestination = null,
-        Func<string, Task<int>> nestedFolderCountProvider = null)
+        Func<string, Task<int>> nestedFolderCountProvider = null,
+        DuplicateMergeCandidateListOwner candidateList = null,
+        DuplicateMergeCandidateListOwner splitPlacementCandidateList = null,
+        Func<SplitPlacementSearchCriteria> splitPlacementCriteriaProvider = null)
     {
+        this.splitPlacementCriteriaProvider = splitPlacementCriteriaProvider ?? (() => SplitPlacementSearchCriteria.Default);
+        this.candidateList = candidateList;
+        this.splitPlacementCandidateList = splitPlacementCandidateList;
         this.nestedFolderCountProvider = nestedFolderCountProvider ?? NestedFolderCounter.CountAsync;
         this.exitForUnrestoredDestination = exitForUnrestoredDestination
             ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));
@@ -264,6 +309,35 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     }
 
     internal event EventHandler<DuplicateMaintenanceWorkflowChangedEventArgs> WorkflowChanged;
+
+    /// <summary>
+    /// 背景の変更処理の開始と終端を通知します。開始は全確認の承認後・背景処理の開始前、終端は結果の報告と返却の前です。
+    /// 受付や確認で終わった操作は通知しません。通知は操作を呼び出した文脈（標準構成ではUIスレッド）で行います。
+    /// </summary>
+    internal event Action<DuplicateMaintenanceProgressSnapshot> ProgressChanged;
+
+    /// <summary>任意の進捗表示の失敗で、操作の結果・受付の解放・報告を変えないよう、受け手ごとに例外を隔離します。</summary>
+    private void PublishProgress(bool isActive, string targetPath)
+    {
+        Action<DuplicateMaintenanceProgressSnapshot> handlers = ProgressChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+        var snapshot = new DuplicateMaintenanceProgressSnapshot(isActive, isActive ? targetPath ?? string.Empty : string.Empty);
+        foreach (Action<DuplicateMaintenanceProgressSnapshot> handler in handlers.GetInvocationList().Cast<Action<DuplicateMaintenanceProgressSnapshot>>())
+        {
+            try
+            {
+                handler(snapshot);
+            }
+            catch (Exception exception)
+            {
+                try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "duplicate_maintenance progress notification failed"); }
+                catch { /* 任意表示の診断失敗を再通知しません。 */ }
+            }
+        }
+    }
 
     private sealed class FolderMergeRequest
     {
@@ -515,19 +589,29 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 return DuplicateMaintenanceMutationResult.Rejected(request.SelectionContext);
             }
 
-            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                request.SelectionContext,
-                mutation: null,
-                mutationWithReceipt: (library, operationStore, notices) => operationStore.MergeFolderWithReceipt(
-                    library,
-                    request.SourceDirectory,
-                    request.DestinationDirectory,
-                    Stopwatch.GetTimestamp(),
-                    notices),
-                acquiredOperationGate: operationGate,
-                physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
-            operationGateTransferred = true;
-            DuplicateMaintenanceMutationResult result = await mutationTask;
+            DuplicateMaintenanceMutationResult result;
+            PublishProgress(isActive: true, request.SourceDirectory);
+            try
+            {
+                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                    request.SelectionContext,
+                    mutation: null,
+                    mutationWithReceipt: (library, operationStore, notices) => operationStore.MergeFolderWithReceipt(
+                        library,
+                        request.SourceDirectory,
+                        request.DestinationDirectory,
+                        Stopwatch.GetTimestamp(),
+                        notices),
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
+                operationGateTransferred = true;
+                result = await mutationTask;
+            }
+            finally
+            {
+                // どの終端でも、結果の報告・終了処理・返却より前に行を閉じます。
+                PublishProgress(isActive: false, null);
+            }
             if (result.Busy)
             {
                 return await NotifyPhysicalAdmissionBusyAsync(result);
@@ -656,18 +740,24 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
             LibraryChartRemovalOutcome removalOutcome = null;
             Action pendingPublication = null;
-            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                plan.SelectionContext,
-                (library, operationStore, notices) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, notices, out pendingPublication),
-                removedChartCount: 0,
-                acquiredOperationGate: operationGate,
-                physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
-                stopPlayback: prepared.Targets.Count > 0));
-            operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result;
-            try { result = await mutationTask; }
+            PublishProgress(isActive: true, plan.FolderPath);
+            try
+            {
+                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                    plan.SelectionContext,
+                    (library, operationStore, notices) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, notices, out pendingPublication),
+                    removedChartCount: 0,
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
+                    stopPlayback: prepared.Targets.Count > 0));
+                operationGateTransferred = true;
+                result = await mutationTask;
+            }
             finally
             {
+                // どの終端でも、結果の報告と返却より前に行を閉じます。
+                PublishProgress(isActive: false, null);
                 if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
             }
             if (result.Busy)
@@ -794,7 +884,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<BMSLibrary, IDuplicateMaintenanceStore, LibraryOperationNotices, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
         IDisposable acquiredOperationGate = null,
         IEnumerable<string> physicalPaths = null,
-        bool stopPlayback = true)
+        bool stopPlayback = true,
+        bool requireDuplicateGroups = true,
+        Action<BMSLibrary, IDuplicateMaintenanceStore> followUp = null)
     {
         ArgumentNullException.ThrowIfNull(acquiredOperationGate);
         var failures = new List<ExceptionDispatchInfo>();
@@ -841,6 +933,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 mutationReceipt = mutationWithReceipt(library, operationStore, notices)
                     ?? throw new InvalidOperationException("Duplicate folder merge returned no receipt.");
+                if (followUp != null)
+                {
+                    // 受理した変更の後に、同じ受付と画面更新の抑制の内側で行う後続の処理です。失敗は受理済みの結果を失わず、
+                    // 重複結果の準備の失敗と同じく、後続の失敗として結果へ合成します。
+                    try { followUp(library, operationStore); }
+                    catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+                }
             }
         }
         catch (Exception exception)
@@ -852,7 +951,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             // 実変更を開始した明示保守は、途中の画面移動によらず成功後選択の準備まで親Lで回収する。
             // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
             Task acceptedPreparation = suppressionStarted && library != null && capability != null
-                ? library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: true)
+                ? library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: requireDuplicateGroups)
                 : Task.CompletedTask;
             if (suppressionStarted)
             {
@@ -914,37 +1013,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             new DuplicateMaintenanceRefreshSuppressionChangedEventArgs(isSuppressed));
     }
 
+    /// <summary>単体の同一フォルダ内の整理と一括整理が共有する選定規則（<see cref="DuplicateChartCleanupSelector"/>）で削除対象を選びます。</summary>
     private static List<ChartFile> BuildHashCleanupDeletionList(IEnumerable<ChartFile> charts)
-    {
-        var deletionList = new List<ChartFile>();
-        foreach (var hashGroup in (charts ?? [])
-            .Select(chart => new { Chart = chart, LookupHash = ChartLookupKey.GetPrimaryHash(chart) })
-            .Where(item => !string.IsNullOrWhiteSpace(item.LookupHash))
-            .GroupBy(item => item.LookupHash, StringComparer.OrdinalIgnoreCase))
-        {
-            List<ChartFile> grouped = [.. hashGroup.Select(item => item.Chart)];
-            if (grouped.Count <= 1)
-            {
-                continue;
-            }
-            ChartFile keeper = grouped
-                .OrderBy(chart =>
-                {
-                    try
-                    {
-                        return LongPathFileSystem.GetLastWriteTime(chart.Path, isDirectory: false);
-                    }
-                    catch
-                    {
-                        return DateTime.MaxValue;
-                    }
-                })
-                .ThenBy(chart => Path.GetFileName(chart.Path).Length)
-                .First();
-            deletionList.AddRange(grouped.Where(chart => !ReferenceEquals(chart, keeper)));
-        }
-        return deletionList;
-    }
+        => DuplicateChartCleanupSelector.SelectDeletions(charts);
 
     private static bool IsChartInFolder(ChartFile chart, string folderPath)
     {
@@ -1029,6 +1100,18 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
             operationId,
             notices,
             reportAtTerminal: true, capability: capability);
+    }
+
+    /// <summary>受理済みの生存権限を使い、重複グループの一括整理をモデルへ渡します。</summary>
+    public DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        BMSLibrary library,
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        return library.OrganizeDuplicateGroups(request, operationId, notices, progress, cancellationToken, capability);
     }
 
     /// <summary>件数確認前に、モデルで現在値・安全属性・フォルダ候補を固定します。</summary>

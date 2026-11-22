@@ -853,6 +853,454 @@ public sealed class CustomTableNavigationTests
         });
     }
 
+    /// <summary>
+    /// 行グループの提供元を持つ表で、操作できるチェックボックス・ラジオボタンのセルのクリックが、クリックした行と列を伴う <c>CellActionRequested</c> を一度送り、
+    /// 主行がその行になること、ダブルクリックが <c>CellActionRequested</c> 二回で <c>RowActivated</c> を送らないことを確認します。
+    /// 結合列では、先頭でない行（グループ [2..5] の行4）をクリックしても同じで、選択はグループの全行です（結合列でない列は、クリックした行だけです）。無効（操作可否がfalse）のセルと値なしのセルは要求を送らず、ダブルクリックは <c>RowActivated</c> を送ります。
+    /// 提供元のない表のチェックボックス列は従来どおり、一回目の押下で要求を一度、二回目の押下で <c>RowActivated</c> を送ります。
+    /// </summary>
+    /// <remarks>
+    /// 結合列で先頭行へ要求を送る誤り、図形の有無でヒットを変える誤り、ダブルクリックで <c>RowActivated</c> を送る誤りと要求が一回にとどまる誤り、
+    /// 無効・値なしのセルで要求を送る誤りと、そのダブルクリックから <c>RowActivated</c> を奪う誤り、提供元のない表の挙動を変える誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, false, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, false, false, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, false, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, false, 1, 0, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, false, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, false, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, null, true, 1, 0, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, null, true, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, null, true, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.CheckBox, false, false, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, false, false, true, true, 2, 1, 1)]
+    public void ActionCells_ClickAndDoubleClickFollowTheRowGroupContract(
+        CustomTableCellKind kind, bool grouped, bool merged, bool? isChecked, bool enabled, int clicks, int expectedActions, int expectedActivations)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            object[] rows = grouped ? new GroupedRowList([2, 4, 2]).ToArray() : [.. Enumerable.Range(0, 8).Select(_ => new object())];
+            System.Collections.IList source = grouped ? new GroupedRowList([2, 4, 2], rows) : rows;
+            CustomTableColumn[] columns = new[]
+            {
+                new CustomTableColumn("Text", "Text", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 0, string.Empty, TextAlignment.Left, _ => string.Empty),
+                new CustomTableColumn("Action", "Action", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 1, string.Empty, TextAlignment.Center, _ => string.Empty,
+                    checkedSelector: _ => isChecked, cellKind: kind, mergesRowGroup: merged, enabledSelector: _ => enabled)
+            };
+            var table = new CustomTableView { Width = 200d, Height = 260d, Columns = columns, ItemsSource = source };
+            table.Measure(new Size(200d, 260d));
+            table.Arrange(new Rect(0d, 0d, 200d, 260d));
+            table.UpdateLayout();
+            var actions = new List<CustomTableCellActionRequestedEventArgs>();
+            var activations = new List<int>();
+            table.CellActionRequested += (_, args) => actions.Add(args);
+            table.RowActivated += (_, args) => activations.Add(args.RowIndex);
+            try
+            {
+                const int clickedRow = 4;
+                var point = new Point(90d, table.HeaderHeight + (clickedRow + 0.5d) * table.RowHeight);
+                CustomTableHitTestResult hit = table.HitTestTable(point);
+                Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+                Assert.AreEqual(clickedRow, hit.RowIndex);
+                Assert.AreSame(columns[1], hit.Column);
+                for (int clickCount = 1; clickCount <= clicks; clickCount++)
+                {
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, clickCount, point));
+                }
+                Assert.AreEqual(expectedActions, actions.Count, "CellActionRequestedの回数");
+                foreach (CustomTableCellActionRequestedEventArgs action in actions)
+                {
+                    Assert.AreEqual(clickedRow, action.RowIndex);
+                    Assert.AreSame(rows[clickedRow], action.Row);
+                    Assert.AreSame(columns[1], action.Column);
+                }
+                CollectionAssert.AreEqual(Enumerable.Repeat(clickedRow, expectedActivations).ToArray(), activations, "RowActivatedの回数と行");
+                Assert.AreEqual(clickedRow, table.SelectedIndex, "主行はクリックした行");
+                // 結合列は、グループ [2..5] の全行が選択される。結合列でない列と、提供元のない表は、クリックした行だけ。
+                object[] expectedSelection = grouped && merged ? [.. rows.Skip(2).Take(4)] : [rows[clickedRow]];
+                CollectionAssert.AreEqual(expectedSelection, table.GetSelectedRowsSnapshot().ToArray(), "結合列はグループの全行、それ以外はクリックした行が選択される");
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>
+    /// 結合列の先頭でない行（グループ [2..5] の行4）で、ツールチップ・Ctrl+Cの現在セルのコピー・Ctrl+Shift+Cの選択行のTSVが、その行の値（グループの先頭行ではない）を使うことを確認します。
+    /// 行ごとに値が異なる行を使い、コピーはクリップボードへ書く前に専用の例外で止めます。
+    /// </summary>
+    /// <remarks>結合列のツールチップやコピーをグループの先頭行へ読み替える誤り、TSVの行を結合して一行にまとめる誤りを検出します。</remarks>
+    [TestMethod]
+    public void MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            TextRow[] rowValues = [.. Enumerable.Range(0, 8).Select(index => new TextRow("value " + index))];
+            var rows = new GroupedRowList([2, 4, 2], rowValues);
+            var visits = new List<TextRow>();
+            TextRow? stopAt = null;
+            var sentinel = new InvalidOperationException("コピーの対象を観測したため、クリップボードへ書く前に停止します。");
+            var column = new CustomTableColumn("Merged", "Merged", new CustomTableColumnSettings.ColumnLayout { Width = 120 }, 0, string.Empty, TextAlignment.Left,
+                row => ((TextRow)row).Text, tooltipSelector: row => "tip " + ((TextRow)row).Text, mergesRowGroup: true,
+                editTextSelector: row =>
+                {
+                    visits.Add((TextRow)row);
+                    if (ReferenceEquals(row, stopAt)) { throw sentinel; }
+                    return ((TextRow)row).Text;
+                });
+            var table = new CustomTableView { Width = 200d, Height = 260d, Columns = [column], ItemsSource = rows };
+            table.Measure(new Size(200d, 260d));
+            table.Arrange(new Rect(0d, 0d, 200d, 260d));
+            table.UpdateLayout();
+            try
+            {
+                var point = new Point(50d, table.HeaderHeight + 4.5d * table.RowHeight);
+                CustomTableHitTestResult hit = table.HitTestTable(point);
+                Assert.AreEqual(4, hit.RowIndex);
+                Assert.AreEqual("tip value 4", table.ResolveCellToolTip(hit), "ツールチップはクリックした行の値");
+                Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                stopAt = rowValues[4];
+                visits.Clear();
+                Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                CollectionAssert.AreEqual(new[] { rowValues[4] }, visits, "現在セルのコピーはその行の値");
+
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, rowValues[3]) || ReferenceEquals(row, rowValues[4]), row => ReferenceEquals(row, rowValues[4]));
+                visits.Clear();
+                Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control | ModifierKeys.Shift)));
+                CollectionAssert.AreEqual(new[] { rowValues[3], rowValues[4] }, visits, "TSVは選択した各行の値");
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>グループ [2,4,2]（行0-1、行2-5、行6-7）の表と、観測した通知・要求の記録です。結合列の文字（列1）・チェックボックス（列2）と、通常の列（文字・ラジオボタン）を持ちます。</summary>
+    private sealed class GroupSelectionFixture
+    {
+        internal const int Text = 0, MergedText = 1, MergedCheck = 2, Radio = 3;
+
+        internal GroupSelectionFixture(bool withProvider)
+        {
+            Rows = withProvider ? new GroupedRowList([2, 4, 2]).ToArray() : [.. Enumerable.Range(0, 8).Select(_ => new object())];
+            System.Collections.IList source = withProvider ? new GroupedRowList([2, 4, 2], Rows) : Rows;
+            Columns =
+            [
+                new CustomTableColumn("Text", "Text", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 0, string.Empty, TextAlignment.Left, _ => "t"),
+                new CustomTableColumn("MergedText", "MergedText", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 1, string.Empty, TextAlignment.Left, _ => "m", mergesRowGroup: true),
+                new CustomTableColumn("MergedCheck", "MergedCheck", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 2, string.Empty, TextAlignment.Center, _ => string.Empty,
+                    checkedSelector: _ => true, cellKind: CustomTableCellKind.CheckBox, mergesRowGroup: true, enabledSelector: _ => true),
+                new CustomTableColumn("Radio", "Radio", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 3, string.Empty, TextAlignment.Center, _ => string.Empty,
+                    checkedSelector: _ => true, cellKind: CustomTableCellKind.RadioButton, enabledSelector: _ => true)
+            ];
+            Table = new CustomTableView { Width = 260d, Height = 260d, Columns = Columns, ItemsSource = source };
+            Table.Measure(new Size(260d, 260d));
+            Table.Arrange(new Rect(0d, 0d, 260d, 260d));
+            Table.UpdateLayout();
+            Table.SelectionChanged += (_, args) => Log.Add($"sel {args.SelectedIndex}/{args.SelectedCount}");
+            Table.CellActionRequested += (_, args) => Log.Add($"action {args.RowIndex}");
+            Table.RowContextMenuRequested += (_, args) => Log.Add($"menu {args.RowIndex}");
+            Table.RowActivated += (_, args) => Log.Add($"activate {args.RowIndex}");
+        }
+
+        internal object[] Rows { get; }
+
+        internal CustomTableColumn[] Columns { get; }
+
+        internal CustomTableView Table { get; }
+
+        internal List<string> Log { get; } = [];
+
+        internal int[] Selected => [.. Enumerable.Range(0, Rows.Length).Where(Table.IsRowSelected)];
+
+        internal void Cleanup() => Table.ItemsSource = null;
+
+        /// <summary>実際のヒット判定から、本番のセル押下処理を呼びます。</summary>
+        internal void Press(int row, int column, ModifierKeys modifiers = ModifierKeys.None, int clickCount = 1, MouseButton button = MouseButton.Left)
+        {
+            var point = new Point(column * 60d + 30d, Table.HeaderHeight + (row + 0.5d) * Table.RowHeight);
+            CustomTableHitTestResult hit = Table.HitTestTable(point);
+            Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+            Assert.AreEqual(row, hit.RowIndex);
+            Assert.AreSame(Columns[column], hit.Column);
+            Assert.IsTrue(Table.HandleCellMouseDown(hit, button, modifiers, clickCount, point));
+        }
+
+        /// <summary>表への左ボタンの解放（PreviewMouseLeftButtonUp）を送ります。</summary>
+        internal void ReleaseMouse()
+        {
+            Table.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent, Source = Table });
+        }
+
+        internal bool Key(Key key, ModifierKeys modifiers = ModifierKeys.None) => Table.HandleKeyDown(key, modifiers);
+
+        internal void AssertState(int[] selected, int primary, string[] log, string label)
+        {
+            CollectionAssert.AreEqual(selected, Selected, label + " 選択された行");
+            Assert.AreEqual(primary, Table.SelectedIndex, label + " 主行");
+            CollectionAssert.AreEqual(log, Log, label + " 通知・要求の記録");
+        }
+    }
+
+    /// <summary>
+    /// 行グループの提供元を持つ表で、結合列のセルのクリックがグループの全行を選ぶ規則を、グループ [2,4,2] で確認します。
+    /// 修飾なしは全行へ置き換え、Ctrlは全選択済みなら全行を外して一部選択・未選択なら全行を加え、Shiftは基点とクリック行の両端をグループの境界まで広げ（上向き・下向き、基点がグループの途中）、
+    /// 右クリックは全選択済みなら集合を保ち（主行だけ移る）そうでなければ置き換えてからメニューを要求します（選択の通知が先）。
+    /// 結合列のチェックボックスは、修飾なしの単クリックが操作の要求一回と右クリックと同じ選択、ダブルクリックが要求二回で <c>RowActivated</c> なし、Ctrl付きは要求なしでグループの切替です。
+    /// 結合列の文字セルのダブルクリックは、クリックした行で <c>RowActivated</c> を一回送ります。マウスを離しても、一行へ絞りません。
+    /// 結合列以外の列（ラジオボタンを含む）と、提供元のない表（結合列の指定がある列でも）は行単位のままです。
+    /// </summary>
+    /// <remarks>
+    /// クリックした行だけを選ぶ誤り、Shiftで片側だけを広げる誤り、Ctrlの一部選択で外す誤り、マウスを離したときに一行へ絞る誤り、
+    /// 右クリックで全選択済みの集合を壊す誤り、メニュー要求を選択の通知より先に出す誤り、操作の要求を落とす・二重に送る誤り、
+    /// 結合列のダブルクリックの <c>RowActivated</c> を妨げる誤り、提供元の有無を見ずにグループ化する誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void MergedColumnClicks_SelectWholeGroupsAndOtherColumnsStayRowWise()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            void Case(Action<GroupSelectionFixture> act, int[] selected, int primary, string[] log, string label, bool withProvider = true)
+            {
+                var fixture = new GroupSelectionFixture(withProvider);
+                try
+                {
+                    act(fixture);
+                    fixture.AssertState(selected, primary, log, label);
+                }
+                finally { fixture.Cleanup(); }
+            }
+
+            int[] g0 = [0, 1], g1 = [2, 3, 4, 5], g2 = [6, 7];
+
+            // 修飾なし。行3を押すとグループ全体、マウスを離しても絞らない。別のグループへ置き換える。
+            Case(f => f.Press(3, GroupSelectionFixture.MergedText), g1, 3, ["sel 3/4"], "修飾なし");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.ReleaseMouse(); }, g1, 3, ["sel 3/4"], "離しても一行へ絞らない");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText); f.ReleaseMouse(); }, g1, 4, ["sel 3/4", "sel 4/4"], "全選択済みのグループ内で押し直す（主行だけ移る）");
+            Case(f => { f.Press(0, GroupSelectionFixture.MergedText); f.Press(7, GroupSelectionFixture.MergedText); }, g2, 7, ["sel 0/2", "sel 7/2"], "別のグループへ置き換える");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(3, GroupSelectionFixture.MergedText); }, g1, 3, ["sel 3/4"], "同じ入力を繰り返しても通知しない");
+
+            // Ctrl。未選択はグループを加え、一部選択はグループを加え、全選択済みは全行を外す。
+            Case(f => f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Control), g1, 3, ["sel 3/4"], "Ctrl・未選択");
+            Case(f => { f.Press(0, GroupSelectionFixture.MergedText); f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Control); }, [0, 1, 2, 3, 4, 5], 3, ["sel 0/2", "sel 3/6"], "Ctrl・別のグループを加える");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Control); }, g1, 4, ["sel 3/1", "sel 4/4"], "Ctrl・一部選択はグループを加える（外さない）");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Control); }, [], -1, ["sel 3/4", "sel -1/0"], "Ctrl・全選択済みは全行を外す");
+            Case(f =>
+            {
+                f.Press(0, GroupSelectionFixture.MergedText);
+                f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Control);
+                f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Control);
+                Assert.IsTrue(f.Table.IsCurrentCell(1, f.Columns[GroupSelectionFixture.MergedText]), "外した後の主行（残りの末尾の行）へ押した列を引き継ぐ");
+            }, g0, 1, ["sel 0/2", "sel 3/6", "sel 1/2"], "Ctrl・全選択済みのグループだけを外す");
+
+            // Shift。基点（行3、グループの途中）からの下向き・上向きで、両端をグループの境界まで広げる。
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(6, GroupSelectionFixture.MergedText, ModifierKeys.Shift); }, [2, 3, 4, 5, 6, 7], 6, ["sel 3/1", "sel 6/6"], "Shift・下向き（基点がグループの途中）");
+            Case(f => { f.Press(4, GroupSelectionFixture.Text); f.Press(1, GroupSelectionFixture.MergedText, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5], 1, ["sel 4/1", "sel 1/6"], "Shift・上向き（基点がグループの途中）");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Shift); }, g1, 4, ["sel 3/1", "sel 4/4"], "Shift・同じグループ");
+            Case(f => f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Shift), g1, 3, ["sel 3/4"], "Shift・基点なし");
+
+            // 右クリック。全選択済みは集合を保ち、そうでなければ置き換えてからメニュー（通知が先）。
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(5, GroupSelectionFixture.MergedText, button: MouseButton.Right); }, g1, 5, ["sel 3/4", "sel 5/4", "menu 5"], "右クリック・全選択済み（集合を保つ）");
+            Case(f => { f.Press(0, GroupSelectionFixture.MergedText); f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Control); f.Press(4, GroupSelectionFixture.MergedText, button: MouseButton.Right); },
+                [0, 1, 2, 3, 4, 5], 4, ["sel 0/2", "sel 3/6", "sel 4/6", "menu 4"], "右クリック・複数のグループが選択済みでも集合を保つ");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(3, GroupSelectionFixture.MergedText, button: MouseButton.Right); }, g1, 3, ["sel 3/4", "menu 3"], "右クリック・主行が同じなら通知しない");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(5, GroupSelectionFixture.MergedText, button: MouseButton.Right); }, g1, 5, ["sel 3/1", "sel 5/4", "menu 5"], "右クリック・一部選択（置き換えてからメニュー）");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(0, GroupSelectionFixture.MergedText, button: MouseButton.Right); }, g0, 0, ["sel 3/4", "sel 0/2", "menu 0"], "右クリック・別のグループ");
+
+            // 結合列のチェックボックス。
+            Case(f => f.Press(4, GroupSelectionFixture.MergedCheck), g1, 4, ["sel 4/4", "action 4"], "チェックボックス・単クリック（選択の通知が先、要求一回）");
+            Case(f => { f.Press(4, GroupSelectionFixture.MergedCheck); f.Press(4, GroupSelectionFixture.MergedCheck, clickCount: 2); f.ReleaseMouse(); },
+                g1, 4, ["sel 4/4", "action 4", "action 4"], "チェックボックス・ダブルクリック（要求二回、RowActivatedなし）");
+            Case(f => f.Press(4, GroupSelectionFixture.MergedCheck, ModifierKeys.Control), g1, 4, ["sel 4/4"], "チェックボックス・Ctrlは要求を送らずグループを加える");
+            Case(f => { f.Press(4, GroupSelectionFixture.MergedCheck); f.Press(5, GroupSelectionFixture.MergedCheck, ModifierKeys.Control); }, [], -1, ["sel 4/4", "action 4", "sel -1/0"], "チェックボックス・Ctrlで全選択済みのグループを外す");
+            Case(f =>
+            {
+                f.Press(0, GroupSelectionFixture.MergedText);
+                f.Press(3, GroupSelectionFixture.MergedText, ModifierKeys.Control);
+                f.Press(4, GroupSelectionFixture.MergedCheck);
+            }, [0, 1, 2, 3, 4, 5], 4, ["sel 0/2", "sel 3/6", "sel 4/6", "action 4"], "チェックボックス・全選択済みなら集合を保つ（右クリックと同じ規則）");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.MergedCheck); }, g1, 4, ["sel 3/1", "sel 4/4", "action 4"], "チェックボックス・一部選択はグループへ置き換える");
+
+            // 結合列の文字のダブルクリックは、クリックした行で RowActivated を一回。
+            Case(f => { f.Press(4, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText, clickCount: 2); f.ReleaseMouse(); }, g1, 4, ["sel 4/4", "activate 4"], "文字セルのダブルクリック");
+
+            // 結合列以外は行単位。
+            Case(f => f.Press(3, GroupSelectionFixture.Text), [3], 3, ["sel 3/1"], "通常の列・修飾なし");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(6, GroupSelectionFixture.Text, ModifierKeys.Control); }, [3, 6], 6, ["sel 3/1", "sel 6/2"], "通常の列・Ctrl");
+            Case(f => { f.Press(2, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.Text, ModifierKeys.Shift); }, [2, 3, 4], 4, ["sel 2/1", "sel 4/3"], "通常の列・Shiftはグループの境界へ広げない");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.Text); f.ReleaseMouse(); }, [4], 4, ["sel 3/4", "sel 4/4", "sel 4/1"], "通常の列・複数選択の中の行を押して離すと一行へ絞る");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.Radio, button: MouseButton.Right); }, [4], 4, ["sel 3/1", "sel 4/1", "menu 4"], "通常の列・右クリック");
+            Case(f => f.Press(4, GroupSelectionFixture.Radio), [4], 4, ["sel 4/1", "action 4"], "通常のラジオボタン・単クリックは行だけ選び要求を一回");
+            Case(f => { f.Press(3, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.Radio); f.ReleaseMouse(); }, [4], 4, ["sel 3/4", "sel 4/1", "action 4"],
+                "通常のラジオボタン（操作セル）は、結合列で選んだグループの全行を、押した行だけへ絞る");
+
+            // 提供元のない表は、結合列の指定がある列でも行単位。
+            Case(f => f.Press(3, GroupSelectionFixture.MergedText), [3], 3, ["sel 3/1"], "提供元なし・修飾なし", withProvider: false);
+            Case(f => { f.Press(1, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Shift); }, [1, 2, 3, 4], 4, ["sel 1/1", "sel 4/4"], "提供元なし・Shift", withProvider: false);
+            Case(f => { f.Press(1, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText, ModifierKeys.Control); }, [1, 4], 4, ["sel 1/1", "sel 4/2"], "提供元なし・Ctrl", withProvider: false);
+            Case(f => f.Press(3, GroupSelectionFixture.MergedText, button: MouseButton.Right), [3], 3, ["sel 3/1", "menu 3"], "提供元なし・右クリック", withProvider: false);
+            Case(f => { f.Press(1, GroupSelectionFixture.Text); f.Press(4, GroupSelectionFixture.Text, ModifierKeys.Control); f.Press(4, GroupSelectionFixture.Radio); f.ReleaseMouse(); },
+                [1, 4], 4, ["sel 1/1", "sel 4/2", "action 4"], "提供元なし・操作セルは複数選択を保つ（従来どおり）", withProvider: false);
+            Case(f => f.Press(4, GroupSelectionFixture.MergedCheck), [4], 4, ["sel 4/1", "action 4"], "提供元なし・チェックボックス", withProvider: false);
+            Case(f => { f.Press(4, GroupSelectionFixture.MergedText); f.Press(4, GroupSelectionFixture.MergedText, clickCount: 2); }, [4], 4, ["sel 4/1", "activate 4"], "提供元なし・ダブルクリック", withProvider: false);
+        });
+    }
+
+    /// <summary>
+    /// 現在セルが結合列にあるとき、上下の矢印キーが隣のグループの全行を選び（主行は移動先のグループの先頭行）、Shift付きがグループ単位で広げ、
+    /// 先頭のグループの上と末尾のグループの下では動かず通知しないことを確認します。左右で結合列へ入るとグループを選び（全行が選択済みなら集合を保つ）、結合列から出ても選択を保ちます。
+    /// 結合列以外のセルでは行単位のままで、Enterは主行で <c>RowActivated</c> を送ります。
+    /// </summary>
+    /// <remarks>
+    /// 行単位で動く誤り、結合列へ入っても選択が変わらない誤り、端で通知を送る誤り、主行を先頭行以外にする誤り、Shiftで片側だけ広げる誤り、Enterを主行以外で送る誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void MergedColumnKeys_MoveAndExtendByGroupAndOtherColumnsStayRowWise()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            void Case(Action<GroupSelectionFixture> act, int[] selected, int primary, string[] log, string label)
+            {
+                var fixture = new GroupSelectionFixture(true);
+                try
+                {
+                    act(fixture);
+                    fixture.AssertState(selected, primary, log, label);
+                }
+                finally { fixture.Cleanup(); }
+            }
+
+            int[] g0 = [0, 1], g1 = [2, 3, 4, 5], g2 = [6, 7];
+            const int M = GroupSelectionFixture.MergedText;
+
+            // 上下。主行は方向によらず移動先のグループの先頭行。端では動かず通知しない。
+            Case(f => { f.Press(3, M); Assert.IsTrue(f.Key(Key.Down)); }, g2, 6, ["sel 3/4", "sel 6/2"], "下");
+            Case(f => { f.Press(3, M); Assert.IsTrue(f.Key(Key.Up)); }, g0, 0, ["sel 3/4", "sel 0/2"], "上（主行は先頭行）");
+            Case(f => { f.Press(7, M); Assert.IsTrue(f.Key(Key.Down)); }, g2, 7, ["sel 7/2"], "末尾のグループで下は動かず通知しない");
+            Case(f => { f.Press(1, M); Assert.IsTrue(f.Key(Key.Up)); }, g0, 1, ["sel 1/2"], "先頭のグループで上は動かず通知しない");
+            Case(f => { f.Press(0, M); f.Key(Key.Down); f.Key(Key.Down); f.Key(Key.Down); f.Key(Key.Up); }, g1, 2, ["sel 0/2", "sel 2/4", "sel 6/2", "sel 2/4"], "連続して移る");
+            Case(f => { f.Press(3, M); f.Key(Key.Down); Assert.IsTrue(f.Table.IsCurrentCell(6, f.Columns[M]), "現在セルも移動先の先頭行の結合列"); }, g2, 6, ["sel 3/4", "sel 6/2"], "現在セルの移動");
+
+            // Shift+上下。基点を保ち、両端をグループの境界へ広げる。
+            Case(f => { f.Press(0, M); f.Key(Key.Down, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5], 2, ["sel 0/2", "sel 2/6"], "Shift+下");
+            Case(f => { f.Press(0, M); f.Key(Key.Down, ModifierKeys.Shift); f.Key(Key.Down, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5, 6, 7], 6, ["sel 0/2", "sel 2/6", "sel 6/8"], "Shift+下を続ける");
+            Case(f => { f.Press(0, M); f.Key(Key.Down, ModifierKeys.Shift); f.Key(Key.Down, ModifierKeys.Shift); f.Key(Key.Down, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5, 6, 7], 6, ["sel 0/2", "sel 2/6", "sel 6/8"], "Shift+下の端では通知しない");
+            Case(f => { f.Press(0, M); f.Key(Key.Down, ModifierKeys.Shift); f.Key(Key.Down, ModifierKeys.Shift); f.Key(Key.Up, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5], 2, ["sel 0/2", "sel 2/6", "sel 6/8", "sel 2/6"], "Shift+上で縮める");
+            Case(f => { f.Press(4, M); f.Key(Key.Up, ModifierKeys.Shift); }, [0, 1, 2, 3, 4, 5], 0, ["sel 4/4", "sel 0/6"], "Shift+上（基点がグループの途中）");
+            Case(f => { f.Press(1, M); f.Key(Key.Up, ModifierKeys.Shift); }, g0, 1, ["sel 1/2"], "Shift+上の端では通知しない");
+
+            // 左右。結合列へ入るとグループを選び（全行が選択済みなら集合を保つ）、出ても保つ。
+            Case(f =>
+            {
+                f.Press(3, GroupSelectionFixture.Text);
+                Assert.IsTrue(f.Key(Key.Right));
+                Assert.IsTrue(f.Table.IsCurrentCell(3, f.Columns[M]));
+            }, g1, 3, ["sel 3/1", "sel 3/4"], "右で結合列へ入るとグループを選ぶ（主行は現在の行）");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Key(Key.Right); f.Key(Key.Right); f.Key(Key.Right); }, g1, 3, ["sel 3/1", "sel 3/4"], "全選択済みの結合列から結合列・通常の列へ移っても通知しない");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Key(Key.Right); f.Key(Key.Right); f.Key(Key.Right); f.Key(Key.Left); f.Key(Key.Left); f.Key(Key.Left); },
+                g1, 3, ["sel 3/1", "sel 3/4"], "左右で往復しても選択を保つ");
+            Case(f =>
+            {
+                f.Press(0, M);
+                f.Press(3, GroupSelectionFixture.Text, ModifierKeys.Control);
+                f.Key(Key.Right);
+            }, g1, 3, ["sel 0/2", "sel 3/3", "sel 3/4"], "一部選択のグループへ入ると、そのグループへ置き換える");
+            Case(f => { f.Press(5, GroupSelectionFixture.Radio); f.Key(Key.Left); f.Key(Key.Left); }, g1, 5, ["sel 5/1", "action 5", "sel 5/4"], "左で結合列へ入る（結合列の間の移動は保つ）");
+
+            // 結合列以外は行単位。
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Key(Key.Down); }, [4], 4, ["sel 3/1", "sel 4/1"], "通常の列・下");
+            Case(f => { f.Press(3, GroupSelectionFixture.Text); f.Key(Key.Down, ModifierKeys.Shift); }, [3, 4], 4, ["sel 3/1", "sel 4/2"], "通常の列・Shift+下");
+            Case(f => { f.Press(7, GroupSelectionFixture.Radio); f.Key(Key.Down); }, [7], 7, ["sel 7/1", "action 7"], "通常の列・末尾の行で下は動かず通知しない");
+
+            // Enterは主行で送る。
+            Case(f => { f.Press(3, M); f.Key(Key.Down); f.Key(Key.Return); }, g2, 6, ["sel 3/4", "sel 6/2", "activate 6"], "Enterは主行");
+        });
+    }
+
+    /// <summary>
+    /// 行グループの提供元を持つ表で、結合列のセルのツールチップが、同じ結合セルの中で別の行へ動いても閉じず出し直さず、別のグループの結合セル・別の列へ動くと出し直すことを確認します。
+    /// 提供元のない表は行ごとに出し直します。内容は、その行の値（グループ内で一致する値）です。
+    /// ツールチップは実際の窓で開くため、窓ありのテストの枠組みで表示範囲を追跡し、後片付けを任せます。マウスの移動が使う内部の入口へ、実ヒットを明示して渡し、OSのカーソル位置を条件にしません。
+    /// </summary>
+    /// <remarks>行ごとにツールチップを出し直す誤り（ちらつき）、同じグループで内容が古いまま残る誤り、別のグループ・別の列へ動いても出し直さない誤り、提供元のない表の挙動を変える誤りを検出します。</remarks>
+    [TestMethod]
+    public void MergedColumnToolTip_StaysOpenInsideOneCellAndReopensForAnotherCell()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            foreach (bool withProvider in new[] { true, false })
+            {
+                object[] rows = withProvider ? new GroupedRowList([2, 4, 2]).ToArray() : [.. Enumerable.Range(0, 8).Select(_ => new object())];
+                System.Collections.IList source = withProvider ? new GroupedRowList([2, 4, 2], rows) : rows;
+                var groups = new GroupedRowList([2, 4, 2], rows);
+                string GroupTip(object row) => "group " + groups.GetRowGroup(Array.IndexOf(rows, row)).Ordinal;
+                CustomTableColumn[] columns =
+                [
+                    new("Text", "Text", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 0, string.Empty, TextAlignment.Left, _ => "t", tooltipSelector: row => "row " + Array.IndexOf(rows, row)),
+                    new("Merged", "Merged", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 1, string.Empty, TextAlignment.Left, _ => "m", tooltipSelector: GroupTip, mergesRowGroup: true)
+                ];
+                var table = new CustomTableView { Width = 140d, Height = 220d, Columns = columns, ItemsSource = source };
+                var window = new Window { Width = 180, Height = 280, Content = table, ShowInTaskbar = false, ShowActivated = false };
+                var transitions = new List<string>();
+                var descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(System.Windows.Controls.ToolTip.IsOpenProperty, typeof(System.Windows.Controls.ToolTip));
+                EventHandler onOpenChanged = (_, _) => transitions.Add(table.CellToolTip.IsOpen ? "open" : "close");
+                try
+                {
+                    scope.TrackToolTip(table.CellToolTip);
+                    scope.ShowAndWaitForContentRendered(window);
+                    descriptor.AddValueChanged(table.CellToolTip, onOpenChanged);
+                    void Hover(int row, int column)
+                    {
+                        var point = new Point(column * 60d + 30d, table.HeaderHeight + (row + 0.5d) * table.RowHeight);
+                        CustomTableHitTestResult hit = table.HitTestTable(point);
+                        Assert.AreEqual(row, hit.RowIndex);
+                        Assert.AreSame(columns[column], hit.Column);
+                        table.UpdateCellToolTip(hit);
+                    }
+                    string Content() => table.CellToolTip.Content as string ?? string.Empty;
+                    string label = withProvider ? "提供元あり" : "提供元なし";
+
+                    Hover(2, 1);
+                    CollectionAssert.AreEqual(new[] { "open" }, transitions, label + " 最初に開く");
+                    Assert.IsTrue(table.CellToolTip.IsOpen);
+                    Assert.AreEqual("group 1", Content(), label + " 内容は行の値");
+                    Hover(3, 1);
+                    Hover(5, 1);
+                    if (withProvider)
+                    {
+                        CollectionAssert.AreEqual(new[] { "open" }, transitions, label + " 同じ結合セルの中で別の行へ動いても閉じず出し直さない");
+                        Assert.AreEqual("group 1", Content(), label + " 内容は従来どおり");
+                    }
+                    else
+                    {
+                        CollectionAssert.AreEqual(new[] { "open", "close", "open", "close", "open" }, transitions, label + " 提供元のない表は行ごとに出し直す");
+                    }
+                    transitions.Clear();
+                    Hover(6, 1);
+                    CollectionAssert.AreEqual(new[] { "close", "open" }, transitions, label + " 別のグループの結合セルへ動くと出し直す");
+                    Assert.AreEqual("group 2", Content(), label + " 出し直した内容");
+                    transitions.Clear();
+                    Hover(6, 0);
+                    CollectionAssert.AreEqual(new[] { "close", "open" }, transitions, label + " 別の列へ動くと出し直す");
+                    Assert.AreEqual("row 6", Content(), label + " 別の列の内容");
+                    transitions.Clear();
+                    Hover(7, 0);
+                    CollectionAssert.AreEqual(new[] { "close", "open" }, transitions, label + " 通常の列は行ごとに出し直す");
+                    Assert.AreEqual("row 7", Content());
+                }
+                finally
+                {
+                    descriptor.RemoveValueChanged(table.CellToolTip, onOpenChanged);
+                    table.UpdateCellToolTip(new CustomTableHitTestResult(CustomTableHitKind.Empty, -1, null, null, -1, Rect.Empty));
+                    table.ItemsSource = null;
+                }
+            }
+        });
+    }
+
     /// <summary>OSの設定の行数です。-1（一画面ずつ）は完全表示行容量、0は動かしません。</summary>
     private static int ExpectedWheelLines(CustomTableView table)
     {
@@ -896,6 +1344,38 @@ public sealed class CustomTableNavigationTests
         Assert.AreEqual(rowIndex, hit.RowIndex);
         Assert.AreSame(table.VisibleColumns[columnIndex], hit.Column);
         return table.HandleCellMouseDown(hit, button, modifiers, 1, point);
+    }
+
+    /// <summary>行ごとに異なる文字を持つ行です。</summary>
+    private sealed class TextRow(string text)
+    {
+        internal string Text { get; } = text;
+    }
+
+    /// <summary>グループの大きさの並びから、連続したグループを返す行集合です。行を渡さなければ、行ごとに新しいobjectを作ります。</summary>
+    private sealed class GroupedRowList : System.Collections.ObjectModel.Collection<object>, ICustomTableRowGroupSource
+    {
+        private readonly int[] starts;
+
+        internal GroupedRowList(int[] sizes, IEnumerable<object>? rows = null)
+        {
+            starts = new int[sizes.Length];
+            int total = 0;
+            for (int i = 0; i < sizes.Length; i++)
+            {
+                starts[i] = total;
+                total += sizes[i];
+            }
+            foreach (object row in rows ?? Enumerable.Range(0, total).Select(_ => new object())) { Add(row); }
+        }
+
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            int ordinal = Array.BinarySearch(starts, rowIndex);
+            if (ordinal < 0) { ordinal = ~ordinal - 1; }
+            int end = ordinal + 1 < starts.Length ? starts[ordinal + 1] : Count;
+            return new CustomTableRowGroup(starts[ordinal], end - starts[ordinal], ordinal);
+        }
     }
 
     // 添字アクセスを記録し、列挙・探索・複写を失敗にする行集合です。選択の処理が触れた行だけを観測するために使います。

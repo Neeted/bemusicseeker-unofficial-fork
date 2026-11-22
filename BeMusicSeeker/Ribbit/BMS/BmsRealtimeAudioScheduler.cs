@@ -19,6 +19,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private readonly Func<long> getTimestamp;
     private readonly BmsAudioFrameSchedule schedule;
     private readonly IReadOnlyList<BmsAudioResource?> resourcesByIndex;
+    private readonly BmsDirectVoiceTable? directVoices;
     private readonly BassAudioSession session;
     private readonly IBassScheduledMixerNativeBoundary native;
     private readonly long durationSongFrame;
@@ -47,6 +48,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     /// <param name="playbackRate">この区間の再生速度です。</param>
     /// <param name="generation">区間世代です。</param>
     /// <param name="getTimestamp">同一のStopwatch tick単位を使う時計です。省略時は実時計を使います。</param>
+    /// <param name="directVoices">短い発音を直接合成するための変換済み波形の表です。省略時はすべての発音をnative voiceとして予約します。</param>
     internal BmsRealtimeAudioScheduler(
         BmsAudioFrameSchedule schedule,
         IReadOnlyList<BmsAudioResource?> resourcesByIndex,
@@ -56,8 +58,10 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long segmentStartSongFrame,
         float playbackRate,
         int generation,
-        Func<long>? getTimestamp = null)
+        Func<long>? getTimestamp = null,
+        BmsDirectVoiceTable? directVoices = null)
     {
+        this.directVoices = directVoices;
         this.getTimestamp = getTimestamp ?? Stopwatch.GetTimestamp;
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.resourcesByIndex = resourcesByIndex ?? throw new ArgumentNullException(nameof(resourcesByIndex));
@@ -193,7 +197,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
                 scheduledMixer.ReserveBeforeFrame(
                     exclusiveSongFrame,
                     logicalCurrentFrame,
-                    audioEvent => audioEvent.AbsoluteTime <= duration);
+                    audioEvent => audioEvent.AbsoluteTime <= duration,
+                    BmsReservationBudget.Start(getTimestamp));
                 scheduledMixer.AdvanceAndRetire();
                 PublishReservationCallbackLimit(reservedCallbackFrames);
             }
@@ -275,7 +280,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             session,
             native,
             originMixerFrame,
-            checked((int)generation));
+            checked((int)generation),
+            directVoices);
 
         long horizon = System.Math.Min(
             checked(durationSongFrame + 1),
@@ -287,7 +293,10 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long reservationStarted = getTimestamp();
         try
         {
-            scheduledMixer.ReserveSegmentBeforeFrame(songStartFrame, horizon);
+            scheduledMixer.ReserveSegmentBeforeFrame(
+                songStartFrame,
+                horizon,
+                BmsReservationBudget.Start(getTimestamp));
             PublishReservationCallbackLimit(reservedCallbackFrames);
             if (!initial)
             {
@@ -327,8 +336,12 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long tempoInputReadAheadFrames = System.Math.Max(
             MeasuredTempoInputReadAheadFrames,
             CeilingFrames(TempoSequenceMilliseconds * rate, schedule.SampleRate));
+        // 遅い予約が次の予約範囲を広げ続ける連鎖を断つため、時間予算と同じ実時間1秒で頭打ちにする。
+        long controlAndPreparationTicks = System.Math.Min(
+            checked(maximumTickIntervalTicks + maximumReservationTicks),
+            BmsReservationBudget.BudgetSeconds * Stopwatch.Frequency);
         long controlAndPreparationFrames = checked((long)System.Math.Ceiling(
-            (maximumTickIntervalTicks + maximumReservationTicks)
+            controlAndPreparationTicks
             * (double)schedule.SampleRate
             * rate
             / Stopwatch.Frequency));
@@ -357,7 +370,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             scheduledMixer.ReserveBeforeFrame(
                 exclusive,
                 currentSongFrame,
-                audioEvent => audioEvent.AbsoluteTime <= duration);
+                audioEvent => audioEvent.AbsoluteTime <= duration,
+                BmsReservationBudget.Start(getTimestamp));
             PublishReservationCallbackLimit(reservedCallbackFrames);
         }
         finally

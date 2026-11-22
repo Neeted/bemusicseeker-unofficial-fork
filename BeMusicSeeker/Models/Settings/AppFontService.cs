@@ -17,17 +17,29 @@ internal sealed record AppInstalledFontFamily(string Name, IReadOnlyDictionary<s
 /// <param name="DisplayName">選択欄に表示する名前。</param>
 internal sealed record AppFontChoice(string Name, string DisplayName);
 
+/// <summary>表示フォントの設定と既定値を分ける用途です。</summary>
+internal enum AppFontRole
+{
+    Ui,
+    Table
+}
+
 /// <summary>
-/// 通常の文字に使う表示フォントを、保存値から求めてアプリのリソースへ適用します。
+/// 通常UIと主画面の一覧の表示フォントを、保存値から求めてアプリのリソースへ適用します。
 /// 配色辞書とは独立したアプリ直下のリソースを置き換えるため、テーマの切替では失われません。
 /// </summary>
 internal static class AppFontService
 {
-    /// <summary>ウィンドウと一覧が動的に参照する、表示フォントのリソースキーです。</summary>
-    internal const string ResourceKey = "App.UiFontFamily";
+    /// <summary>通常UIが動的に参照する表示フォントのリソースキーです。</summary>
+    internal const string UiResourceKey = "App.UiFontFamily";
 
-    /// <summary>保存値が空のときに使い、選択されたフォントの代替候補にもなる既定のフォント名です。</summary>
-    internal const string DefaultFontFamilyName = "Meiryo UI";
+    /// <summary>主画面の三つの一覧が動的に参照する表示フォントのリソースキーです。</summary>
+    internal const string TableResourceKey = "App.TableFontFamily";
+
+    private const string DefaultUiFontFamilyName = "Yu Gothic UI";
+
+    /// <summary>一覧の既定と字形の代替に使うフォント名です。DirectWriteの描画も同じ名前を使います。</summary>
+    internal const string DefaultTableFontFamilyName = "Meiryo UI";
 
     /// <summary>
     /// 文字サイズに対する行の高さの倍率です。既定のフォントの行の高さと同じ値に固定し、
@@ -35,10 +47,24 @@ internal static class AppFontService
     /// </summary>
     internal const double LineSpacing = 1.27d;
 
-    private static FontFamily defaultFontFamily;
+    private static FontFamily defaultUiFontFamily;
+    private static FontFamily defaultTableFontFamily;
 
-    /// <summary>既定のフォントです。リソースが未適用の表示部品も、この値を使います。</summary>
-    internal static FontFamily DefaultFontFamily => defaultFontFamily ??= CreateNormalizedFontFamily(DefaultFontFamilyName);
+    /// <summary>一覧の既定のフォントです。リソースが未適用の一覧もこの値を使います。</summary>
+    internal static FontFamily DefaultTableFontFamily => defaultTableFontFamily ??= CreateNormalizedFontFamily(DefaultTableFontFamilyName, DefaultTableFontFamilyName);
+
+    /// <summary>空の保存値と、選択されたフォントの代替に使う用途別のフォント名です。</summary>
+    internal static string GetDefaultFontFamilyName(AppFontRole role)
+    {
+        return role == AppFontRole.Ui ? DefaultUiFontFamilyName : DefaultTableFontFamilyName;
+    }
+
+    private static FontFamily GetDefaultFontFamily(AppFontRole role)
+    {
+        return role == AppFontRole.Ui
+            ? defaultUiFontFamily ??= CreateNormalizedFontFamily(DefaultUiFontFamilyName, DefaultUiFontFamilyName)
+            : DefaultTableFontFamily;
+    }
 
     /// <summary>保存するフォント名から前後の空白を除きます。nullは既定を表す空文字にします。</summary>
     internal static string NormalizeFontFamilyName(string name)
@@ -51,15 +77,16 @@ internal static class AppFontService
     /// 未インストールのフォントと、選択されたフォントに字形がない文字は、既定のフォントで表示されます。
     /// 行の高さと基線の位置は、フォントが申告する値ではなく固定値にします。
     /// </summary>
-    internal static FontFamily CreateFontFamily(string name)
+    internal static FontFamily CreateFontFamily(string name, AppFontRole role)
     {
         string normalizedName = NormalizeFontFamilyName(name);
-        if (normalizedName.Length == 0 || string.Equals(normalizedName, DefaultFontFamilyName, StringComparison.OrdinalIgnoreCase))
+        string defaultName = GetDefaultFontFamilyName(role);
+        if (normalizedName.Length == 0 || string.Equals(normalizedName, defaultName, StringComparison.OrdinalIgnoreCase))
         {
-            return DefaultFontFamily;
+            return GetDefaultFontFamily(role);
         }
         // WPFは複数候補をコンマで区切るため、名前に含まれるコンマは二重にして区切りと区別する。
-        return CreateNormalizedFontFamily(normalizedName.Replace(",", ",,", StringComparison.Ordinal) + ", " + DefaultFontFamilyName);
+        return CreateNormalizedFontFamily(normalizedName.Replace(",", ",,", StringComparison.Ordinal) + ", " + defaultName, defaultName);
     }
 
     /// <summary>
@@ -67,14 +94,14 @@ internal static class AppFontService
     /// 記号用の文字コード表を持つフォント（Wingdingsなど）は名前が記号の字形になって読めないため、既定のフォントを返します。
     /// アプリ全体へ適用するフォントの規則は変えません。
     /// </summary>
-    internal static FontFamily CreatePreviewFontFamily(string name)
+    internal static FontFamily CreatePreviewFontFamily(string name, AppFontRole role)
     {
         string normalizedName = NormalizeFontFamilyName(name);
         if (normalizedName.Length == 0 || IsSymbolFontFamily(normalizedName))
         {
-            return DefaultFontFamily;
+            return GetDefaultFontFamily(role);
         }
-        return CreateFontFamily(normalizedName);
+        return CreateFontFamily(normalizedName, role);
     }
 
     /// <summary>フォントが記号用の文字コード表を持つかを返します。未インストールの名前はWPFの代替フォントで判定されます。</summary>
@@ -90,13 +117,13 @@ internal static class AppFontService
     /// そのまま使うと、フォントによって上下中央や下寄せの文字がずれ、行の高さが小さいフォントは一覧で折り返します。
     /// 基線は、第一候補の大文字の高さが行の上下中央に来る位置にします。
     /// </summary>
-    private static FontFamily CreateNormalizedFontFamily(string candidates)
+    private static FontFamily CreateNormalizedFontFamily(string candidates, string defaultName)
     {
         // 候補の先頭が未インストールの場合は、次の候補（既定のフォント）の大文字の高さが返る。
         double capsHeight = new Typeface(new FontFamily(candidates), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
         if (!(capsHeight > 0d) || double.IsInfinity(capsHeight))
         {
-            capsHeight = new Typeface(new FontFamily(DefaultFontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
+            capsHeight = new Typeface(new FontFamily(defaultName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
         }
         var fontFamily = new FontFamily();
         fontFamily.FamilyMaps.Add(new FontFamilyMap { Target = candidates });
@@ -155,19 +182,24 @@ internal static class AppFontService
     }
 
     /// <summary>
-    /// 保存値のフォントをアプリのリソースへ適用します。WPFの標準スタイルがシステムのフォントを指定する
-    /// メニューやツールチップも従うよう、システムのフォントのキーも同じ値で置き換えます。
+    /// 保存値のフォントを用途に対応するアプリのリソースへ適用します。通常UIの設定は、
+    /// WPFの標準スタイルを使うメニューなどにも届くようシステムのフォントのキーにも適用します。
     /// </summary>
-    internal static void ApplyFontFamily(string name)
+    internal static void ApplyFontFamily(string name, AppFontRole role)
     {
         Application application = Application.Current;
         if (application == null)
         {
             return;
         }
-        FontFamily fontFamily = CreateFontFamily(name);
+        FontFamily fontFamily = CreateFontFamily(name, role);
         ResourceDictionary resources = application.Resources;
-        resources[ResourceKey] = fontFamily;
+        if (role == AppFontRole.Table)
+        {
+            resources[TableResourceKey] = fontFamily;
+            return;
+        }
+        resources[UiResourceKey] = fontFamily;
         resources[SystemFonts.MenuFontFamilyKey] = fontFamily;
         resources[SystemFonts.StatusFontFamilyKey] = fontFamily;
         resources[SystemFonts.MessageFontFamilyKey] = fontFamily;

@@ -1,6 +1,6 @@
 name = "issue-resolver"
 description = "再計画後の実装単位で、実装担当と同じ契約で修正・再実装を行う担当。"
-model = "gpt-6-astra"
+model = "gpt-6.2-astra"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 approval_policy = "never"

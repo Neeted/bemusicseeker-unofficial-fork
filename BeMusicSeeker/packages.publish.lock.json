@@ -128,6 +128,12 @@
           "SourceGear.sqlite3": "3.53.3"
         }
       },
+      "System.IO.Hashing": {
+        "type": "Direct",
+        "requested": "[10.0.15, )",
+        "resolved": "10.0.15",
+        "contentHash": "8dyz8adVemyDILwoEFTCq2NsB6XgqOgVHbnv0XgnttQac76XUR3S5L2qcIkJJqOw97mjQttCTWccyk4DKtfm3Q=="
+      },
       "Vortice.Direct2D1": {
         "type": "Direct",
         "requested": "[3.8.3, )",

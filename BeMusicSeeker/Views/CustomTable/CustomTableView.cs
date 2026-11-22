@@ -101,6 +101,13 @@ public sealed partial class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, OnPlaylistSummaryColumnsSettingsChanged));
 
+    /// <summary>統合候補一覧の列設定です。起動中だけの設定で、設定へ保存しません。指定すると、この表は統合候補一覧の列を持ちます。</summary>
+    public static readonly DependencyProperty DuplicateCandidateColumnsSettingsProperty = DependencyProperty.Register(
+        nameof(DuplicateCandidateColumnsSettings),
+        typeof(DuplicateMergeCandidateColumnSettings),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(null, OnDuplicateCandidateColumnsSettingsChanged));
+
     public static readonly DependencyProperty RowHeightProperty = DependencyProperty.Register(
         nameof(RowHeight),
         typeof(double),
@@ -126,7 +133,7 @@ public sealed partial class CustomTableView : Grid
         nameof(TextFontFamily),
         typeof(FontFamily),
         typeof(CustomTableView),
-        new FrameworkPropertyMetadata(AppFontService.DefaultFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
+        new FrameworkPropertyMetadata(AppFontService.DefaultTableFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
 
     public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
         nameof(SelectedIndex),
@@ -618,6 +625,12 @@ public sealed partial class CustomTableView : Grid
         set => SetValue(PlaylistSummaryColumnsSettingsProperty, value);
     }
 
+    public DuplicateMergeCandidateColumnSettings DuplicateCandidateColumnsSettings
+    {
+        get => (DuplicateMergeCandidateColumnSettings)GetValue(DuplicateCandidateColumnsSettingsProperty);
+        set => SetValue(DuplicateCandidateColumnsSettingsProperty, value);
+    }
+
     public double RowHeight
     {
         get => (double)GetValue(RowHeightProperty);
@@ -690,6 +703,12 @@ public sealed partial class CustomTableView : Grid
 
     internal int RowCount => ItemsSource?.Count ?? 0;
 
+    /// <summary>
+    /// 行グループの提供元です。<see cref="ItemsSource"/> が <see cref="ICustomTableRowGroupSource"/> を実装する表だけが持ち、
+    /// 行集合の差替えと同時に切り替わります。持たない表（既存の全用途）はnullで、描画・操作・UI Automationは変わりません。
+    /// </summary>
+    internal ICustomTableRowGroupSource RowGroupSource => ItemsSource as ICustomTableRowGroupSource;
+
     /// <summary>バー背後を含む全面の実描画幅です。スクロール用の有効表示幅とは区別します。</summary>
     internal double SurfaceWidth => surface.ActualWidth;
 
@@ -699,6 +718,20 @@ public sealed partial class CustomTableView : Grid
     internal bool IsRowSelected(int rowIndex)
     {
         return selectionModel.IsSelected(rowIndex);
+    }
+
+    /// <summary>行番号の範囲 [<paramref name="firstRowIndex"/>, <paramref name="endRowIndex"/>) の全行が選択済みかを返します。画面外の行も含め、区間として判定します。</summary>
+    internal bool IsRowSpanSelected(int firstRowIndex, int endRowIndex)
+    {
+        return selectionModel.IsSpanSelected(firstRowIndex, endRowIndex - 1);
+    }
+
+    /// <summary>現在セルの行が行番号の範囲 [<paramref name="firstRowIndex"/>, <paramref name="endRowIndex"/>) にあれば、その列を返します。なければnullです。</summary>
+    internal CustomTableColumn GetCurrentCellColumnInRange(int firstRowIndex, int endRowIndex)
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell && currentCellHit.RowIndex >= firstRowIndex && currentCellHit.RowIndex < endRowIndex
+            ? currentCellHit.Column
+            : null;
     }
 
     /// <summary>指定位置の行に属する現在セルの列を返します。</summary>
@@ -798,6 +831,16 @@ public sealed partial class CustomTableView : Grid
         view.RebuildColumns();
     }
 
+    private static void OnDuplicateCandidateColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
+        view.DetachColumnLayoutHandlers();
+        view.AttachColumnLayoutHandlers();
+        view.RebuildColumns();
+    }
+
     private static void OnLayoutMetricChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var view = (CustomTableView)d;
@@ -839,7 +882,7 @@ public sealed partial class CustomTableView : Grid
 
     private static object CoerceTextFontFamily(DependencyObject d, object baseValue)
     {
-        return baseValue as FontFamily ?? AppFontService.DefaultFontFamily;
+        return baseValue as FontFamily ?? AppFontService.DefaultTableFontFamily;
     }
 
     /// <summary>外部から実際に受理した主行変更だけで旧編集を一回確定し、同期再入後の最新主行へ現在セルと可視範囲を揃えます。</summary>
@@ -1021,7 +1064,9 @@ public sealed partial class CustomTableView : Grid
 
     private void AttachColumnLayoutHandlers()
     {
-        IEnumerable<ICustomTableColumnLayout> layouts = PlaylistSummaryColumnsSettings != null
+        IEnumerable<ICustomTableColumnLayout> layouts = DuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.EnumerateDuplicateCandidateColumnLayouts(DuplicateCandidateColumnsSettings).Cast<ICustomTableColumnLayout>()
+            : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnsSettings).Cast<ICustomTableColumnLayout>()
             : CustomTableColumnFactory.EnumerateMainColumnLayouts(ColumnsSettings).Cast<ICustomTableColumnLayout>();
         foreach (ICustomTableColumnLayout layoutCandidate in layouts)
@@ -1080,7 +1125,9 @@ public sealed partial class CustomTableView : Grid
 
     private void RebuildColumns()
     {
-        Columns = PlaylistSummaryColumnsSettings != null
+        Columns = DuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.CreateDuplicateCandidateColumns(DuplicateCandidateColumnsSettings).ToArray()
+            : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
             : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings, CanEditInstallDestination)];
         InvalidateColumnLayoutSnapshot();
@@ -1643,7 +1690,10 @@ public sealed partial class CustomTableView : Grid
         if (button == MouseButton.Right)
         {
             Focus();
-            bool changed = selectionModel.SelectForRightClick(hit.RowIndex);
+            selectionModel.SetItemCount(RowCount);
+            bool changed = TryGetRowGroupSpan(hit.Column, hit.RowIndex, out int groupFirst, out int groupLast)
+                ? selectionModel.SelectSpanForRightClick(groupFirst, groupLast, hit.RowIndex)
+                : selectionModel.SelectForRightClick(hit.RowIndex);
             currentCellHit = hit;
             UpdateSelectedIndexFromSelectionModel();
             if (changed)
@@ -1658,14 +1708,25 @@ public sealed partial class CustomTableView : Grid
         {
             bool plainSingleClick = clickCount == 1
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            // 結合列のクリックはグループの全行を選ぶため、マウスを離したときに一行へ絞らない。
             bool delaySingleSelectionUntilMouseUp = plainSingleClick
+                && !IsMergedColumn(hit.Column)
                 && selectionModel.SelectedCount > 1
                 && selectionModel.IsSelected(hit.RowIndex);
             bool shouldBeginEditOnRepeatClick = clickCount == 1
                 && IsSameEditableCell(currentCellHit, hit)
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
             currentCellHit = hit;
-            bool changed = ApplyMouseSelection(hit.RowIndex, modifiers);
+            // 行グループの提供元を持つ表では、操作できるチェックボックス・ラジオボタンのダブルクリックを、
+            // 二回目の押下も操作として扱い、行の起動（RowActivated）にしない。提供元のない表は、従来どおり二回目の押下で行を起動する。
+            bool repeatableAction = RowGroupSource != null
+                && hit.Column?.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
+            bool actionClick = (clickCount == 1 || (clickCount >= 2 && repeatableAction))
+                && IsActionCell(hit)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            // 行グループの提供元を持つ表の操作セルは、ドラッグの起点にならないため、複数選択の中の行でも押した行だけを即座に選ぶ。
+            // 結合列のクリックでグループの全行を選んだ後に、結合列でない操作セル（KEEP）を押したとき、全行の選択が残らないようにするためです。
+            bool changed = ApplyMouseSelection(hit, modifiers, narrowToClickedRow: actionClick && RowGroupSource != null);
             if (changed)
             {
                 RaiseSelectionChanged();
@@ -1673,9 +1734,7 @@ public sealed partial class CustomTableView : Grid
             rowDragStartPoint = clickCount == 1 ? dragStartPoint : null;
             rowDragStartHit = clickCount == 1 ? hit : null;
             pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
-            if (clickCount == 1
-                && IsActionCell(hit)
-                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
+            if (actionClick)
             {
                 ClearDragState();
                 CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
@@ -1696,6 +1755,12 @@ public sealed partial class CustomTableView : Grid
         return false;
     }
 
+    /// <summary>行グループの提供元を持つ表で、グループの全行にまたがる列かを返します。</summary>
+    private bool IsMergedColumn(CustomTableColumn column)
+    {
+        return column != null && column.MergesRowGroup && RowGroupSource != null;
+    }
+
     private static bool IsActionCell(CustomTableHitTestResult hit)
     {
         if (hit?.Column == null)
@@ -1705,7 +1770,7 @@ public sealed partial class CustomTableView : Grid
         return hit.Column.CellKind switch
         {
             CustomTableCellKind.DownloadIcon or CustomTableCellKind.ActionText => !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row)),
-            CustomTableCellKind.CheckBox => hit.Column.GetChecked(hit.Row).HasValue,
+            CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton => hit.Column.GetChecked(hit.Row).HasValue && hit.Column.GetEnabled(hit.Row),
             _ => false,
         };
     }
@@ -1974,14 +2039,25 @@ public sealed partial class CustomTableView : Grid
         }
     }
 
-    private bool ApplyMouseSelection(int rowIndex, ModifierKeys modifiers)
+    private bool ApplyMouseSelection(CustomTableHitTestResult hit, ModifierKeys modifiers, bool narrowToClickedRow)
     {
+        int rowIndex = hit.RowIndex;
         selectionModel.SetItemCount(RowCount);
-        bool changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
-            ? selectionModel.SelectRange(rowIndex)
-            : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
-                ? selectionModel.Toggle(rowIndex)
-                : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
+        bool changed;
+        if (TryGetRowGroupSpan(hit.Column, rowIndex, out int groupFirst, out int groupLast))
+        {
+            changed = ApplyMergedColumnMouseSelection(hit, modifiers, groupFirst, groupLast);
+        }
+        else
+        {
+            changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
+                ? selectionModel.SelectRange(rowIndex)
+                : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                    ? selectionModel.Toggle(rowIndex)
+                    : narrowToClickedRow
+                        ? selectionModel.SelectSingle(rowIndex)
+                        : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
+        }
         UpdateSelectedIndexFromSelectionModel();
         int currentRowIndex = selectionModel.CurrentIndex;
         if (currentRowIndex != rowIndex)
@@ -1992,6 +2068,76 @@ public sealed partial class CustomTableView : Grid
         }
         RequestSelectionRedraw();
         return changed;
+    }
+
+    /// <summary>
+    /// 結合列の左クリックの選択を、行グループの全行を単位として決めます。修飾なしはグループの全行へ置き換え、Ctrlは全行が選択済みなら全行を外してそうでなければ全行を加え、
+    /// Shiftは範囲の基点とクリックした行の両端を、それぞれのグループの境界まで広げます。
+    /// 操作できるチェックボックス・ラジオボタンの修飾なしのクリックだけは右クリックと同じ規則で、全行が選択済みなら選択集合を保ちます。
+    /// </summary>
+    private bool ApplyMergedColumnMouseSelection(CustomTableHitTestResult hit, ModifierKeys modifiers, int groupFirst, int groupLast)
+    {
+        int rowIndex = hit.RowIndex;
+        if ((modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            int anchor = selectionModel.AnchorIndex >= 0 && selectionModel.AnchorIndex < RowCount ? selectionModel.AnchorIndex : rowIndex;
+            return SelectGroupAlignedRange(Math.Min(anchor, rowIndex), Math.Max(anchor, rowIndex), rowIndex);
+        }
+        if ((modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            return selectionModel.IsSpanSelected(groupFirst, groupLast)
+                ? selectionModel.RemoveSpan(groupFirst, groupLast, rowIndex)
+                : selectionModel.AddSpan(groupFirst, groupLast, rowIndex);
+        }
+        bool toggleKind = hit.Column.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
+        return toggleKind && IsActionCell(hit)
+            ? selectionModel.SelectSpanForRightClick(groupFirst, groupLast, rowIndex)
+            : selectionModel.SelectSpan(groupFirst, groupLast, rowIndex, rowIndex);
+    }
+
+    /// <summary>
+    /// 行番号 <paramref name="lowRow"/> から <paramref name="highRow"/> までの範囲を、両端がそれぞれの行のグループの境界になるよう広げて選び、
+    /// 主行を <paramref name="currentRow"/> にします。範囲の基点は保ちます。
+    /// </summary>
+    private bool SelectGroupAlignedRange(int lowRow, int highRow, int currentRow)
+    {
+        TryGetRowGroupSpan(lowRow, out int start, out int lowGroupLast);
+        int end = lowGroupLast;
+        if (highRow > lowGroupLast)
+        {
+            TryGetRowGroupSpan(highRow, out _, out end);
+        }
+        return selectionModel.SelectSpanKeepingAnchor(start, end, currentRow);
+    }
+
+    /// <summary>
+    /// 列が行グループの結合列なら、行が属するグループの両端を含む行番号の範囲を返します。提供元のない表と、結合列以外の列はfalseです。
+    /// 提供元への問合せは一回だけで、グループの行を走査しません。
+    /// </summary>
+    private bool TryGetRowGroupSpan(CustomTableColumn column, int rowIndex, out int first, out int last)
+    {
+        if (!IsMergedColumn(column))
+        {
+            first = last = -1;
+            return false;
+        }
+        return TryGetRowGroupSpan(rowIndex, out first, out last);
+    }
+
+    /// <summary>行が属するグループの、両端を含む行番号の範囲を返します。提供元のない表と範囲外の行はfalseです。表の行数の範囲へ収めます。</summary>
+    private bool TryGetRowGroupSpan(int rowIndex, out int first, out int last)
+    {
+        first = last = -1;
+        ICustomTableRowGroupSource groups = RowGroupSource;
+        int rowCount = RowCount;
+        if (groups == null || rowIndex < 0 || rowIndex >= rowCount)
+        {
+            return false;
+        }
+        CustomTableRowGroup group = groups.GetRowGroup(rowIndex);
+        first = Math.Max(0, Math.Min(group.FirstRowIndex, rowIndex));
+        last = Math.Min(rowCount - 1, Math.Max(group.EndRowIndex - 1, rowIndex));
+        return true;
     }
 
     private bool CommitPendingSingleSelectionOnMouseUp()
@@ -2037,7 +2183,9 @@ public sealed partial class CustomTableView : Grid
     private bool MoveKeyboardSelection(int delta, bool extendRange)
     {
         selectionModel.SetItemCount(RowCount);
-        bool changed = extendRange ? selectionModel.ExtendRangeBy(delta) : selectionModel.MoveCurrent(delta);
+        bool changed = IsCurrentCellInMergedColumn()
+            ? MoveGroupSelection(delta, extendRange)
+            : extendRange ? selectionModel.ExtendRangeBy(delta) : selectionModel.MoveCurrent(delta);
         UpdateSelectedIndexFromSelectionModel();
         EnsureRowVisible(selectionModel.CurrentIndex);
         EnsureCurrentCellForCurrentRow();
@@ -2047,6 +2195,37 @@ public sealed partial class CustomTableView : Grid
         }
         RequestSelectionRedraw();
         return RowCount > 0;
+    }
+
+    /// <summary>現在セルが、行グループの結合列にあるかを返します。</summary>
+    private bool IsCurrentCellInMergedColumn()
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell
+            && IsMergedColumn(currentCellHit.Column)
+            && selectionModel.CurrentIndex >= 0;
+    }
+
+    /// <summary>
+    /// 現在セルが結合列にあるときの上下の移動を、行グループを単位として行います。主行は移動先のグループの先頭行で、
+    /// Shift付きは範囲の基点と移動先を、それぞれのグループの境界まで広げます。先頭のグループの上と末尾のグループの下では動きません。
+    /// </summary>
+    private bool MoveGroupSelection(int delta, bool extendRange)
+    {
+        if (!TryGetRowGroupSpan(selectionModel.CurrentIndex, out int currentFirst, out int currentLast))
+        {
+            return false;
+        }
+        int targetRow = delta > 0 ? currentLast + 1 : currentFirst - 1;
+        if (targetRow < 0 || targetRow >= RowCount || !TryGetRowGroupSpan(targetRow, out int targetFirst, out int targetLast))
+        {
+            return false;
+        }
+        if (!extendRange)
+        {
+            return selectionModel.SelectSpan(targetFirst, targetLast, targetFirst, targetFirst);
+        }
+        int anchor = selectionModel.AnchorIndex >= 0 && selectionModel.AnchorIndex < RowCount ? selectionModel.AnchorIndex : currentFirst;
+        return SelectGroupAlignedRange(Math.Min(anchor, targetFirst), Math.Max(anchor, targetFirst), targetFirst);
     }
 
     private bool CopySelectedRowsToClipboard()
@@ -2161,6 +2340,18 @@ public sealed partial class CustomTableView : Grid
         }
         currentCellHit = hit;
         CloseCellToolTip();
+        if (TryGetRowGroupSpan(target.Column, rowIndex, out int groupFirst, out int groupLast))
+        {
+            // 結合列へ入ったときは、右クリックと同じ規則でそのグループの全行を選ぶ。結合列から出るときは選択を保つ。
+            selectionModel.SetItemCount(RowCount);
+            if (selectionModel.SelectSpanForRightClick(groupFirst, groupLast, rowIndex))
+            {
+                UpdateSelectedIndexFromSelectionModel();
+                RaiseSelectionChanged();
+            }
+            RequestSelectionRedraw();
+            return true;
+        }
         RequestRedraw("current_cell");
         return true;
     }
@@ -2467,6 +2658,11 @@ public sealed partial class CustomTableView : Grid
     private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)
     {
         if (hit?.Kind != CustomTableHitKind.Cell || string.IsNullOrWhiteSpace(hit.Column?.EditPropertyName))
+        {
+            return false;
+        }
+        // 行グループの結合列は、行をまたぐ一つのセルとして描くため、行ごとの編集欄を重ねない。
+        if (IsMergedColumn(hit.Column))
         {
             return false;
         }
@@ -2937,7 +3133,12 @@ public sealed partial class CustomTableView : Grid
         RequestRedraw("column_resize");
     }
 
-    private void UpdateCellToolTip(CustomTableHitTestResult hit)
+    /// <summary>セルのツールチップです。開閉の回数と内容を、窓の有無によらず観測するために公開します。</summary>
+    internal ToolTip CellToolTip => cellToolTip;
+
+    /// <summary>マウスの下のセルに合わせて、セルのツールチップを開く・保つ・出し直す・閉じるを決めます。マウスの移動が使う入口です。</summary>
+    /// <param name="hit">マウスの下の実ヒット。</param>
+    internal void UpdateCellToolTip(CustomTableHitTestResult hit)
     {
         if (isResizingColumn || hit == null || hit.Kind != CustomTableHitKind.Cell || hit.Column == null)
         {
@@ -2950,7 +3151,9 @@ public sealed partial class CustomTableView : Grid
             CloseCellToolTip();
             return;
         }
-        bool movedToAnotherCell = toolTipRowIndex != hit.RowIndex || !string.Equals(toolTipColumnId, hit.Column.Id, StringComparison.Ordinal);
+        // 結合列のセルはグループの範囲全体で一つの当たり判定とし、同じグループの別の行へ動いても出し直さない。
+        int toolTipCellKey = TryGetRowGroupSpan(hit.Column, hit.RowIndex, out int groupFirst, out _) ? groupFirst : hit.RowIndex;
+        bool movedToAnotherCell = toolTipRowIndex != toolTipCellKey || !string.Equals(toolTipColumnId, hit.Column.Id, StringComparison.Ordinal);
         if (movedToAnotherCell && cellToolTip.IsOpen)
         {
             cellToolTip.IsOpen = false;
@@ -2962,7 +3165,7 @@ public sealed partial class CustomTableView : Grid
             toolTipText = tooltip;
             toolTipTextWidth = tooltipTextWidth;
         }
-        toolTipRowIndex = hit.RowIndex;
+        toolTipRowIndex = toolTipCellKey;
         toolTipColumnId = hit.Column.Id;
         if (!cellToolTip.IsOpen)
         {
