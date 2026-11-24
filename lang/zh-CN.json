@@ -1458,7 +1458,7 @@
   "Duplicate_merge_candidate_reason_other_group_description": "与其他组的文件夹相同或存在包含关系。",
   "Duplicate_merge_candidate_reason_unreadable_description": "由于权限或读取失败等原因，有项目无法检查。",
   "Duplicate_merge_candidate_reason_parent_reference_description": "将被移动的文件夹中的谱面，其使用中的资源包含上级目录引用（..）。",
-  "Duplicate_merge_candidate_reason_audio_extension_description": "同名音源在另一个文件夹中以不同的扩展名存在。",
+  "Duplicate_merge_candidate_reason_audio_extension_description": "合并后，同名音源会多一种可用格式，播放谱面时可能会使用不同的音源。",
   "Duplicate_merge_candidate_reason_content_conflict_description": "同名文件的内容在文件夹之间不同。",
   "Duplicate_merge_candidate_reason_no_shared_content_description": "含有文件的文件夹之间没有共享内容相同的文件。",
   "Duplicate_merge_candidate_reason_nested_chart_folder_description": "将被移动的文件夹之下有包含谱面的其他文件夹。",

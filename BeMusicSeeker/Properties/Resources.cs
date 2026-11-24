@@ -3388,7 +3388,7 @@ public class Resources
     public static string Duplicate_merge_candidate_reason_unreadable => ResourceManager.GetString("Duplicate_merge_candidate_reason_unreadable", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、移動元の譜面が親ディレクトリ参照を持つ理由の短い名前です。</summary>
     public static string Duplicate_merge_candidate_reason_parent_reference => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_reference", resourceCulture);
-    /// <summary>統合候補一覧の確認結果で、同名の音源が別のフォルダに異なる拡張子である理由の短い名前です。</summary>
+    /// <summary>統合候補一覧の確認結果で、統合で同名音源の候補が増える理由の短い名前です。</summary>
     public static string Duplicate_merge_candidate_reason_audio_extension => ResourceManager.GetString("Duplicate_merge_candidate_reason_audio_extension", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、同じ相対パスのファイルの内容が異なる理由の短い名前です。</summary>
     public static string Duplicate_merge_candidate_reason_content_conflict => ResourceManager.GetString("Duplicate_merge_candidate_reason_content_conflict", resourceCulture);
@@ -3410,7 +3410,7 @@ public class Resources
     public static string Duplicate_merge_candidate_reason_unreadable_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_unreadable_description", resourceCulture);
     /// <summary>統合候補一覧のSTATUSのツールチップで、移動元の譜面が親ディレクトリ参照を持つ理由の説明です。</summary>
     public static string Duplicate_merge_candidate_reason_parent_reference_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_reference_description", resourceCulture);
-    /// <summary>統合候補一覧のSTATUSのツールチップで、同名の音源が別のフォルダに異なる拡張子である理由の説明です。</summary>
+    /// <summary>統合候補一覧のSTATUSのツールチップで、統合で同名音源の候補が増え、再生に使われる音源が変わる可能性を伝える説明です。</summary>
     public static string Duplicate_merge_candidate_reason_audio_extension_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_audio_extension_description", resourceCulture);
     /// <summary>統合候補一覧のSTATUSのツールチップで、同じ相対パスのファイルの内容が異なる理由の説明です。</summary>
     public static string Duplicate_merge_candidate_reason_content_conflict_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_content_conflict_description", resourceCulture);

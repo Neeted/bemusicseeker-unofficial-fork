@@ -231,17 +231,15 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
             }
         }
 
-        // 同名音源の拡張子違い。
+        // 同名音源を持つフォルダのどこかに、統合で新しい形式が加わるかを調べる。
         foreach (List<Entry> entries in audioNames.Values)
         {
-            foreach (Entry entry in entries)
+            if (entries.TrueForAll(entry => string.Equals(entry.RelativePath, entries[0].RelativePath, StringComparison.OrdinalIgnoreCase))) { continue; }
+            IEnumerable<string> variants = entries.Select(entry => entry.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase);
+            if (variants.Any(path => entries.Exists(holder => !scans[holder.FolderIndex].Files.ContainsKey(path))))
             {
-                string extension = Path.GetExtension(entry.RelativePath);
-                if (entries.Any(other => other.FolderIndex != entry.FolderIndex
-                    && !string.Equals(Path.GetExtension(other.RelativePath), extension, StringComparison.OrdinalIgnoreCase)))
-                {
-                    reason(DuplicateMergeVerificationReasonKind.AudioExtension).Add(new(folders[entry.FolderIndex], entry.RelativePath));
-                }
+                reason(DuplicateMergeVerificationReasonKind.AudioExtension).AddRange(
+                    entries.Select(entry => new DuplicateMergeFinding(folders[entry.FolderIndex], entry.RelativePath)));
             }
         }
 

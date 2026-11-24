@@ -4286,7 +4286,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>移動元になるフォルダの譜面が、使用中のリソースに親ディレクトリ参照（..）を持ちます。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_audio_extension_description" xml:space="preserve">
-    <value>同じ名前の音源が、別のフォルダに異なる拡張子で存在します。</value>
+    <value>統合すると、同じ名前の音源に別の形式が加わるため、譜面の再生に使われる音源が変わる可能性があります。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_content_conflict_description" xml:space="preserve">
     <value>同じ名前のファイルの内容が、フォルダ間で異なります。</value>

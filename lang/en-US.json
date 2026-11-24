@@ -1458,7 +1458,7 @@
   "Duplicate_merge_candidate_reason_other_group_description": "A folder is the same as, or contains or is inside, a folder of another group.",
   "Duplicate_merge_candidate_reason_unreadable_description": "Some items could not be checked because of permission or read failures.",
   "Duplicate_merge_candidate_reason_parent_reference_description": "A chart in a folder to be moved uses a resource through a parent directory reference (..).",
-  "Duplicate_merge_candidate_reason_audio_extension_description": "An audio file with the same name exists in another folder with a different extension.",
+  "Duplicate_merge_candidate_reason_audio_extension_description": "Merging adds another format for an audio file with the same name. A chart may use a different audio file during playback.",
   "Duplicate_merge_candidate_reason_content_conflict_description": "Files with the same name differ in content between folders.",
   "Duplicate_merge_candidate_reason_no_shared_content_description": "Folders that contain files do not share any file with identical content.",
   "Duplicate_merge_candidate_reason_nested_chart_folder_description": "A folder to be moved contains another folder that holds charts.",

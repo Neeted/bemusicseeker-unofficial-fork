@@ -1458,7 +1458,7 @@
   "Duplicate_merge_candidate_reason_other_group_description": "別のグループのフォルダと、同一か親子の関係にあります。",
   "Duplicate_merge_candidate_reason_unreadable_description": "権限や読取りの失敗などにより、確認できなかった項目があります。",
   "Duplicate_merge_candidate_reason_parent_reference_description": "移動元になるフォルダの譜面が、使用中のリソースに親ディレクトリ参照（..）を持ちます。",
-  "Duplicate_merge_candidate_reason_audio_extension_description": "同じ名前の音源が、別のフォルダに異なる拡張子で存在します。",
+  "Duplicate_merge_candidate_reason_audio_extension_description": "統合すると、同じ名前の音源に別の形式が加わるため、譜面の再生に使われる音源が変わる可能性があります。",
   "Duplicate_merge_candidate_reason_content_conflict_description": "同じ名前のファイルの内容が、フォルダ間で異なります。",
   "Duplicate_merge_candidate_reason_no_shared_content_description": "ファイルを持つフォルダの間で、同一内容のファイルが共有されていません。",
   "Duplicate_merge_candidate_reason_nested_chart_folder_description": "移動元になるフォルダの配下に、譜面を持つ別のフォルダがあります。",

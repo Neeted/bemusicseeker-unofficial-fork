@@ -1207,6 +1207,10 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(Resources.Duplicate_merge_candidate_overwrite_note_source, lines[protectedHeading + 1]);
         CollectionAssert.Contains(lines, "- Data.BMX");
         CollectionAssert.Contains(lines, "- readme.txt");
+
+        DuplicateMergeVerificationResult audio = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.AudioExtension, 1));
+        CollectionAssert.AreEqual(new[] { Resources.Duplicate_merge_candidate_reason_audio_extension_description, @"- C:\S\f\item00" },
+            audio.FormatTooltip(overwrite)!.Split(Environment.NewLine));
     }
 
     /// <summary>

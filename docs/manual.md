@@ -1341,7 +1341,7 @@ The reasons are as follows. `STATUS` lists every applicable reason separated by 
 | Reason | Level | Description |
 | --- | --- | --- |
 | `parent directory reference` | `Caution` | A chart to be moved refers to audio or other files outside its folder with `..`. The reference may break after merging. |
-| `same audio name, different extension` | `Caution` | Audio files with the same name exist in different formats, such as `.wav` and `.ogg`, in different folders. Both remain after merging, and the audio used for playback may change. |
+| `same audio name, different extension` | `Caution` | For example, if one folder has only `foo.wav` and another has `foo.ogg` at the same relative location, a chart may play a different audio file after merging. If every folder containing that audio name already has the same set of formats, this warning does not appear. |
 | `files with different content` | `Caution` | Files with the same name have different content. The folders may be works that use different audio. |
 | `no identical files shared` | `Caution` | When folders that share a file with identical content are connected to each other, the folders in the group do not all connect and split into separate sets. Unrelated works may be mixed in. Folders that have no files other than charts and `.bmx`, `.pmx`, and `.txt` files are not considered. |
 | `chart folder inside` | `Caution` | A folder to be moved contains another folder with charts. That folder is moved as well. |

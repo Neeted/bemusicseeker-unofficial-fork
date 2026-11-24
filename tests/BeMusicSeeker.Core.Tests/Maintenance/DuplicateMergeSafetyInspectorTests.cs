@@ -257,32 +257,67 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
-    /// 保証：同名の音源（同じ相対ディレクトリ・同じ名前）が、別のフォルダに異なる拡張子であれば要注意になる。
-    /// 同じフォルダ内の違う拡張子、別ディレクトリ、音源でない拡張子、同じ拡張子（大文字小文字違い）は該当しない。
-    /// 検出する誤り：同じフォルダ内の組の誤検出、ディレクトリを無視した名前だけの一致、音源以外の拡張子の誤検出、拡張子の大文字小文字違いの誤検出。
+    /// 保証：同じ相対位置の同名音源を持つフォルダ間で拡張子の集合が異なると、その名前の全音源が要注意になる。
+    /// 検出する誤り：同じ集合や保持するフォルダが一つだけの誤検出、真部分集合の見落とし、別ディレクトリ・対象外形式・大文字小文字の扱いの誤り。
     /// </summary>
     [TestMethod]
-    [DataRow("different-extension", @"bgm\x.wav", @"bgm\X.ogg", true)]
-    [DataRow("same-folder", @"bgm\x.wav|bgm\x.ogg", @"bgm\other.wav", false)]
-    [DataRow("different-directory", @"bgm\x.wav", @"sfx\x.ogg", false)]
-    [DataRow("not-audio", @"bgm\x.bmp", @"bgm\x.png", false)]
-    [DataRow("same-extension", @"bgm\x.wav", @"bgm\X.WAV", false)]
-    public void AudioExtension_RequiresSameDirectoryNameAndDifferentExtensionAcrossFolders(string name, string aFiles, string bFiles, bool expected)
+    [DataRow(@"bgm\x.wav", @"bgm\X.ogg", true)]
+    [DataRow(@"bgm\x.wav|bgm\x.flac", @"bgm\x.wav", true)]
+    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"BGM\X.OGG|BGM\X.WAV", false)]
+    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"bgm\other.wav", false)]
+    [DataRow(@"bgm\x.wav", @"sfx\x.ogg", false)]
+    [DataRow(@"bgm\x.bmp", @"bgm\x.png", false)]
+    [DataRow(@"bgm\x.wav", @"bgm\X.WAV", false)]
+    public void AudioExtension_WarnsWhenMergingAddsAFormat(string aFiles, string bFiles, bool expected)
     {
         string a = Folder("g/a"), b = Folder("g/b");
-        // 連結を満たす共通のファイルを置き、他の理由を除く。同じ相対パスの音源は同一内容にする。
-        WriteFile(Path.Combine(a, "common.bin"), PatternBytes(32, 9));
-        WriteFile(Path.Combine(b, "common.bin"), PatternBytes(32, 9));
-        foreach (string file in aFiles.Split('|')) { WriteFile(Path.Combine(a, file), PatternBytes(16, 5)); }
-        foreach (string file in bFiles.Split('|')) { WriteFile(Path.Combine(b, file), PatternBytes(16, 5)); }
+        DuplicateMergeFinding[] files = aFiles.Split('|').Select(path => Finding(a, path))
+            .Concat(bFiles.Split('|').Select(path => Finding(b, path))).ToArray();
+        WriteFile(Path.Combine(a, "common.bin"), [1]);
+        WriteFile(Path.Combine(b, "common.bin"), [1]);
+        foreach (DuplicateMergeFinding file in files) { WriteFile(Path.Combine(file.Folder, file.RelativePath), [2]); }
 
         DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(a);
 
-        DuplicateMergeVerificationReason? reason = Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension);
-        Assert.AreEqual(expected, reason != null, name + ": " + string.Join(",", Kinds(result)));
+        Assert.AreEqual(expected ? DuplicateMergeVerificationStage.Caution : DuplicateMergeVerificationStage.Safe, result.Stage);
         if (expected)
         {
-            CollectionAssert.AreEqual(new[] { Finding(a, @"bgm\x.wav"), Finding(b, @"bgm\X.ogg") }, reason!.Findings.ToArray());
+            CollectionAssert.AreEquivalent(files, Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)!.Findings.ToArray());
+        }
+    }
+
+    /// <summary>
+    /// 保証：三フォルダの一部で形式が増える名前だけを、KEEPによらず全パスとともに報告する。同じパスの別内容は独立した理由になる。
+    /// 検出する誤り：先頭の二フォルダだけの比較、形式数だけの比較、同じ形式を持つ側の報告漏れ、内容衝突と拡張子違いの混同。
+    /// </summary>
+    [TestMethod]
+    public void AudioExtension_ReportsAllVariantsOfAffectedNamesIndependentlyOfContentAndKeep()
+    {
+        string a = Folder("g/a"), b = Folder("g/b"), c = Folder("g/c");
+        string[] folders = [a, b, c];
+        foreach (string folder in folders)
+        {
+            WriteFile(Path.Combine(folder, "common.bin"), [1]);
+            WriteFile(Path.Combine(folder, "kick.wav"), folder == c ? [2] : [1]);
+        }
+        WriteFile(Path.Combine(a, "kick.ogg"), [1]);
+        WriteFile(Path.Combine(b, "kick.ogg"), [1]);
+        WriteFile(Path.Combine(c, "kick.mp3"), [1]);
+        // この音源は A と B にだけあり、形式は同じだが WAV の内容が異なる。
+        WriteFile(Path.Combine(a, "bass.wav"), [1]);
+        WriteFile(Path.Combine(b, "bass.wav"), [2]);
+        WriteFile(Path.Combine(a, "bass.ogg"), [1]);
+        WriteFile(Path.Combine(b, "bass.ogg"), [1]);
+
+        DuplicateMergeGroupInspection inspection = Inspect(folders);
+        foreach (string keep in folders)
+        {
+            DuplicateMergeVerificationResult result = inspection.Evaluate(keep);
+            CollectionAssert.AreEqual(new[] { DuplicateMergeVerificationReasonKind.AudioExtension, DuplicateMergeVerificationReasonKind.ContentConflict }, Kinds(result));
+            CollectionAssert.AreEqual(new[] { Finding(a, "kick.ogg"), Finding(a, "kick.wav"), Finding(b, "kick.ogg"), Finding(b, "kick.wav"),
+                Finding(c, "kick.mp3"), Finding(c, "kick.wav") }, Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)!.Findings.ToArray());
+            CollectionAssert.AreEqual(new[] { Finding(a, "bass.wav"), Finding(a, "kick.wav"), Finding(b, "bass.wav"), Finding(b, "kick.wav"),
+                Finding(c, "kick.wav") }, Reason(result, DuplicateMergeVerificationReasonKind.ContentConflict)!.Findings.ToArray());
         }
     }
 

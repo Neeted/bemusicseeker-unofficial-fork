@@ -1458,7 +1458,7 @@
   "Duplicate_merge_candidate_reason_other_group_description": "與其他群組的資料夾相同或存在包含關係。",
   "Duplicate_merge_candidate_reason_unreadable_description": "由於權限或讀取失敗等原因，有項目無法檢查。",
   "Duplicate_merge_candidate_reason_parent_reference_description": "將被移動的資料夾中的譜面，其使用中的資源包含上層目錄參照（..）。",
-  "Duplicate_merge_candidate_reason_audio_extension_description": "同名音源在另一個資料夾中以不同的副檔名存在。",
+  "Duplicate_merge_candidate_reason_audio_extension_description": "合併後，同名音源會多一種可用格式，播放譜面時可能會使用不同的音源。",
   "Duplicate_merge_candidate_reason_content_conflict_description": "同名檔案的內容在資料夾之間不同。",
   "Duplicate_merge_candidate_reason_no_shared_content_description": "含有檔案的資料夾之間沒有共用內容相同的檔案。",
   "Duplicate_merge_candidate_reason_nested_chart_folder_description": "將被移動的資料夾之下有包含譜面的其他資料夾。",

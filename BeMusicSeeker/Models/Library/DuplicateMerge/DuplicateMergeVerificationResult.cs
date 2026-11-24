@@ -37,7 +37,7 @@ internal enum DuplicateMergeVerificationReasonKind
     Unreadable,
     /// <summary>移動元になるフォルダの所持譜面が、使用中のリソースに親ディレクトリ参照を持ちます。</summary>
     ParentReference,
-    /// <summary>同じ相対ディレクトリ・同じ名前の音源が、別のフォルダに異なる拡張子であります。</summary>
+    /// <summary>統合により、同じ相対ディレクトリ・同じ名前の音源を持つフォルダのいずれかで、再生に使われる音源の候補が増えます。</summary>
     AudioExtension,
     /// <summary>同じ相対パスの資源が、グループ内の二つのフォルダで別内容と判定されました。</summary>
     ContentConflict,
