@@ -31,6 +31,9 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     private static string UnmergeableRegisteredRootStatus
         => string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, Resources.Duplicate_merge_candidate_reason_registered_root);
 
+    private static string WithMismatch(string status, params string[] notes)
+        => string.Format(Resources.Duplicate_merge_candidate_status_note_format, status, string.Join(", ", notes));
+
     /// <summary>解決と登録範囲の捕捉の呼出しを記録する入力の代替です。</summary>
     private sealed class Source : IDuplicateMergeCandidateListSource
     {
@@ -226,13 +229,18 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         // グループ2は登録範囲のフォルダを二つ持つため統合不可（SELECTはオフのまま）。STATUS以外の列の期待順には影響しない。
         fixture.Source.RegisteredRoots.UnionWith([@"C:\S\Z\aa", @"C:\S\Z\ab"]);
         fixture.Adopt(groups);
-        Assert.AreEqual(UnmergeableRegisteredRootStatus, fixture.Row(@"C:\S\Z\aa").StatusText, "前提：グループ2は統合不可です。");
+        string titleNote = Resources.Duplicate_merge_candidate_title_mismatch;
+        string artistNote = Resources.Duplicate_merge_candidate_artist_mismatch;
+        string blocked = WithMismatch(UnmergeableRegisteredRootStatus, titleNote, artistNote);
+        Assert.AreEqual(blocked, fixture.Row(@"C:\S\Z\aa").StatusText, "登録ルートの理由と両方の付記が残ります。");
         if (expectedOrder == null)
         {
-            // 未確認（0・1・3）と統合不可（2）の二値。同値の未確認は昇順・降順とも結果順を保つ。
-            bool unmergeableFirst = StringComparer.OrdinalIgnoreCase.Compare(
-                UnmergeableRegisteredRootStatus, Resources.Duplicate_merge_candidate_status_unverified) < 0;
-            expectedOrder = unmergeableFirst != descending ? [2, 0, 1, 3] : [0, 1, 3, 2];
+            string plain = Resources.Duplicate_merge_candidate_status_unverified;
+            string[] statuses = [WithMismatch(plain, titleNote, artistNote), plain, blocked, plain];
+            int[] indices = [0, 1, 2, 3];
+            expectedOrder = descending
+                ? [.. indices.OrderByDescending(i => statuses[i], StringComparer.OrdinalIgnoreCase)]
+                : [.. indices.OrderBy(i => statuses[i], StringComparer.OrdinalIgnoreCase)];
         }
         // SELECT：グループ0と1をオン。昇順はオフが先、降順はオンが先。
         fixture.Owner.ToggleSelect(fixture.Rows[0]);
@@ -1042,6 +1050,73 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(
             Unmergeable(Resources.Duplicate_merge_candidate_reason_registered_root),
             DuplicateMergeVerificationResult.UnmergeableRegisteredRoot([@"C:\S\a", @"C:\S\b"]).FormatStatus());
+    }
+
+    /// <summary>代表値が3行目だけ異なる場合も、列ごとに表示文字列を比較し、全行の未確認STATUSに同じ付記を出すことを確認します。</summary>
+    [TestMethod]
+    [DataRow("Song", "Name", "Song", "Name", false, false)]
+    [DataRow("", "", "", "", false, false)]
+    [DataRow("Song", "", "song", "", true, false)]
+    [DataRow("Song", "Name", "Song", "Ｎame", false, true)]
+    [DataRow("Song", "", "Song", "Name", false, true)]
+    [DataRow("", "", "Song", "", true, false)]
+    [DataRow("Song", "Name", "Song ", "name", true, true)]
+    public void StatusText_UsesEachRepresentativeDisplayValue(
+        string title, string artist, string otherTitle, string otherArtist, bool titleDiffers, bool artistDiffers)
+    {
+        var fixture = new Fixture();
+        DuplicateGroup group = Group(@"C:\S\a", @"C:\S\b", @"C:\S\c");
+        fixture.Source.Pairs[group.Folders[0]] = fixture.Source.Pairs[group.Folders[1]] = (title, artist);
+        fixture.Source.Pairs[group.Folders[2]] = (otherTitle, otherArtist);
+        fixture.Adopt(group);
+
+        var notes = new List<string>();
+        if (titleDiffers) { notes.Add(Resources.Duplicate_merge_candidate_title_mismatch); }
+        if (artistDiffers) { notes.Add(Resources.Duplicate_merge_candidate_artist_mismatch); }
+        string plain = Resources.Duplicate_merge_candidate_status_unverified;
+        string expected = notes.Count == 0 ? plain : WithMismatch(plain, [.. notes]);
+        foreach (DuplicateMergeCandidateRow row in fixture.Rows) { Assert.AreEqual(expected, row.StatusText); }
+    }
+
+    /// <summary>安全性確認とKEEP変更の後も付記で検索・除外でき、再構築で列値が揃えば付記だけが消えることを確認します。</summary>
+    [TestMethod]
+    public void RepresentativeMismatch_FollowsCurrentPairsAcrossVerificationAndAdoption()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup group = Group(@"C:\S\a", @"C:\S\b"), single = Group(@"C:\S\single");
+        string a = group.Folders[0], b = group.Folders[1];
+        fixture.Source.Pairs[a] = ("Song", "Artist");
+        fixture.Source.Pairs[b] = ("Song", "artist");
+        fixture.Adopt(group, single);
+        string note = Resources.Duplicate_merge_candidate_artist_mismatch;
+        string query = "status:\"" + note + "\"";
+        fixture.Owner.SearchText = query;
+        CollectionAssert.AreEqual(new[] { a, b }, fixture.Paths);
+        Assert.IsTrue(fixture.Owner.SetKeep(fixture.Row(b)));
+
+        var safe = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [], ["readme.txt"]);
+        foreach (DuplicateMergeVerificationResult? result in new[]
+        {
+            Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.AudioExtension, 1)),
+            DuplicateMergeVerificationResult.UnmergeableRegisteredRoot(group.Folders),
+            safe
+        })
+        {
+            fixture.Owner.WriteVerifications([new(group, result)]);
+            Assert.AreEqual(WithMismatch(result.FormatStatus(), note), fixture.Row(b).StatusText);
+            Assert.AreEqual(result.Stage != DuplicateMergeVerificationStage.Unmergeable, fixture.Row(b).State.CanSelect);
+        }
+
+        Assert.IsTrue(fixture.Owner.ToggleSelect(fixture.Row(b)));
+        fixture.Owner.SearchText = string.Empty;
+        fixture.Owner.ExcludeText = query;
+        CollectionAssert.AreEqual(single.Folders, fixture.Paths);
+        fixture.Source.Pairs[b] = fixture.Source.Pairs[a];
+        fixture.Adopt(group, single);
+        CollectionAssert.AreEqual(new[] { a, b, single.Folders[0] }, fixture.Paths);
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe_protected_collision, fixture.Row(b).StatusText);
+        Assert.IsTrue(fixture.Row(b).IsKeep);
+        Assert.IsTrue(fixture.Row(b).State.IsSelected);
     }
 
     /// <summary>

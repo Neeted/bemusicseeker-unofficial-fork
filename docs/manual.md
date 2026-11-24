@@ -1319,6 +1319,8 @@ Selecting `Merge candidates` at the top of the duplicate-file-check tree shows d
 | `PATH` / `FOLDER` | Folder path and folder name. |
 | `TITLE` / `ARTIST` | Representative title and artist of the folder. |
 
+In both the duplicate file check and the split placement check, `Representative TITLE mismatch` appears in `STATUS` when folders in the same group show different values in the `TITLE` column. The same applies to `ARTIST`, shown as `Representative ARTIST mismatch`. The comparison distinguishes case, full-width and half-width characters, and whitespace. Two empty values match. An empty value and a nonempty value differ. These notes appear before verification and do not affect the safety rating or whether the group can be organized. Enter `status:"Representative TITLE mismatch"` in the search box to show matching groups or in the exclusion box to hide them.
+
 The basic steps are as follows.
 
 1. Press `Select all shown`, or check the target groups in `SELECT`.

@@ -4225,6 +4225,15 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_status_safe_protected_collision" xml:space="preserve">
     <value>安全（.bmx/.txtの衝突）</value>
   </data>
+  <data name="Duplicate_merge_candidate_title_mismatch" xml:space="preserve">
+    <value>代表TITLE不一致</value>
+  </data>
+  <data name="Duplicate_merge_candidate_artist_mismatch" xml:space="preserve">
+    <value>代表ARTIST不一致</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_note_format" xml:space="preserve">
+    <value>{0}（{1}）</value>
+  </data>
   <data name="Duplicate_merge_candidate_status_caution_format" xml:space="preserve">
     <value>要注意：{0}</value>
   </data>

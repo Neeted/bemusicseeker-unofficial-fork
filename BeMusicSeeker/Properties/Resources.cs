@@ -3370,6 +3370,12 @@ public class Resources
     public static string Duplicate_merge_candidate_status_safe => ResourceManager.GetString("Duplicate_merge_candidate_status_safe", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、安全だが保護対象のファイル名が複数のフォルダで衝突しているグループに表示する文言です。</summary>
     public static string Duplicate_merge_candidate_status_safe_protected_collision => ResourceManager.GetString("Duplicate_merge_candidate_status_safe_protected_collision", resourceCulture);
+    /// <summary>代表TITLEがフォルダ間で異なる場合の付記です。</summary>
+    public static string Duplicate_merge_candidate_title_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_title_mismatch", resourceCulture);
+    /// <summary>代表ARTISTがフォルダ間で異なる場合の付記です。</summary>
+    public static string Duplicate_merge_candidate_artist_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_artist_mismatch", resourceCulture);
+    /// <summary>確認状況に代表値の不一致を添える書式です。</summary>
+    public static string Duplicate_merge_candidate_status_note_format => ResourceManager.GetString("Duplicate_merge_candidate_status_note_format", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、要注意のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>
     public static string Duplicate_merge_candidate_status_caution_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_format", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、統合不可のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>

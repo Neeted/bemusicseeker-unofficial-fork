@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
@@ -55,6 +56,28 @@ internal sealed class DuplicateMergeCandidateGroupState
     /// </summary>
     internal DuplicateMergeGroupInspection Inspection { get; set; }
 
+    /// <summary>今回採用した表示値をグループ内で比べた結果です。確認結果と独立に更新します。</summary>
+    internal (bool Title, bool Artist) RepresentativeMismatch { get; set; }
+
+    /// <summary>表示・検索・除外・並べ替えが共用する、現在の表示言語のSTATUSです。</summary>
+    internal string StatusText
+    {
+        get
+        {
+            string status = Verification.FormatStatus();
+            if (RepresentativeMismatch == default) { return status; }
+            string title = Resources.Duplicate_merge_candidate_title_mismatch;
+            string artist = Resources.Duplicate_merge_candidate_artist_mismatch;
+            string note = RepresentativeMismatch switch
+            {
+                (true, true) => title + DuplicateMergeVerificationPresentation.ReasonSeparator + artist,
+                (true, false) => title,
+                _ => artist
+            };
+            return string.Format(Resources.Duplicate_merge_candidate_status_note_format, status, note);
+        }
+    }
+
     /// <summary>SELECTを操作できるかです。統合不可のグループはオンにできません。</summary>
     internal bool CanSelect => Verification.Stage != DuplicateMergeVerificationStage.Unmergeable;
 }
@@ -62,7 +85,11 @@ internal sealed class DuplicateMergeCandidateGroupState
 /// <summary>グループの初期状態を、構築時に一度だけ導いた不変の値です。</summary>
 internal sealed record DuplicateMergeCandidateGroupInitial(
     DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed, bool Unmergeable,
-    IReadOnlyList<string> RegisteredFolders);
+    IReadOnlyList<string> RegisteredFolders)
+{
+    /// <summary>構築時の代表TITLE・ARTISTがグループ内のフォルダ間で異なるかです。</summary>
+    internal (bool Title, bool Artist) RepresentativeMismatch { get; init; }
+}
 
 /// <summary>後続の単位が、表示中でSELECTがオンのグループから捕捉する変更不能な対象です。</summary>
 /// <param name="Group">対象のグループ。</param>
@@ -132,7 +159,7 @@ internal sealed class DuplicateMergeCandidateRow
     internal bool IsKeep => string.Equals(State.KeepFolder, Path, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>グループのSTATUSの表示文言です。読取りのたびに現在の表示言語で作ります。</summary>
-    internal string StatusText => State.Verification.FormatStatus();
+    internal string StatusText => State.StatusText;
 
     /// <summary>グループのSTATUSのツールチップです。読取りのたびに現在の表示言語と現在の上書きの設定で作ります。未確認はnullです。</summary>
     internal string StatusTooltipText => State.Verification.FormatTooltip(overwriteSettings());

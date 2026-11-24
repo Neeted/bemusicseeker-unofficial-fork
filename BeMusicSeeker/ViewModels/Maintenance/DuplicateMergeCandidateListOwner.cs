@@ -240,8 +240,27 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             folders.AddRange(initial.Folders);
         }
         IReadOnlyDictionary<string, (string Title, string Artist)> pairs = source.ResolveDestinationDisplayPairs(folders, cancellationToken);
+        for (int i = 0; i < initials.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DuplicateMergeCandidateGroupInitial initial = initials[i];
+            if (initial.Folders.Count < 2) { continue; }
+            (string Title, string Artist) first = DisplayPairOf(pairs, initial.Folders[0]);
+            bool title = false, artist = false;
+            for (int j = 1; j < initial.Folders.Count && !(title && artist); j++)
+            {
+                (string Title, string Artist) pair = DisplayPairOf(pairs, initial.Folders[j]);
+                title |= !string.Equals(first.Title, pair.Title, StringComparison.Ordinal);
+                artist |= !string.Equals(first.Artist, pair.Artist, StringComparison.Ordinal);
+            }
+            initials[i] = initial with { RepresentativeMismatch = (title, artist) };
+        }
         return new DuplicateMergeCandidateListPreparation(libraryToken, initials, pairs);
     }
+
+    private static (string Title, string Artist) DisplayPairOf(
+        IReadOnlyDictionary<string, (string Title, string Artist)> pairs, string folder)
+        => pairs.GetValueOrDefault(folder, (string.Empty, string.Empty));
 
     private static DuplicateMergeCandidateGroupInitial CreateInitial(DuplicateGroup group, Func<string, bool> isRegistered)
     {
@@ -300,6 +319,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             {
                 state = new DuplicateMergeCandidateGroupState(initial);
             }
+            state.RepresentativeMismatch = initial.RepresentativeMismatch;
             next[initial.Group] = state;
         }
         states = next;
@@ -635,13 +655,13 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         if (preparation == null) { return; }
         IReadOnlyDictionary<string, (string Title, string Artist)> pairs = preparation.Pairs;
         (string Title, string Artist) PairOf(string folder)
-            => pairs.TryGetValue(folder, out (string Title, string Artist) pair) ? pair : (string.Empty, string.Empty);
+            => DisplayPairOf(pairs, folder);
 
         IEnumerable<DuplicateMergeCandidateGroupState> candidates = preparation.Groups.Select(initial => states[initial.Group]);
         // 検索で残るグループのうち、除外で除かれないグループを表示する。どちらも行単位で評価し、一行でも一致すればグループ単位で作用する。
         bool HasMatchingRow(GridKeywordSearchQuery query, DuplicateMergeCandidateGroupState state)
         {
-            string status = state.Verification.FormatStatus();
+            string status = state.StatusText;
             return state.Folders.Any(folder =>
             {
                 (string title, string artist) = PairOf(folder);
@@ -698,7 +718,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         }
         Func<DuplicateMergeCandidateGroupState, string> key = sortColumnName switch
         {
-            "Status" => state => state.Verification.FormatStatus(),
+            "Status" => state => state.StatusText,
             "Path" => state => state.Folders.Count > 0 ? state.Folders[0] : string.Empty,
             "Folder" => state => state.Folders.Count > 0 ? GetFolderName(state.Folders[0]) : string.Empty,
             "Title" => state => state.Folders.Count > 0 ? pairOf(state.Folders[0]).Title : string.Empty,
