@@ -272,8 +272,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
             var search = (Border)window.FindName("KeywordSearchComposite");
             var candidateSearch = (Border)window.FindName("duplicateCandidateSearchComposite");
-            var candidateEditor = (TextBox)window.FindName("duplicateCandidateSearchEditor");
-            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
+            var candidateEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateSearchEditor");
+            var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");

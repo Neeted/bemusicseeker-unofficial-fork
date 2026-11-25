@@ -203,12 +203,12 @@
       </Border>
     </DataTemplate>
   </UserControl.Resources>
-  <Grid x:Name="editorSurface" Width="390" Height="22" Background="Transparent">
+  <Grid x:Name="editorSurface" Height="22" Background="Transparent">
     <TextBox x:Name="InputTextBox"
              AutomationProperties.AutomationId="KeywordSearchInput"
-             Width="390"
+             AutomationProperties.Name="{Binding Path=(AutomationProperties.Name), ElementName=editor}"
              BorderThickness="0"
-           Style="{DynamicResource searchKeywordTextBoxStyle}"
+             Style="{DynamicResource searchKeywordTextBoxStyle}"
              Text="{Binding Text, ElementName=editor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
              TextChanged="InputTextBoxTextChanged"
              SelectionChanged="InputTextBoxSelectionChanged"

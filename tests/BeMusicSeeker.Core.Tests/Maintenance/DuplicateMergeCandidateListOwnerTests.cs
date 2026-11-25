@@ -29,7 +29,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
     /// <summary>登録ルートによる統合不可のSTATUSの文言を、現在の表示言語のリソースから作ります。</summary>
     private static string UnmergeableRegisteredRootStatus
-        => string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, Resources.Duplicate_merge_candidate_reason_registered_root);
+        => string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_unmergeable, Resources.Duplicate_merge_candidate_reason_registered_root);
 
     private static string WithMismatch(string status, params string[] notes)
         => string.Format(Resources.Duplicate_merge_candidate_status_note_format, status, string.Join(", ", notes));
@@ -923,7 +923,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         DuplicateMergeCandidateGroupState state = fixture.Row(@"C:\S\a").State;
         Assert.AreEqual(DuplicateMergeVerificationStage.Caution, state.Verification.Stage);
         Assert.AreEqual(
-            string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_parent_reference),
+            string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_caution, Resources.Duplicate_merge_candidate_reason_parent_reference),
             fixture.Row(@"C:\S\a").StatusText);
         Assert.IsTrue(state.IsSelected, "KEEPの変更で段階が変わっても、SELECTは変えません。");
         Assert.AreEqual(0, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)), "利用者操作では並べ直しません。");
@@ -1020,9 +1020,9 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe_protected_collision, withNote.FormatStatus());
 
         static string Caution(params string[] names)
-            => string.Format(Resources.Duplicate_merge_candidate_status_caution_format, string.Join(", ", names));
+            => string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_caution, string.Join(", ", names));
         static string Unmergeable(params string[] names)
-            => string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, string.Join(", ", names));
+            => string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_unmergeable, string.Join(", ", names));
 
         DuplicateMergeVerificationResult one = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.AudioExtension, 1));
         Assert.AreEqual(Caution(Resources.Duplicate_merge_candidate_reason_audio_extension), one.FormatStatus(), "理由が一つなら従来と同じ表示です。");

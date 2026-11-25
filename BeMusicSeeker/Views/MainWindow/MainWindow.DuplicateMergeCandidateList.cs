@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -20,10 +21,12 @@ public partial class MainWindow
     private DuplicateMergeCandidateListOwner DuplicateCandidateList
         => (base.DataContext as MainWindowViewModel)?.DisplayedCandidateList;
 
-    /// <summary>管理主体の表示内容の変更（SELECT・STATUS・KEEP）を表の再描画へ接続します。行集合の入替えは、ItemsSourceの束縛が担います。</summary>
+    /// <summary>表の再描画を管理主体へ接続し、検索と除外の実入力欄に従来のUI Automation識別子を割り当てます。</summary>
     private void ConnectDuplicateMergeCandidateList(MainWindowViewModel viewModel)
     {
         customTableDuplicateCandidates.ConfigureDialogs(dialogService);
+        AutomationProperties.SetAutomationId(duplicateCandidateSearchEditor.InputTextBoxControl, "DuplicateCandidateSearch");
+        AutomationProperties.SetAutomationId(duplicateCandidateExcludeEditor.InputTextBoxControl, "DuplicateCandidateExclude");
         viewModel.DuplicateMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
         viewModel.SplitPlacementMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
     }
@@ -32,6 +35,24 @@ public partial class MainWindow
     private void DuplicateMergeCandidateListDisplayInvalidated(object sender, EventArgs e)
     {
         if (ReferenceEquals(sender, DuplicateCandidateList)) { customTableDuplicateCandidates?.RefreshDisplay(); }
+    }
+
+    private void DuplicateCandidateSearchEditorDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        => ((KeywordSearchEditor)sender).Configure((e.NewValue as DuplicateMergeCandidateListOwner)?.SearchAssistance);
+
+    private void DuplicateCandidateExcludeEditorDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        => ((KeywordSearchEditor)sender).Configure((e.NewValue as DuplicateMergeCandidateListOwner)?.ExcludeAssistance);
+
+    private void DuplicateCandidateSearchClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        duplicateCandidateSearchEditor.ClearInput();
+        e.Handled = true;
+    }
+
+    private void DuplicateCandidateExcludeClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        duplicateCandidateExcludeEditor.ClearInput();
+        e.Handled = true;
     }
 
     private void customTableDuplicateCandidates_SortRequested(object sender, CustomTableSortRequestedEventArgs e)

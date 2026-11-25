@@ -4234,11 +4234,14 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_status_note_format" xml:space="preserve">
     <value>{0}（{1}）</value>
   </data>
-  <data name="Duplicate_merge_candidate_status_caution_format" xml:space="preserve">
-    <value>要注意：{0}</value>
+  <data name="Duplicate_merge_candidate_status_caution" xml:space="preserve">
+    <value>要注意</value>
   </data>
-  <data name="Duplicate_merge_candidate_status_unmergeable_format" xml:space="preserve">
-    <value>統合不可：{0}</value>
+  <data name="Duplicate_merge_candidate_status_unmergeable" xml:space="preserve">
+    <value>統合不可</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_reasons_format" xml:space="preserve">
+    <value>{0}：{1}</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_link" xml:space="preserve">
     <value>リンクあり</value>

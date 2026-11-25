@@ -106,6 +106,23 @@
         <Setter Property="Foreground" Value="{DynamicResource App.AccentSubtleBrush}" />
         <Setter Property="Cursor" Value="Hand" />
       </Style>
+      <Style x:Key="candidateKeywordSearchCompositeStyle" TargetType="{x:Type Border}">
+        <Setter Property="DockPanel.Dock" Value="Right" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Width" Value="260" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="0,0,2,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FlowDirection" Value="LeftToRight" />
+        <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource App.SearchBorderBrush}" />
+        <Setter Property="Visibility" Value="{Binding DisplayedCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
+        <Style.Triggers>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True">
+            <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
+          </Trigger>
+        </Style.Triggers>
+      </Style>
       <Style x:Key="SidebarSplitterStyle" TargetType="{x:Type GridSplitter}">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
@@ -736,7 +753,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <v:KeywordSearchEditor x:Name="KeywordSearchEditor" AutomationProperties.AutomationId="MainKeywordSearch" Grid.Column="1" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <v:KeywordSearchEditor x:Name="KeywordSearchEditor" AutomationProperties.AutomationId="MainKeywordSearch" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_editor_name, Mode=OneWay}" Grid.Column="1" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
                   <Grid x:Name="KeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <v:AppFontIcon Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding ChartFilters.KeywordSearchWarningText, Source={StaticResource vm}}" Visibility="{Binding ChartFilters.HasKeywordSearchWarning, Source={StaticResource vm}, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
                   </Grid>
@@ -787,7 +804,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <v:KeywordSearchEditor x:Name="PlaylistSummaryKeywordSearchEditor" Grid.Column="1" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <v:KeywordSearchEditor x:Name="PlaylistSummaryKeywordSearchEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_summary_editor_name, Mode=OneWay}" Grid.Column="1" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
                   <Grid x:Name="PlaylistSummaryKeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <v:AppFontIcon Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
                   </Grid>
@@ -816,9 +833,14 @@
                  </TextBlock.Visibility>
                </TextBlock>
               <TextBlock DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Text="{Binding PlaylistWorkspace.PlaylistSummaryText}" />
-              <Border x:Name="duplicateCandidateExcludeComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="180" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{DynamicResource App.ControlBackgroundBrush}" BorderBrush="{DynamicResource App.SearchBorderBrush}" Visibility="{Binding DisplayedCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+              <Border x:Name="duplicateCandidateExcludeComposite" Style="{StaticResource candidateKeywordSearchCompositeStyle}">
                 <Grid>
-                  <TextBox x:Name="duplicateCandidateExcludeEditor" AutomationProperties.AutomationId="DuplicateCandidateExclude" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" CaretBrush="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Padding="4,0" Text="{Binding DisplayedCandidateList.ExcludeText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                  </Grid.ColumnDefinitions>
+                  <v:KeywordSearchEditor x:Name="duplicateCandidateExcludeEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidateList}" DataContextChanged="DuplicateCandidateExcludeEditorDataContextChanged" Text="{Binding ExcludeText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
                   <TextBlock x:Name="duplicateCandidateExcludePlaceholder" IsHitTestVisible="False" Margin="8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.SubtleTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_placeholder, Mode=OneWay}">
                     <TextBlock.Style>
                       <Style TargetType="{x:Type TextBlock}">
@@ -831,10 +853,29 @@
                       </Style>
                     </TextBlock.Style>
                   </TextBlock>
+                  <Grid Grid.Column="1" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <v:AppFontIcon x:Name="duplicateCandidateExcludeWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidateList.ExcludeWarningText}" Visibility="{Binding DisplayedCandidateList.ExcludeWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
+                  </Grid>
+                  <Grid Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <v:AppFontIcon x:Name="duplicateCandidateExcludeClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Glyph="{StaticResource App.IconGlyph.Clear}" Visibility="{Binding Text, ElementName=duplicateCandidateExcludeEditor, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="DuplicateCandidateExcludeClearMouseLeftButtonDown" />
+                  </Grid>
                 </Grid>
               </Border>
-              <Border x:Name="duplicateCandidateSearchComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="260" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{DynamicResource App.ControlBackgroundBrush}" BorderBrush="{DynamicResource App.SearchBorderBrush}" Visibility="{Binding DisplayedCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
-                <TextBox x:Name="duplicateCandidateSearchEditor" AutomationProperties.AutomationId="DuplicateCandidateSearch" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" CaretBrush="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Padding="4,0" Text="{Binding DisplayedCandidateList.SearchText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
+              <Border x:Name="duplicateCandidateSearchComposite" Style="{StaticResource candidateKeywordSearchCompositeStyle}">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                  </Grid.ColumnDefinitions>
+                  <v:KeywordSearchEditor x:Name="duplicateCandidateSearchEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidateList}" DataContextChanged="DuplicateCandidateSearchEditorDataContextChanged" Text="{Binding SearchText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
+                  <Grid Grid.Column="1" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <v:AppFontIcon x:Name="duplicateCandidateSearchWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidateList.SearchWarningText}" Visibility="{Binding DisplayedCandidateList.SearchWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
+                  </Grid>
+                  <Grid Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <v:AppFontIcon x:Name="duplicateCandidateSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Glyph="{StaticResource App.IconGlyph.Clear}" Visibility="{Binding Text, ElementName=duplicateCandidateSearchEditor, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="DuplicateCandidateSearchClearMouseLeftButtonDown" />
+                  </Grid>
+                </Grid>
               </Border>
               <TextBlock x:Name="duplicateCandidateSummaryText" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding DisplayedCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <TextBlock.Text>

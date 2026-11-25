@@ -7,8 +7,11 @@ namespace BeMusicSeeker.ViewModels;
 internal static class KeywordSearchPresentationText
 {
     internal static string BuildWarningText(string keywordFilter, GridKeywordSearchContext context)
+        => BuildWarningText(GridKeywordSearchQuery.Parse(keywordFilter), context);
+
+    /// <summary>照合に使う解析済みの式から、現在の言語の警告を組み立てます。</summary>
+    internal static string BuildWarningText(GridKeywordSearchQuery query, GridKeywordSearchContext context)
     {
-        var query = GridKeywordSearchQuery.Parse(keywordFilter);
         IReadOnlyList<GridKeywordSearchDiagnostic> diagnostics = query.GetDiagnostics(context);
         if (diagnostics.Count == 0)
         {

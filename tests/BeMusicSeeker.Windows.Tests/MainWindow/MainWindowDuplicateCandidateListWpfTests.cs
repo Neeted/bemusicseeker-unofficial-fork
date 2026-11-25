@@ -43,9 +43,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
             var search = (Border)window.FindName("KeywordSearchComposite");
             var candidateSearch = (Border)window.FindName("duplicateCandidateSearchComposite");
-            var candidateEditor = (TextBox)window.FindName("duplicateCandidateSearchEditor");
+            var candidateEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateSearchEditor");
             var candidateExclude = (Border)window.FindName("duplicateCandidateExcludeComposite");
-            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
+            var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var bar = (Border)window.FindName("duplicateCandidateOperationBar");
             var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
@@ -153,6 +153,138 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreSame(first, candidates.RowSet.Select(row => row.State.Group).Last(), "降順の並べ替えを保ちます。");
             Assert.AreEqual(1, FindDescendants<TreeViewItem>(tree).Count(item => item.IsSelected));
         });
+    }
+
+    /// <summary>
+    /// 両欄で実エディターの候補を開き、行が0件でも空白付きの値を選択して対応する式へ引用付きで反映できることを確認します。
+    /// 言語変更で候補と警告だけを更新し、式・キャレット・行集合を保ちます。警告とクリアが別欄へ及ぶ誤り、通常一覧の保存式の表示・変更も検出します。
+    /// 対象を識別する従来のUI Automation識別子と現在の言語のアクセシブル名は、実際の入力欄で確認します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CandidateList_SearchEditorsKeepCompletionAndDiagnosticsIndependent(bool exclude)
+    {
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var normal = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
+            var search = (KeywordSearchEditor)window.FindName("duplicateCandidateSearchEditor");
+            var exclusion = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
+            KeywordSearchSavedQueryOwner normalSaved = viewModel.ChartFilters.KeywordSearchAssistanceOwner.SavedQueryOwner;
+            Assert.IsTrue(normalSaved.TryAddFavorite("title:pinned").Succeeded);
+            Assert.IsTrue(normalSaved.TryCommitHistory("title:recent").Succeeded);
+            FocusCandidateEditor(normal);
+            Assert.IsTrue(normal.Presentation.VisibleItems.Any(item => item.Query == "title:pinned"));
+            Assert.IsTrue(normal.Presentation.VisibleItems.Any(item => item.Query == "title:recent"));
+            normal.ClearKeyboardFocusIfOutside(table);
+            KeywordSearchSavedQueryState saved = normalSaved.State;
+
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(root));
+            DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
+            KeywordSearchEditor target = exclude ? exclusion : search;
+            KeywordSearchEditor other = exclude ? search : exclusion;
+            string targetProperty = exclude ? nameof(candidates.ExcludeText) : nameof(candidates.SearchText);
+            string otherProperty = exclude ? nameof(candidates.SearchText) : nameof(candidates.ExcludeText);
+            string TargetValue() => exclude ? candidates.ExcludeText : candidates.SearchText;
+            string OtherValue() => exclude ? candidates.SearchText : candidates.ExcludeText;
+            string TargetFieldName() => exclude ? Resources.Duplicate_merge_candidate_exclude_search : Resources.Duplicate_merge_candidate_search;
+            string targetAutomationId = exclude ? "DuplicateCandidateExclude" : "DuplicateCandidateSearch";
+            var warning = (AppFontIcon)window.FindName(exclude ? "duplicateCandidateExcludeWarningIcon" : "duplicateCandidateSearchWarningIcon");
+            var otherWarning = (AppFontIcon)window.FindName(exclude ? "duplicateCandidateSearchWarningIcon" : "duplicateCandidateExcludeWarningIcon");
+            var clear = (AppFontIcon)window.FindName(exclude ? "duplicateCandidateExcludeClearIcon" : "duplicateCandidateSearchClearIcon");
+
+            string previous = Resources.Culture?.Name ?? "ja-JP";
+            try
+            {
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(targetAutomationId, AutomationProperties.GetAutomationId(target.InputTextBoxControl));
+                Assert.AreNotEqual(targetAutomationId, AutomationProperties.GetAutomationId(target));
+                Assert.AreEqual(TargetFieldName(), AutomationProperties.GetName(target.InputTextBoxControl));
+                FocusCandidateEditor(target);
+                CollectionAssert.AreEquivalent(new[] { "path:", "folder:", "title:", "artist:", "status:" },
+                    target.Presentation.VisibleItems.Select(item => item.DisplayText).ToArray());
+                Assert.IsFalse(other.AssistancePopupControl.IsOpen, "候補は操作中の欄にだけ開きます。");
+
+                const string otherText = "folder:NoSuchFolder";
+                EnterCandidateText(candidates, other, otherText, otherProperty, OtherValue);
+                const string prefix = "status:";
+                EnterCandidateText(candidates, target, prefix, targetProperty, TargetValue);
+                target.InputTextBoxControl.CaretIndex = prefix.Length;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, table.ItemsSource.Count);
+                Assert.IsTrue(target.AssistancePopupControl.IsOpen);
+                Assert.AreEqual("Cannot merge", target.Presentation.VisibleItems[3].DisplayText);
+                Assert.AreEqual(Visibility.Visible, warning.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, otherWarning.Visibility);
+                object rows = table.ItemsSource;
+                object englishWarning = warning.ToolTip;
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("統合不可", target.Presentation.VisibleItems[3].DisplayText);
+                Assert.AreEqual(targetAutomationId, AutomationProperties.GetAutomationId(target.InputTextBoxControl));
+                Assert.AreEqual(TargetFieldName(), AutomationProperties.GetName(target.InputTextBoxControl));
+                Assert.AreNotEqual(englishWarning, warning.ToolTip);
+                Assert.AreEqual(prefix, target.Text);
+                Assert.AreEqual(prefix.Length, target.InputTextBoxControl.CaretIndex);
+                Assert.AreSame(rows, table.ItemsSource, "言語を変更しても絞り込みを再実行しません。");
+                Assert.AreEqual(otherText, other.Text);
+
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Cannot merge", target.Presentation.VisibleItems[3].DisplayText);
+                Assert.IsTrue(target.HandleInputKey(Key.Space, ModifierKeys.Control));
+                for (int i = 0; i < 3; i++) { Assert.IsTrue(target.HandleInputKey(Key.Down, ModifierKeys.None)); }
+                const string completed = "status:\"Cannot merge\" ";
+                AwaitCandidateText(candidates, completed, targetProperty, TargetValue, () =>
+                {
+                    Assert.IsTrue(target.HandleInputKey(Key.Enter, ModifierKeys.None));
+                    Assert.AreEqual(completed, target.InputTextBoxControl.Text);
+                });
+                Assert.AreEqual(otherText, other.Text);
+                Assert.AreEqual(Visibility.Collapsed, warning.Visibility);
+                target.ClearKeyboardFocusIfOutside(table);
+                Assert.AreSame(saved, normalSaved.State, "入力が残った状態で離れても通常一覧の保存式を変更しません。");
+
+                EnterCandidateText(candidates, target, "genre:invalid", targetProperty, TargetValue);
+                Assert.AreEqual(Visibility.Visible, warning.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, otherWarning.Visibility);
+                Assert.AreEqual(Visibility.Visible, clear.Visibility);
+                AwaitCandidateText(candidates, string.Empty, targetProperty, TargetValue, () =>
+                {
+                    clear.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+                    });
+                    Assert.AreEqual(string.Empty, target.InputTextBoxControl.Text, "クリアは同期で入力欄へ反映します。");
+                });
+                Assert.AreEqual(Visibility.Collapsed, warning.Visibility);
+                Assert.AreEqual(Visibility.Hidden, clear.Visibility);
+                Assert.AreEqual(otherText, OtherValue());
+                target.ClearKeyboardFocusIfOutside(table);
+                Assert.AreSame(saved, normalSaved.State, "候補の適用・クリア・離脱で通常一覧の保存式を変更しません。");
+            }
+            finally
+            {
+                target.ClearKeyboardFocusIfOutside(table);
+                ResourceService.Current.ChangeCulture(previous);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    private static void FocusCandidateEditor(KeywordSearchEditor editor)
+    {
+        TextBox input = editor.InputTextBoxControl;
+        input.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, Environment.TickCount, null, input)
+        {
+            RoutedEvent = Keyboard.GotKeyboardFocusEvent,
+        });
+        TestUiDispatcherHost.ProcessQueuedPresentation();
     }
 
     /// <summary>
@@ -401,7 +533,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var select = (Button)window.FindName("duplicateCandidateSelectVisibleButton");
             var verify = (Button)window.FindName("duplicateCandidateVerifyButton");
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
-            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
+            var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var excludePlaceholder = (TextBlock)window.FindName("duplicateCandidateExcludePlaceholder");
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
             DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
@@ -436,11 +568,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_check_on, menu.Items.OfType<MenuItem>().First().Header);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_selected, verify.Content);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare, quickCompare.Content);
-                Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_search, AutomationProperties.GetName(excludeEditor), "除外欄のアクセシブル名は現在の言語です。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_search, AutomationProperties.GetName(excludeEditor.InputTextBoxControl), "除外欄のアクセシブル名は現在の言語です。");
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_placeholder, excludePlaceholder.Text, "除外欄のプレースホルダーは現在の言語です。");
                 Assert.IsTrue(menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group)));
                 Assert.AreEqual(
-                    string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_parent_reference),
+                    string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_caution, Resources.Duplicate_merge_candidate_reason_parent_reference),
                     candidates.RowSet[0].StatusText, "確認済みのSTATUSは現在の言語で作り直します。");
                 string tooltip = ResolveStatusTooltip(table, 0);
                 StringAssert.StartsWith(tooltip, Resources.Duplicate_merge_candidate_reason_parent_reference_description, "ツールチップも現在の言語です。");
@@ -521,7 +653,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "verify-toolbar");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, rows[0].StatusText);
             Assert.AreEqual(
-                string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_content_conflict), rows[2].StatusText);
+                string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_caution, Resources.Duplicate_merge_candidate_reason_content_conflict), rows[2].StatusText);
             Assert.IsFalse(rows[0].State.IsSelected, "安全のSELECTも確認で消費してオフにします。");
             Assert.IsFalse(rows[2].State.IsSelected, "要注意のSELECTはオフです。");
             Assert.AreEqual(0, candidates.SelectedGroupCount);
@@ -626,7 +758,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// <param name="propertyName">対象の語のプロパティ名（検索語または除外語）。</param>
     /// <param name="currentValue">対象の語の現在値の取得。</param>
     private static void EnterCandidateText(
-        DuplicateMergeCandidateListOwner owner, TextBox editor, string text, string propertyName, Func<string> currentValue)
+        DuplicateMergeCandidateListOwner owner, KeywordSearchEditor editor, string text, string propertyName, Func<string> currentValue)
+        => AwaitCandidateText(owner, text, propertyName, currentValue,
+            () => editor.InputTextBoxControl.SetCurrentValue(TextBox.TextProperty, text));
+
+    private static void AwaitCandidateText(
+        DuplicateMergeCandidateListOwner owner, string text, string propertyName, Func<string> currentValue, Action input)
     {
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PropertyChangedEventHandler changed = (_, args) =>
@@ -637,7 +774,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         try
         {
             Assert.AreNotEqual(text, currentValue(), "前提：入力前の語は異なります。");
-            editor.Text = text;
+            input();
             TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "candidate text binding " + propertyName);
         }
         finally { owner.PropertyChanged -= changed; }

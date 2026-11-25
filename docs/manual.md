@@ -1367,6 +1367,7 @@ A progress dialog is shown during processing, and other operations are unavailab
 Other operations are as follows.
 
 - Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept `path:`, `folder:`, `title:`, `artist:`, and `status:`. `Select all shown`, `Verify selected groups`, and `Organize selected groups` apply only to the shown groups.
+- Both boxes suggest available fields when empty. After `status:`, you can choose a stage, reason, or note in the current display language. Suggestions are available even when the list shows no results.
 - Clicking a column header sorts by group. Rows inside a group are always in path order.
 - When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
 - Double-clicking a row moves to that folder in the duplicate-file-check tree.

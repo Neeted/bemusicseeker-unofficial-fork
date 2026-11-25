@@ -21,7 +21,9 @@ public enum GridKeywordSearchContext
     /// <summary>Playlist summary scope.</summary>
     PlaylistSummary,
     /// <summary>Play history scope.</summary>
-    PlayHistory
+    PlayHistory,
+    /// <summary>重複と分裂配置が共用する統合候補一覧の検索範囲です。</summary>
+    DuplicateMergeCandidate
 }
 
 internal enum GridKeywordSearchDiagnosticKind
@@ -101,6 +103,7 @@ internal sealed class GridKeywordSearchQuery
             GridKeywordSearchContext.PlaylistDetail => PlaylistDetailFields,
             GridKeywordSearchContext.PlaylistSummary => PlaylistSummaryFields,
             GridKeywordSearchContext.PlayHistory => PlayHistoryFields,
+            GridKeywordSearchContext.DuplicateMergeCandidate => DuplicateMergeCandidateFields,
             _ => ChartListFields,
         };
     }
@@ -114,7 +117,7 @@ internal sealed class GridKeywordSearchQuery
         List<GridKeywordSearchDiagnostic> diagnostics = [];
         foreach (SearchCondition condition in conditions)
         {
-            if (!string.IsNullOrEmpty(condition.Field) && !IsKnownField(context, condition.Field))
+            if (!string.IsNullOrEmpty(condition.Field) && !GetKnownFields(context).Contains(condition.Field))
             {
                 diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.UnknownField, condition.Field));
             }
@@ -553,17 +556,6 @@ internal sealed class GridKeywordSearchQuery
     private static bool IsKnownPlayHistoryField(string field)
     {
         return field == null || PlayHistoryFields.Contains(field);
-    }
-
-    private static bool IsKnownField(GridKeywordSearchContext context, string field)
-    {
-        return context switch
-        {
-            GridKeywordSearchContext.PlaylistDetail => IsKnownPlaylistDetailField(field),
-            GridKeywordSearchContext.PlaylistSummary => IsKnownPlaylistSummaryField(field),
-            GridKeywordSearchContext.PlayHistory => IsKnownPlayHistoryField(field),
-            _ => IsKnownChartListField(field),
-        };
     }
 
     private static bool IsChartInfoField(string field)

@@ -524,7 +524,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
         Assert.AreEqual(1, result.Unmergeable);
         Assert.AreEqual(
-            string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, Resources.Duplicate_merge_candidate_reason_other_group),
+            string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_unmergeable, Resources.Duplicate_merge_candidate_reason_other_group),
             fixture.State(target).Verification.FormatStatus());
         Assert.IsFalse(fixture.State(target).IsSelected);
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, fixture.State(hidden).Verification.FormatStatus(), "確認対象外のグループは変えません。");

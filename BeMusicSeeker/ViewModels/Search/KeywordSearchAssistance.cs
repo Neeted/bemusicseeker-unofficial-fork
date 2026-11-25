@@ -471,22 +471,24 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     private KeywordSearchPresentationState presentation;
 
     /// <summary>
-    /// Creates assistance state for one saved-query owner and search context.
+    /// 一つの検索欄の補完状態を作ります。保存式を扱わない欄では補完だけを提供します。
     /// </summary>
-    /// <param name="savedQueryOwner">The explicit persisted saved-query owner.</param>
-    /// <param name="context">The initial search context.</param>
-    /// <param name="catalogSnapshot">The initial immutable catalog snapshot.</param>
+    /// <param name="savedQueryOwner">保存式の管理主体です。履歴・お気に入りを扱わない欄ではnullです。</param>
+    /// <param name="context">最初の検索範囲です。</param>
+    /// <param name="catalogSnapshot">最初の不変な動的候補です。</param>
     internal KeywordSearchAssistanceOwner(
         KeywordSearchSavedQueryOwner savedQueryOwner,
         GridKeywordSearchContext context,
         KeywordSearchCatalogSnapshot catalogSnapshot = null)
     {
-        this.savedQueryOwner = savedQueryOwner
-            ?? throw new ArgumentNullException(nameof(savedQueryOwner));
+        this.savedQueryOwner = savedQueryOwner;
         this.context = context;
         this.catalogSnapshot = catalogSnapshot ?? KeywordSearchCatalogSnapshot.Empty;
         presentation = ClosedPresentation();
-        this.savedQueryOwner.StateChanged += SavedQueryOwnerStateChanged;
+        if (savedQueryOwner != null)
+        {
+            savedQueryOwner.StateChanged += SavedQueryOwnerStateChanged;
+        }
     }
 
     /// <summary>
@@ -500,7 +502,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     public event PropertyChangedEventHandler PropertyChanged;
 
     /// <summary>
-    /// Gets the persisted saved-query owner used by this assistance surface.
+    /// この欄の保存式の管理主体です。保存式を扱わない欄ではnullです。
     /// </summary>
     internal KeywordSearchSavedQueryOwner SavedQueryOwner => savedQueryOwner;
 
@@ -710,7 +712,11 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
 
         if (item.IsSavedQuery)
         {
-            KeywordSearchSavedQueryMutationResult historyResult = savedQueryOwner.TryCommitHistory(item.Query);
+            if (savedQueryOwner == null)
+            {
+                return KeywordSearchApplyResult.FailureResult(KeywordSearchApplyFailure.UnsupportedCandidate, safeText, safeCaretIndex);
+            }
+            KeywordSearchSavedQueryMutationResult historyResult = TryCommitHistory(item.Query);
             if (!historyResult.Succeeded)
             {
                 return KeywordSearchApplyResult.FailureResult(
@@ -736,27 +742,32 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Pins a saved query while keeping the text and caret untouched.
+    /// 入力とキャレットを維持したままお気に入りへ登録します。保存式を扱わない欄では何も変更しません。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryAddFavorite(string query)
-        => MutateSavedQuery(() => savedQueryOwner.TryAddFavorite(query));
+        => MutateSavedQuery(owner => owner.TryAddFavorite(query));
 
     /// <summary>
-    /// Removes a saved favorite while keeping the text and caret untouched.
+    /// 入力とキャレットを維持したままお気に入りから削除します。保存式を扱わない欄では何も変更しません。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryRemoveFavorite(string query)
-        => MutateSavedQuery(() => savedQueryOwner.TryRemoveFavorite(query));
+        => MutateSavedQuery(owner => owner.TryRemoveFavorite(query));
 
     /// <summary>
-    /// Deletes a history entry while keeping an equal favorite and the input untouched.
+    /// 同じお気に入りと入力を残したまま履歴から削除します。保存式を扱わない欄では何も変更しません。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryDeleteHistory(string query)
-        => MutateSavedQuery(() => savedQueryOwner.TryDeleteHistory(query));
+        => MutateSavedQuery(owner => owner.TryDeleteHistory(query));
+
+    /// <summary>履歴を確定します。保存式を扱わない欄では何も変更しません。</summary>
+    internal KeywordSearchSavedQueryMutationResult TryCommitHistory(string query)
+        => savedQueryOwner?.TryCommitHistory(query) ?? KeywordSearchSavedQueryMutationResult.Success(changed: false);
 
     private KeywordSearchSavedQueryMutationResult MutateSavedQuery(
-        Func<KeywordSearchSavedQueryMutationResult> mutation)
+        Func<KeywordSearchSavedQueryOwner, KeywordSearchSavedQueryMutationResult> mutation)
     {
-        KeywordSearchSavedQueryMutationResult result = mutation();
+        if (savedQueryOwner == null) { return KeywordSearchSavedQueryMutationResult.Success(changed: false); }
+        KeywordSearchSavedQueryMutationResult result = mutation(savedQueryOwner);
         if (result.Succeeded && result.Changed)
         {
             RefreshCurrentSnapshot();
@@ -829,8 +840,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(text))
         {
             List<KeywordSearchPresentationSection> emptySections = [];
-            IReadOnlyList<string> favorites = savedQueryOwner.GetProjectedFavorites(currentContext);
-            IReadOnlyList<string> history = savedQueryOwner.GetProjectedHistory(currentContext);
+            IReadOnlyList<string> favorites = savedQueryOwner?.GetProjectedFavorites(currentContext) ?? [];
+            IReadOnlyList<string> history = savedQueryOwner?.GetProjectedHistory(currentContext) ?? [];
             KeywordSearchPresentationSection favoriteSection = CreateSavedSection(
                 KeywordSearchPresentationSectionKind.Favorites,
                 KeywordSearchPresentationItemKind.Favorite,

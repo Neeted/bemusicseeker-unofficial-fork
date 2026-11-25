@@ -6,6 +6,65 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class KeywordSearchPresentationTests
 {
+    /// <summary>統合候補一覧専用の5項目と、先頭の4段階・全理由・付記を確認し、通常一覧の項目や値が混ざる誤りと候補欠落を検出します。</summary>
+    [TestMethod]
+    public void CandidateListAssistance_ExposesItsFiveFieldsAndAllStatusValues()
+    {
+        const GridKeywordSearchContext context = GridKeywordSearchContext.DuplicateMergeCandidate;
+        KeywordSearchAssistanceOwner assistance = new(null, context);
+
+        KeywordSearchPresentationState empty = assistance.Focus(string.Empty, 0);
+        Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, empty.Sections.Single().Kind);
+        CollectionAssert.AreEquivalent(new[] { "path:", "folder:", "title:", "artist:", "status:" },
+            empty.VisibleItems.Select(item => item.DisplayText).ToArray());
+
+        KeywordSearchPresentationState status = assistance.Refresh("status:", "status:".Length);
+        Assert.AreEqual(KeywordSearchPresentationSectionKind.Values, status.Sections.Single().Kind);
+        string[] values = status.VisibleItems.Select(item => item.DisplayText).ToArray();
+        CollectionAssert.AreEqual(new[]
+        {
+            Resources.Duplicate_merge_candidate_status_unverified,
+            Resources.Duplicate_merge_candidate_status_safe,
+            Resources.Duplicate_merge_candidate_status_caution,
+            Resources.Duplicate_merge_candidate_status_unmergeable,
+        }, values[..4]);
+        CollectionAssert.AreEquivalent(new[]
+        {
+            Resources.Duplicate_merge_candidate_reason_link,
+            Resources.Duplicate_merge_candidate_reason_registered_root,
+            Resources.Duplicate_merge_candidate_reason_parent_child,
+            Resources.Duplicate_merge_candidate_reason_type_conflict,
+            Resources.Duplicate_merge_candidate_reason_other_group,
+            Resources.Duplicate_merge_candidate_reason_unreadable,
+            Resources.Duplicate_merge_candidate_reason_parent_reference,
+            Resources.Duplicate_merge_candidate_reason_audio_extension,
+            Resources.Duplicate_merge_candidate_reason_content_conflict,
+            Resources.Duplicate_merge_candidate_reason_no_shared_content,
+            Resources.Duplicate_merge_candidate_reason_nested_chart_folder,
+            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            Resources.Duplicate_merge_candidate_title_mismatch,
+            Resources.Duplicate_merge_candidate_artist_mismatch,
+        }, values[4..]);
+
+        foreach (string field in new[] { "path:", "folder:", "title:", "artist:", "playlist:", "clear:" })
+        {
+            Assert.IsFalse(assistance.Refresh(field, field.Length).IsOpen, field);
+        }
+    }
+
+    /// <summary>統合候補一覧用の項目診断と共通の構文警告を確認し、他の画面で使える項目を受理済みと扱う誤りを検出します。</summary>
+    [TestMethod]
+    public void CandidateListAssistance_UsesCandidateFieldsForDiagnostics()
+    {
+        const GridKeywordSearchContext context = GridKeywordSearchContext.DuplicateMergeCandidate;
+        Assert.AreEqual(string.Empty, KeywordSearchPresentationText.BuildWarningText("path:a folder:b title:c artist:d status:e", context));
+
+        string warning = KeywordSearchPresentationText.BuildWarningText("genre:g status: title:re:[", context);
+        StringAssert.Contains(warning, string.Format(Resources.Keyword_search_warning_unknown_field, "genre"));
+        StringAssert.Contains(warning, string.Format(Resources.Keyword_search_warning_empty_field_term, "status"));
+        StringAssert.Contains(warning, string.Format(Resources.Keyword_search_warning_invalid_regex, "["));
+    }
+
     /// <summary>memoの非対応画面だけに警告を表示し、履歴で有効なfinalizedは警告へ含めないことを確認し、表示先と異なる項目診断を文言化する誤りを検出します。</summary>
     [TestMethod]
     public void BuildKeywordSearchWarningText_UsesContextSpecificFields()

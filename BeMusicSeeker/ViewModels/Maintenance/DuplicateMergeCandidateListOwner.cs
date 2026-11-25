@@ -46,6 +46,8 @@ internal sealed class DuplicateMergeCandidateListPreparation
 /// </remarks>
 public sealed class DuplicateMergeCandidateListOwner : ViewModel
 {
+    private const GridKeywordSearchContext SearchContext = GridKeywordSearchContext.DuplicateMergeCandidate;
+
     private readonly Func<string, bool> directoryExists;
     private readonly Action<string> openDirectory;
     private readonly Func<DuplicateMergeOverwriteSettings> overwriteSettings;
@@ -140,6 +142,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             searchText = next;
             searchQuery = GridKeywordSearchQuery.Parse(next);
             RaisePropertyChanged(nameof(SearchText));
+            RaisePropertyChanged(nameof(SearchWarningText));
             RebuildView();
         }
     }
@@ -159,7 +162,40 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             excludeText = next;
             excludeQuery = GridKeywordSearchQuery.Parse(next);
             RaisePropertyChanged(nameof(ExcludeText));
+            RaisePropertyChanged(nameof(ExcludeWarningText));
             RebuildView();
+        }
+    }
+
+    /// <summary>検索欄の構文警告です。空なら警告を表示しません。</summary>
+    public string SearchWarningText => KeywordSearchPresentationText.BuildWarningText(searchQuery, SearchContext);
+
+    /// <summary>除外欄の構文警告です。空なら警告を表示しません。</summary>
+    public string ExcludeWarningText => KeywordSearchPresentationText.BuildWarningText(excludeQuery, SearchContext);
+
+    /// <summary>検索欄独自の補完状態です。保存式の管理主体は接続しません。</summary>
+    internal KeywordSearchAssistanceOwner SearchAssistance { get; } = new(null, SearchContext);
+
+    /// <summary>除外欄独自の補完状態です。保存式の管理主体は接続しません。</summary>
+    internal KeywordSearchAssistanceOwner ExcludeAssistance { get; } = new(null, SearchContext);
+
+    /// <summary>画面の寿命に合わせ、言語変更を警告の再表示へ接続します。</summary>
+    internal void AttachKeywordSearchPresentation()
+    {
+        ResourceService.Current.PropertyChanged -= KeywordSearchResourcesChanged;
+        ResourceService.Current.PropertyChanged += KeywordSearchResourcesChanged;
+    }
+
+    /// <summary>画面の表示寿命が終わった検索欄を言語通知から切り離します。</summary>
+    internal void DetachKeywordSearchPresentation()
+        => ResourceService.Current.PropertyChanged -= KeywordSearchResourcesChanged;
+
+    private void KeywordSearchResourcesChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(ResourceService.Resources))
+        {
+            RaisePropertyChanged(nameof(SearchWarningText));
+            RaisePropertyChanged(nameof(ExcludeWarningText));
         }
     }
 

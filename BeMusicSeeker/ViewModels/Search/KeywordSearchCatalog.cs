@@ -96,7 +96,7 @@ internal static class KeywordSearchCatalog
     private static readonly IReadOnlyList<string> PlayHistoryTypeValues = ReadOnly("score", "bp", "clear", "combo", "play");
 
     /// <summary>
-    /// Returns the canonical values applicable to one field and context.
+    /// 検索範囲と項目に対応する補完値を返します。統合候補一覧のSTATUSは現在の表示言語で取得します。
     /// </summary>
     internal static IReadOnlyList<string> GetValues(
         GridKeywordSearchContext context,
@@ -104,6 +104,10 @@ internal static class KeywordSearchCatalog
         IEnumerable<string> playlistNames)
     {
         string canonicalField = (field ?? string.Empty).Trim().ToLowerInvariant();
+        if (context == GridKeywordSearchContext.DuplicateMergeCandidate)
+        {
+            return canonicalField == "status" ? DuplicateMergeVerificationPresentation.GetSearchStatusValues() : [];
+        }
         if (canonicalField.Length == 0)
         {
             return [];
@@ -137,11 +141,15 @@ internal static class KeywordSearchCatalog
     }
 
     /// <summary>
-    /// Returns whether a field is eligible for value completion even when a dynamic snapshot is empty.
+    /// 動的な候補が空でも、その検索範囲内で値の補完を扱う項目かを返します。
     /// </summary>
     internal static bool IsValueField(GridKeywordSearchContext context, string field)
     {
         string canonicalField = (field ?? string.Empty).Trim().ToLowerInvariant();
+        if (context == GridKeywordSearchContext.DuplicateMergeCandidate)
+        {
+            return canonicalField == "status";
+        }
         if (context == GridKeywordSearchContext.PlaylistSummary)
         {
             return false;

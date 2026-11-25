@@ -668,6 +668,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.ProgressHub?.AttachLanguagePresentation();
         viewModel.ChartFilters.AttachKeywordSearchPresentation();
         viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
+        viewModel.DuplicateMergeCandidateList.AttachKeywordSearchPresentation();
+        viewModel.SplitPlacementMergeCandidateList.AttachKeywordSearchPresentation();
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
@@ -692,6 +694,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.MainChartList.DetachLanguagePresentation();
         subscribedViewModel.ProgressHub?.DetachLanguagePresentation();
         subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
+        subscribedViewModel.DuplicateMergeCandidateList.DetachKeywordSearchPresentation();
+        subscribedViewModel.SplitPlacementMergeCandidateList.DetachKeywordSearchPresentation();
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
@@ -2841,12 +2845,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var clickedElement = e.OriginalSource as DependencyObject;
         KeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
         PlaylistSummaryKeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
+        duplicateCandidateSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
+        duplicateCandidateExcludeEditor.ClearKeyboardFocusIfOutside(clickedElement);
     }
 
     private void MainWindow_Deactivated(object sender, EventArgs e)
     {
         KeywordSearchEditor.CloseForWindowDeactivation();
         PlaylistSummaryKeywordSearchEditor.CloseForWindowDeactivation();
+        duplicateCandidateSearchEditor.CloseForWindowDeactivation();
+        duplicateCandidateExcludeEditor.CloseForWindowDeactivation();
     }
 
     private void keywordSearchClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

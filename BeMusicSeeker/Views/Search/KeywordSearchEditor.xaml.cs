@@ -125,16 +125,15 @@ public partial class KeywordSearchEditor : UserControl
     internal KeywordSearchPresentationState Presentation => presentation;
 
     /// <summary>
-    /// 通常検索またはプレイリスト一覧検索の所有者を接続し、交換時は旧候補と保留focusを破棄します。
+    /// 検索欄の管理主体を接続し、交換時は旧候補と保留中のフォーカスを破棄します。
     /// </summary>
-    /// <param name="owner">候補と保存式を所有する明示的な接続先。</param>
+    /// <param name="owner">候補を所有する接続先です。接続の解除時はnullです。</param>
     internal void Configure(KeywordSearchAssistanceOwner owner)
     {
-        ArgumentNullException.ThrowIfNull(owner);
         if (ReferenceEquals(assistanceOwner, owner))
         {
             SubscribeOwner();
-            ApplyPresentation(owner.Presentation);
+            ApplyPresentation(owner?.Presentation);
             return;
         }
 
@@ -144,8 +143,7 @@ public partial class KeywordSearchEditor : UserControl
         selectedIndex = -1;
         assistanceOwner = owner;
         SubscribeOwner();
-        ApplyPresentation(owner.Presentation);
-        SetSearchAccessibilityName();
+        ApplyPresentation(owner?.Presentation);
     }
 
     /// <summary>
@@ -200,7 +198,6 @@ public partial class KeywordSearchEditor : UserControl
     {
         SubscribeOwner();
         SubscribeResourceService();
-        SetSearchAccessibilityName();
     }
 
     private void KeywordSearchEditorUnloaded(object sender, RoutedEventArgs e)
@@ -253,7 +250,6 @@ public partial class KeywordSearchEditor : UserControl
 
     private void RefreshLocalizedSurface()
     {
-        SetSearchAccessibilityName();
         if (presentation?.IsOpen == true)
         {
             ApplyPresentation(assistanceOwner?.Refresh(InputTextBox.Text, InputTextBox.CaretIndex));
@@ -545,7 +541,7 @@ public partial class KeywordSearchEditor : UserControl
         {
             return;
         }
-        KeywordSearchSavedQueryMutationResult result = assistanceOwner.SavedQueryOwner.TryCommitHistory(InputTextBox.Text);
+        KeywordSearchSavedQueryMutationResult result = assistanceOwner.TryCommitHistory(InputTextBox.Text);
         if (!result.Succeeded)
         {
             throw result.Exception ?? new InvalidOperationException("Keyword search history persistence failed.");
@@ -1164,14 +1160,6 @@ public partial class KeywordSearchEditor : UserControl
             }
         }
         return -1;
-    }
-
-    private void SetSearchAccessibilityName()
-    {
-        string key = assistanceOwner?.Context == GridKeywordSearchContext.PlaylistSummary
-            ? AppResources.Keyword_search_summary_editor_name
-            : AppResources.Keyword_search_editor_name;
-        AutomationProperties.SetName(InputTextBox, key ?? string.Empty);
     }
 
     private bool IsOwnedElement(DependencyObject element)

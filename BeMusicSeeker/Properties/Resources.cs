@@ -3376,10 +3376,12 @@ public class Resources
     public static string Duplicate_merge_candidate_artist_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_artist_mismatch", resourceCulture);
     /// <summary>確認状況に代表値の不一致を添える書式です。</summary>
     public static string Duplicate_merge_candidate_status_note_format => ResourceManager.GetString("Duplicate_merge_candidate_status_note_format", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、要注意のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>
-    public static string Duplicate_merge_candidate_status_caution_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_format", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、統合不可のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>
-    public static string Duplicate_merge_candidate_status_unmergeable_format => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSで使う「要注意」の段階名です。</summary>
+    public static string Duplicate_merge_candidate_status_caution => ResourceManager.GetString("Duplicate_merge_candidate_status_caution", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSで使う「統合不可」の段階名です。</summary>
+    public static string Duplicate_merge_candidate_status_unmergeable => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable", resourceCulture);
+    /// <summary>要注意・統合不可のSTATUS書式です。{0}は段階名、{1}は成立した理由の名前を「, 」で結んだものです。</summary>
+    public static string Duplicate_merge_candidate_status_reasons_format => ResourceManager.GetString("Duplicate_merge_candidate_status_reasons_format", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、フォルダの本体または配下にリンクがある理由の短い名前です。</summary>
     public static string Duplicate_merge_candidate_reason_link => ResourceManager.GetString("Duplicate_merge_candidate_reason_link", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、登録範囲のフォルダがグループ内に二つ以上ある理由の短い名前です。</summary>

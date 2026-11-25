@@ -44,18 +44,41 @@ internal static class DuplicateMergeVerificationPresentation
             case DuplicateMergeVerificationStage.Safe:
                 return result.HasProtectedNameCollision
                     ? Resources.Duplicate_merge_candidate_status_safe_protected_collision
-                    : Resources.Duplicate_merge_candidate_status_safe;
+                    : StageName(result.Stage);
             case DuplicateMergeVerificationStage.Caution:
             case DuplicateMergeVerificationStage.Unmergeable:
                 if (result.Reasons.Count == 0) { break; }
+                // 段階名を検索候補と同じ資源から得るため、書式は段階名と理由の一覧を受け取ります。
                 return string.Format(
-                    result.Stage == DuplicateMergeVerificationStage.Unmergeable
-                        ? Resources.Duplicate_merge_candidate_status_unmergeable_format
-                        : Resources.Duplicate_merge_candidate_status_caution_format,
+                    Resources.Duplicate_merge_candidate_status_reasons_format,
+                    StageName(result.Stage),
                     string.Join(ReasonSeparator, result.Reasons.Select(reason => ReasonName(reason.Kind))));
         }
-        return Resources.Duplicate_merge_candidate_status_unverified;
+        return StageName(DuplicateMergeVerificationStage.Unverified);
     }
+
+    /// <summary>STATUSで検索できる、現在の言語の段階名、理由名、付記を補完順に返します。</summary>
+    internal static IReadOnlyList<string> GetSearchStatusValues()
+        =>
+        [
+            StageName(DuplicateMergeVerificationStage.Unverified),
+            StageName(DuplicateMergeVerificationStage.Safe),
+            StageName(DuplicateMergeVerificationStage.Caution),
+            StageName(DuplicateMergeVerificationStage.Unmergeable),
+            .. Enum.GetValues<DuplicateMergeVerificationReasonKind>().Select(ReasonName),
+            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            Resources.Duplicate_merge_candidate_title_mismatch,
+            Resources.Duplicate_merge_candidate_artist_mismatch,
+        ];
+
+    private static string StageName(DuplicateMergeVerificationStage stage) => stage switch
+    {
+        DuplicateMergeVerificationStage.Unverified => Resources.Duplicate_merge_candidate_status_unverified,
+        DuplicateMergeVerificationStage.Safe => Resources.Duplicate_merge_candidate_status_safe,
+        DuplicateMergeVerificationStage.Caution => Resources.Duplicate_merge_candidate_status_caution,
+        DuplicateMergeVerificationStage.Unmergeable => Resources.Duplicate_merge_candidate_status_unmergeable,
+        _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, "Unknown duplicate merge stage.")
+    };
 
     /// <summary>
     /// STATUSのツールチップです。理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。

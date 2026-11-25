@@ -451,9 +451,7 @@
     </Setter>
   </Style>
   <Style x:Key="searchKeywordTextBoxStyle" TargetType="{x:Type TextBox}" BasedOn="{StaticResource SimpleTextBox}">
-    <Setter Property="Width" Value="390" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="HorizontalAlignment" Value="Left" />
     <Setter Property="Margin" Value="0" />
     <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="Background" Value="Transparent" />

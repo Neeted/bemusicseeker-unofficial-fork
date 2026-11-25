@@ -20,7 +20,13 @@
 
 `KeywordSearchSavedQueryOwner` は、保存用の接続先を明示的に受け取ります。保存先の設定値の更新に成功した後で、メモリ上の順序、候補、変更通知を更新します。設定値の更新が失敗した場合は、すべて従前の状態を保ちます。操作のたびに `Settings.Save` を呼びません。
 
-`KeywordSearchEditor` は、候補の表示、候補間の選択、区画ごとの仮想スクロール、IME、フォーカス、行内操作を担当します。画面の親は二つの検索欄を構成しますが、ポップアップの `IsOpen` をViewModelへ双方向には結び付けません。
+`KeywordSearchEditor` は、候補の表示、候補間の選択、区画ごとの仮想スクロール、IME、フォーカス、行内操作を担当します。画面の親が各入力欄を構成し、エディターがポップアップの開閉を管理します。
+
+### 統合候補一覧
+
+[統合候補一覧](../library/duplicate-files.md#統合候補一覧)の検索欄と除外欄は、共通の入力支援を個別に使います。空欄では `path:`、`folder:`、`title:`、`artist:`、`status:` を候補に出します。`status:` の値には、表示言語の「未確認」「安全」「要注意」「統合不可」をこの順で先頭に並べ、すべての理由名、安全時の保護対象ファイルの衝突、代表TITLE・ARTIST不一致の付記を続けます。スペースを含む値を選ぶと引用符を補います。候補は現在の行集合に関係なく選択できます。
+
+候補の表示・適用、IME、キーボード、警告とクリアは共通の操作に従います。各欄が自分の構文警告とクリアを持ち、言語の変更は候補・警告の文言へ反映します。入力・カーソル位置・現在の行集合は保ちます。履歴とお気に入りの参照・書き込みは行わず、フィルターとヘルプは置きません。入力は各一覧で個別に保持し、一覧の更新には300ミリ秒の入力遅延を使います。
 
 ### 正規表現の表示候補
 
@@ -90,7 +96,7 @@
 
 通常検索（譜面一覧・プレイリスト詳細・プレイ履歴）とプレイリスト一覧の外側の警告ツールチップ・開いているヘルプも、同じ入力・文脈のまま言語変更へ追従します。各機能の管理主体が既存の警告の整形とヘルプの通知を行い、検索の再実行・サマリー再取得・入力や文脈の再代入は行いません。入力文字列・カーソル位置・候補集合の版・候補選択・履歴・お気に入り・保存値を維持します。`MainWindow` の既存の表示接続・切離しで両方の管理主体のリソースの購読を接続・解除し、重複購読を防ぎます。切離し・閉鎖後は表示通知を送らず、再接続時は現在の資源へ同期します。
 
-検索欄のクリア操作は、入力イベントの受付時に対応する検索文字列を同期的に空にし、フォーカスを維持・復帰させ、空入力の候補を直ちに表示します。タイマーで後から戻さず、二つの検索欄を相互に操作しません。検索結果側の遅延は変えません。
+検索欄のクリア操作は、入力イベントの受付時に対応する検索文字列を同期的に空にし、フォーカスを維持・復帰させ、空入力の候補を直ちに表示します。検索結果の更新には各欄の入力遅延を適用します。
 
 ### 履歴とお気に入りの保存
 
@@ -124,6 +130,7 @@
 | 保存行本人の選択維持、所有Popupからの離脱、保留focusの寿命 | 同上 | `SearchEditor_SavedRowSelectionSurvivesActionRoundTripAndClearsOnRemoval` はCtrl+Spaceの同値再計算後も選択した保存行のボタンへ移動できること、`SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後のボタン往復と同候補適用を含む。`SearchEditor_OwnedPopupFocusTransitionsEndOnlyTheDepartedEditor`、`SearchEditor_PendingActionFocusIsInvalidatedAtEachLifetimeBoundary` と共に実部品の入力・focusイベント接続と保存状態・閉鎖通知を確認する。古い入力の拒否と同値通知・Blur冪等は `KeywordSearchPresentationTests.KsaRevisionCandidate_*` / `KsaLifecycle_*` が分担する。OSの物理フォーカス・IME・キー操作は[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |
 | 外側の警告・ヘルプの言語更新と購読寿命 | [`ChartListFilterViewModel`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListFilterViewModel.cs)、[`PlaylistWorkspaceViewModel.KeywordSearch`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.KeywordSearch.cs)、MainWindowの表示接続・切離し | `ChartListFilterViewModelTests.KeywordSearchLanguage_RefreshesOnlyAttachedPresentation` が通常・詳細・履歴の各文脈と警告あり／なし、`PlaylistWorkspacePresentationStateTests.PlaylistSummaryKeywordSearchLanguage_RefreshesOnlyAttachedPresentation` が表示中サマリーの行・世代保持を確認する。両ownerで二重接続・切離し中の無通知・再接続同期と、検索／再取得なし・入力支援／保存値保持を分担する。`MainWindowChartPresentationWpfTests.SearchLanguage_UpdatesOuterBindingsAndDetachesBothOwnersAfterClose` が両入口の実Tooltip・開いたhelp本文へのBinding、入力・caret・候補選択保持、実Close完了後の両ownerの通知停止を確認する。 |
 | 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs) |
+| 統合候補一覧の補完、警告とクリア、保存範囲の分離 | `KeywordSearchEditor`、`DuplicateMergeCandidateListOwner`、[`DuplicateMergeVerificationPresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeVerificationPresentation.cs) | `KeywordSearchPresentationTests.CandidateListAssistance_` は項目・段階・理由・付記の候補と構文診断を確認する。[`MainWindowDuplicateCandidateListWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowDuplicateCandidateListWpfTests.cs) の `CandidateList_SearchEditorsKeepCompletionAndDiagnosticsIndependent` は両欄の候補・適用・0件・表示言語・警告とクリア・保存式への非影響を確認する。検索と除外の行・グループ単位の採否は[統合候補一覧のテスト](../library/duplicate-files.md#実装とテストの対応)が分担する。 |
 
 ## 関連資料
 
