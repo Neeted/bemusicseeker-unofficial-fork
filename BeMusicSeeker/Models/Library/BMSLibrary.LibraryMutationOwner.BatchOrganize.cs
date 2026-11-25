@@ -700,8 +700,9 @@ internal sealed partial class LibraryMutationOwner
                 {
                     string keepPath = System.IO.Path.Combine(keep, name + cleanup.KeepExtension);
                     string discardPath = System.IO.Path.Combine(keep, name + cleanup.DiscardExtension);
-                    // 指定を作った後にファイルが変わっていても、残す形式が実在しない名前の音源を失わないよう、両方の実在を確かめます。
-                    if (!LongPathFileSystem.FileExists(keepPath) || !LongPathFileSystem.FileExists(discardPath))
+                    // 指定を作った後にファイルが変わっていても、残す形式が実在しない名前の音源を失わないよう、残す形式、捨てる形式の順に実在を確かめます。
+                    // 確認できなかった名前は例外のまま下で失敗として数え、削除を試みません。
+                    if (!ObserveAudioFileExists(keepPath) || !ObserveAudioFileExists(discardPath))
                     {
                         continue;
                     }
@@ -720,6 +721,26 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
             state.AudioCleanupMilliseconds = stopwatch.ElapsedMilliseconds;
+        }
+
+        /// <summary>
+        /// 音源のパスが、ファイルとして実在するかを属性の取得で観測します。内容は読みません。
+        /// ファイル・途中の親ディレクトリがない対象とディレクトリは「存在しない」として false を返します。
+        /// 属性を取得できてディレクトリでない対象は true です。リンクはリンク先をたどらず、リンク自身の属性で判断するため、リンク先の有無によらずファイルとして存在すると扱います。
+        /// </summary>
+        /// <exception cref="Exception">属性の取得が、存在しない以外の理由（アクセス拒否・入出力の失敗・パスとして扱えない名前など）で失敗したとき。呼出し側が失敗として数えます。</exception>
+        private static bool ObserveAudioFileExists(string path)
+        {
+            System.IO.FileAttributes attributes;
+            try
+            {
+                attributes = LongPathFileSystem.GetAttributes(path);
+            }
+            catch (Exception exception) when (LongPathFileSystem.IsNotFoundFailure(exception))
+            {
+                return false;
+            }
+            return (attributes & System.IO.FileAttributes.Directory) == 0;
         }
 
         private IEnumerable<ChartFile> DirectCharts(string directoryKey)

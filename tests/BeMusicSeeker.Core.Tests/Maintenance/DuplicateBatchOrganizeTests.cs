@@ -1214,7 +1214,9 @@ public sealed class DuplicateBatchOrganizeTests
     /// <summary>
     /// 衝突整理の指定があるグループは、移動元の統合と KEEP 直下の重複整理の後に、KEEP で WAV と OGG が両方ともファイルとして実在する名前だけ、捨てる形式をごみ箱へ送ります。
     /// 統合で両形式が揃う名前、元から両形式がある名前（拡張子の大文字を含む、下位フォルダの名前も含む）は送り、捨てる形式だけの名前・残す形式だけの名前・存在しない名前・一覧にない名前は変えません。
-    /// 実在を確かめずに送る誤り（残す形式がない音源を失う）、一覧にない名前を送る誤り、大文字の拡張子を見逃す誤りを検出します。
+    /// 親ディレクトリがない名前と、どちらかの形式の名前がディレクトリである名前は、不存在として変えず、失敗にも数えません。
+    /// 実在を確かめずに送る誤り（残す形式がない音源を失う）、一覧にない名前を送る誤り、大文字の拡張子を見逃す誤り、
+    /// 親ディレクトリがない場合を失敗として数える誤り、ディレクトリをファイルとして削除する誤りを検出します。
     /// </summary>
     [TestMethod]
     [DataRow(".wav", DisplayName = "OGGを残す")]
@@ -1236,6 +1238,10 @@ public sealed class DuplicateBatchOrganizeTests
             rig.Resource("K", "onlykeep" + keepExtension, "only-keep", BaseTime);
             rig.Resource("K", "unlisted" + discard, "unlisted-discard", BaseTime);
             rig.Resource("K", "unlisted" + keepExtension, "unlisted-keep", BaseTime);
+            rig.Resource("K", "dirkeep" + discard, "dirkeep-discard", BaseTime);
+            Directory.CreateDirectory(rig.At("K\\dirkeep" + keepExtension));
+            rig.Resource("K", "dirdiscard" + keepExtension, "dirdiscard-keep", BaseTime);
+            Directory.CreateDirectory(rig.At("K\\dirdiscard" + discard));
             rig.Chart("A", "a.bms", "a");
             rig.Resource("A", "a" + keepExtension, "source-a-keep", BaseTime);
             rig.Start();
@@ -1245,7 +1251,7 @@ public sealed class DuplicateBatchOrganizeTests
                     [("K", ["A"])],
                     cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup>
                     {
-                        ["K"] = Cleanup(discard, "a", "sub\\s", "up", "onlydiscard", "onlykeep", "missing")
+                        ["K"] = Cleanup(discard, "a", "sub\\s", "up", "onlydiscard", "onlykeep", "missing", "nodir\\x", "dirkeep", "dirdiscard")
                     });
 
                 DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
@@ -1265,6 +1271,11 @@ public sealed class DuplicateBatchOrganizeTests
                 Assert.AreEqual("unlisted-discard", File.ReadAllText(rig.At("K\\unlisted" + discard)));
                 Assert.AreEqual("unlisted-keep", File.ReadAllText(rig.At("K\\unlisted" + keepExtension)));
                 Assert.IsFalse(File.Exists(rig.At("K\\missing" + discard)) || File.Exists(rig.At("K\\missing" + keepExtension)));
+                Assert.IsFalse(Directory.Exists(rig.At("K\\nodir")), "親ディレクトリがない名前は、不存在として何も作らず数えません。");
+                Assert.AreEqual("dirkeep-discard", File.ReadAllText(rig.At("K\\dirkeep" + discard)), "残す形式がディレクトリの名前は変えません。");
+                Assert.IsTrue(Directory.Exists(rig.At("K\\dirkeep" + keepExtension)));
+                Assert.AreEqual("dirdiscard-keep", File.ReadAllText(rig.At("K\\dirdiscard" + keepExtension)));
+                Assert.IsTrue(Directory.Exists(rig.At("K\\dirdiscard" + discard)), "捨てる形式がディレクトリの名前はファイルとして送りません。");
             }
             finally
             {
@@ -1412,6 +1423,58 @@ public sealed class DuplicateBatchOrganizeTests
             finally
             {
                 rig.Library.RequestShutdown("batch-audio-cleanup-failure");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 属性を取得できない名前（NUL文字・予約文字を含み、不存在とは別の例外になる名前）は、削除を試みず、送れなかった数に一件数えます。
+    /// 同じグループの後続の名前と次のグループの整理は続き、失敗のあるグループは一部完了で、確定は成立します。
+    /// 観測の失敗を不存在として黙って外す誤り、観測せずに削除する誤り、例外を外へ出して後続を止める誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("null-char", DisplayName = "NUL文字を含む名前")]
+    [DataRow("reserved-char", DisplayName = "予約文字を含む名前")]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_UnobservableNameCountsAsFailureWithoutTrashAndContinues(string kind)
+    {
+        string bad = kind == "null-char" ? "bad\0name" : "bad|name";
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            foreach (string keep in new[] { "K1", "K2" })
+            {
+                rig.Chart(keep, keep + ".bms", keep);
+                rig.Resource(keep, "x.wav", keep + "wav", BaseTime);
+                rig.Resource(keep, "x.ogg", keep + "ogg", BaseTime);
+            }
+            rig.Chart("A1", "a1.bms", "a1");
+            rig.Chart("A2", "a2.bms", "a2");
+            rig.Start();
+            try
+            {
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K1", ["A1"]), ("K2", ["A2"])],
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup>
+                    {
+                        ["K1"] = Cleanup(".wav", bad, "x"),
+                        ["K2"] = Cleanup(".wav", "x")
+                    });
+
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
+                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
+                Assert.AreEqual(1, result.Groups[0].AudioTrashFailureCount);
+                Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
+                Assert.IsTrue(File.Exists(rig.At("K1\\x.ogg")));
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
+                Assert.AreEqual(1, result.Groups[1].TrashedAudioCount);
+                Assert.AreEqual(0, result.Groups[1].AudioTrashFailureCount);
+                Assert.IsTrue(result.Receipt.HasDurableCommit);
+                Assert.IsFalse(rig.Mutations.ShellDeletedFiles.Any(path => path.Contains(bad, StringComparison.Ordinal)),
+                    "観測できなかった名前の削除を試みてはいけません。");
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup-unobservable");
             }
         });
     }
