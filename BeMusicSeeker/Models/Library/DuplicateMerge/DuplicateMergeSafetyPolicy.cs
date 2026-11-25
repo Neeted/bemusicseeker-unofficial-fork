@@ -26,14 +26,47 @@ internal static class DuplicateMergeSafetyPolicy
         return DuplicateMergeComparisonMethod.Partial;
     }
 
-    /// <summary>WAVとOGGを同等と判定する正規化相関の下限です（以上）。</summary>
-    internal const double AudioCorrelationMinimum = 0.95;
+    /// <summary>判定するチャンネルの、WAVに対するOGGの音量比 <c>√(Σo² / Σw²)</c> の下限です（以上）。</summary>
+    internal const double AudioVolumeRatioMinimum = 0.85;
 
-    /// <summary>WAVに対するOGGのゲインの下限です（以上）。</summary>
-    internal const double AudioGainMinimum = 0.85;
+    /// <summary>判定するチャンネルの、WAVに対するOGGの音量比 <c>√(Σo² / Σw²)</c> の上限です（以下）。</summary>
+    internal const double AudioVolumeRatioMaximum = 1.15;
 
-    /// <summary>WAVに対するOGGのゲインの上限です（以下）。</summary>
-    internal const double AudioGainMaximum = 1.15;
+    /// <summary>判定するチャンネルの全帯域の正規化相関の下限です（以上）。高域の波形を保存しないVorbisの変換で下がる分を許容します。</summary>
+    internal const double AudioFullBandCorrelationMinimum = 0.85;
+
+    /// <summary>判定するチャンネルの低域の正規化相関の下限です（以上）。</summary>
+    internal const double AudioLowBandCorrelationMinimum = 0.95;
+
+    /// <summary>低域の相関を求める低域通過フィルタ（4次バターワース）の遮断周波数（Hz）です。</summary>
+    internal const double AudioLowPassCutoffHertz = 4000;
+
+    /// <summary>
+    /// 低域の相関を見る条件です。WAVの低域のエネルギー <c>Σw′²</c> が、同じチャンネルのWAVの全帯域のエネルギー <c>Σw²</c> のこの割合未満なら、
+    /// 低域の相関を見ません（この割合ちょうどは見ます）。OGGのエネルギーは使いません。
+    /// </summary>
+    internal const double AudioLowBandEnergyRatioMinimum = 0.05;
+
+    /// <summary>サンプルレートがこの値（Hz）以下の音源には低域通過フィルタを掛けず、全帯域の波形を低域の波形として扱います。</summary>
+    internal const int AudioLowPassSampleRateMaximum = 16000;
+
+    /// <summary>区間ごとの音量を比べる区間の長さ（フレーム）です。先頭から区切り、末尾の端数の区間も比べます。</summary>
+    internal const int AudioSegmentFrames = 2048;
+
+    /// <summary>
+    /// 区間のWAVとOGGのエネルギーの大きい方が、基準の区間エネルギーのこの値分の1未満なら、その区間を見ません。
+    /// 基準は、判定するチャンネルの全区間について、WAVとOGGの両方を通じて最大の区間エネルギーで、チャンネルによらず一つです。
+    /// </summary>
+    internal const double AudioSegmentEnergyFloorDivisor = 1000;
+
+    /// <summary>区間ごとの音量で、区間のWAVとOGGのエネルギーの小さい方が、大きい方に対して満たすべき比の下限（−12dB。以上）です。</summary>
+    internal static readonly double AudioSegmentEnergyRatioMinimum = Math.Pow(10, -1.2);
+
+    /// <summary>
+    /// チャンネルのエネルギー（そのチャンネルのWAVのエネルギー <c>Σw²</c> とOGGのエネルギー <c>Σo²</c> の大きい方）が、
+    /// 両音源の全チャンネルの <c>Σw²</c>・<c>Σo²</c> のうち最大の値のこの値分の1未満なら、そのチャンネルを判定しません。
+    /// </summary>
+    internal const double AudioChannelEnergyFloorDivisor = 10000;
 
     private static readonly HashSet<string> ChartExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
