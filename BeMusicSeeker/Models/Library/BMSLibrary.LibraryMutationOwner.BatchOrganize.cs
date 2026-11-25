@@ -422,6 +422,7 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
             CleanupKeepDirectory(state);
+            CleanupAudioCollisions(state);
             state.CompleteMergeStatus();
         }
 
@@ -675,6 +676,52 @@ internal sealed partial class LibraryMutationOwner
             }
         }
 
+        /// <summary>
+        /// 衝突整理の指定があり、移動元を一つ以上統合できたグループで、KEEP に同名の WAV と OGG が両方とも実在する名前の、捨てる形式のファイルをごみ箱へ送ります。
+        /// 残す形式が実在しない名前は変えず、音源を復号・比較しません。ファイルは一件ずつ、譜面の削除と同じ窓口・設定で送ります。
+        /// </summary>
+        /// <remarks>
+        /// 音源キーの集合は変わらないため、変更セッションへ事実を加えず、索引・通知へ追加の反映をしません。
+        /// 名前ごとの失敗（パスの組立て・実在の確認・削除）は停止の理由にせず、そのファイルを残して数えます。
+        /// 失敗を外へ出すと、予期しない物理失敗の経路が移動元の失敗として誤記録するため、プロセスの継続に関わる <see cref="OutOfMemoryException"/> 以外はここで受けます。
+        /// </remarks>
+        private void CleanupAudioCollisions(GroupState state)
+        {
+            DuplicateBatchAudioCollisionCleanup cleanup = state.Group.AudioCollisionCleanup;
+            if (cleanup == null || state.Group.IsSingleFolder || state.Merged.Count == 0)
+            {
+                return;
+            }
+            var stopwatch = Stopwatch.StartNew();
+            string keep = state.Group.KeepDirectory;
+            foreach (string name in cleanup.Names)
+            {
+                try
+                {
+                    string keepPath = System.IO.Path.Combine(keep, name + cleanup.KeepExtension);
+                    string discardPath = System.IO.Path.Combine(keep, name + cleanup.DiscardExtension);
+                    // 指定を作った後にファイルが変わっていても、残す形式が実在しない名前の音源を失わないよう、両方の実在を確かめます。
+                    if (!LongPathFileSystem.FileExists(keepPath) || !LongPathFileSystem.FileExists(discardPath))
+                    {
+                        continue;
+                    }
+                    owner.fileMutationService.DeleteFileShell(
+                        discardPath,
+                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
+                        owner.targetOnlyFileMutationOptions);
+                    state.TrashedAudioCount++;
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    state.AudioTrashFailureCount++;
+                    try { owner.logFileWarning(exception, "duplicate_batch_organize_audio_trash_failed"); }
+                    catch (Exception) { /* 診断の失敗は握りつぶします。 */ }
+                }
+            }
+            state.AudioCleanupMilliseconds = stopwatch.ElapsedMilliseconds;
+        }
+
         private IEnumerable<ChartFile> DirectCharts(string directoryKey)
             => directChartsByKey.TryGetValue(directoryKey, out List<ChartFile> charts)
                 ? charts.Where(chart => !removedChartPaths.Contains(chart.Path))
@@ -796,7 +843,12 @@ internal sealed partial class LibraryMutationOwner
                     + " retained=" + string.Join("|", result.RetainedSources.Select(retained => retained.Directory + ":" + retained.Reason
                         + (retained.Detail == null ? string.Empty : "(" + retained.Detail + ")")))
                     + " trashed=" + result.TrashedChartCount
-                    + " trashFailed=" + result.TrashFailureCount);
+                    + " trashFailed=" + result.TrashFailureCount
+                    + (request.Groups[index].AudioCollisionCleanup == null
+                        ? string.Empty
+                        : " audioTrashed=" + result.TrashedAudioCount
+                            + " audioTrashFailed=" + result.AudioTrashFailureCount
+                            + " audioMs=" + states[index].AudioCleanupMilliseconds));
             }
         }
 
@@ -857,6 +909,15 @@ internal sealed partial class LibraryMutationOwner
 
             internal int TrashFailureCount { get; set; }
 
+            /// <summary>衝突整理でごみ箱へ送れた音源の数です。</summary>
+            internal int TrashedAudioCount { get; set; }
+
+            /// <summary>衝突整理でごみ箱へ送れなかった音源の数です。</summary>
+            internal int AudioTrashFailureCount { get; set; }
+
+            /// <summary>衝突整理に要した時間（ミリ秒）です。診断のログだけに使います。</summary>
+            internal long AudioCleanupMilliseconds { get; set; }
+
             internal void Skip(DuplicateBatchOrganizeSkipReason reason, string path)
             {
                 Status = DuplicateBatchOrganizeGroupStatus.Skipped;
@@ -872,7 +933,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 Status = Merged.Count == 0
                     ? DuplicateBatchOrganizeGroupStatus.Failed
-                    : Retained.Count == 0 && TrashFailureCount == 0
+                    : Retained.Count == 0 && TrashFailureCount == 0 && AudioTrashFailureCount == 0
                         ? DuplicateBatchOrganizeGroupStatus.Completed
                         : DuplicateBatchOrganizeGroupStatus.PartiallyCompleted;
             }
@@ -949,7 +1010,9 @@ internal sealed partial class LibraryMutationOwner
                     merged,
                     retained,
                     TrashedChartCount,
-                    TrashFailureCount);
+                    TrashFailureCount,
+                    TrashedAudioCount,
+                    AudioTrashFailureCount);
             }
         }
     }

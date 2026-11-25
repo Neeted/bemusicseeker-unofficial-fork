@@ -30,8 +30,25 @@ internal static class DuplicateBatchOrganizePresentation
                 keep,
                 target.Folders
                     .Where(folder => !string.Equals(folder, target.KeepFolder, StringComparison.OrdinalIgnoreCase))
-                    .Order(StringComparer.OrdinalIgnoreCase));
+                    .Order(StringComparer.OrdinalIgnoreCase),
+                CreateAudioCollisionCleanup(target));
         }));
+    }
+
+    /// <summary>
+    /// 捕捉した対象から、同等なWAV・OGGの衝突整理の指定を作ります。指定するのは、捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、
+    /// 捕捉時点の確認結果が全衝突の同等を示すグループだけです（段階は問いません）。それ以外はnullで、両方を残します。
+    /// </summary>
+    private static DuplicateBatchAudioCollisionCleanup CreateAudioCollisionCleanup(DuplicateMergeCandidateGroupTarget target)
+    {
+        if (target.CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepBoth
+            || !target.Folders.Any(folder => !string.Equals(folder, target.KeepFolder, StringComparison.OrdinalIgnoreCase))
+            || target.Verification is not { AllAudioCollisionsEquivalent: true, EquivalentAudioNames: { Count: > 0 } names })
+        {
+            return null;
+        }
+        return new DuplicateBatchAudioCollisionCleanup(
+            target.CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepOgg ? ".wav" : ".ogg", names);
     }
 
     /// <summary>進捗に出す代表名です。KEEPのフォルダ名（一覧のFOLDER列と同じ末尾の名前）です。</summary>
@@ -51,7 +68,8 @@ internal static class DuplicateBatchOrganizePresentation
             GetRepresentativeFolderName(progress.KeepDirectory));
 
     /// <summary>
-    /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行の順です。
+    /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行、
+    /// 衝突整理を指定するグループがあるときだけ残す形式ごとの衝突整理の行の順です。
     /// 警告用の本文（警告色で表示する部分）は、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
     /// 一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があるときだけ上書きの行、
     /// 連番名で保持される.bmx/.txtの衝突があるときだけ連番名の行を、この順に並べ、該当がなければnullです。
@@ -97,6 +115,16 @@ internal static class DuplicateBatchOrganizePresentation
             lines.Add(string.Format(Resources.Duplicate_batch_organize_confirm_merge_format, mergeGroups, sourceFolders));
         }
         lines.Add(Resources.Duplicate_batch_organize_confirm_trash);
+        // 衝突整理の値は全対象で捕捉時点の同じ値です。指定を作る条件はCreateRequestと同じ規則で数えます。
+        int audioCleanupGroups = targets.Count(target => CreateAudioCollisionCleanup(target) != null);
+        if (audioCleanupGroups > 0)
+        {
+            lines.Add(string.Format(
+                targets[0].CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepOgg
+                    ? Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format
+                    : Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format,
+                audioCleanupGroups));
+        }
         hasWarning = unverified + caution > 0;
         var warnings = new List<string>();
         if (unverified > 0 && caution > 0)
@@ -151,6 +179,11 @@ internal static class DuplicateBatchOrganizePresentation
         {
             lines.Add(string.Format(Resources.Duplicate_batch_organize_result_trashed_format, trashed));
         }
+        int trashedAudio = groups.Sum(group => group.TrashedAudioCount);
+        if (trashedAudio > 0)
+        {
+            lines.Add(string.Format(Resources.Duplicate_batch_organize_result_trashed_audio_format, trashedAudio));
+        }
         if (result.Canceled)
         {
             lines.Add(Resources.Duplicate_batch_organize_result_canceled);
@@ -182,7 +215,7 @@ internal static class DuplicateBatchOrganizePresentation
         {
             lines.Add(string.Format(Resources.Duplicate_batch_organize_result_more_format, incomplete.Length - MaxDetailGroups));
         }
-        allCompleted = incomplete.Length == 0 && !result.Canceled && groups.All(group => group.TrashFailureCount == 0);
+        allCompleted = incomplete.Length == 0 && !result.Canceled && groups.All(group => group.TrashFailureCount == 0 && group.AudioTrashFailureCount == 0);
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -205,7 +238,7 @@ internal static class DuplicateBatchOrganizePresentation
             // 個別の削除の失敗と重なっても、確定されていないことが利用者にとって重要なため、確定の失敗を優先します。
             return Resources.Duplicate_batch_organize_reason_commit_failure;
         }
-        return group.TrashFailureCount > 0 ? Resources.Duplicate_batch_organize_reason_delete_failure : null;
+        return group.TrashFailureCount > 0 || group.AudioTrashFailureCount > 0 ? Resources.Duplicate_batch_organize_reason_delete_failure : null;
     }
 
     /// <summary>グループの状態の文言です。</summary>

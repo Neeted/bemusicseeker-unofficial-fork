@@ -98,9 +98,24 @@ internal sealed record DuplicateMergeCandidateGroupInitial(
 /// <param name="KeepFixed">KEEPが固定かどうか。</param>
 /// <param name="RegisteredFolders">グループ内の登録範囲のフォルダ。一覧の構築時に捕捉した値です。</param>
 /// <param name="Verification">捕捉した時点の確認結果。一括整理の確認文が、未確認・要注意・衝突の有無を数える入力です。</param>
+/// <param name="CollisionCleanup">捕捉した時点の「衝突整理」の値。一括整理が、同等なWAV・OGGの衝突整理を指定するかと残す形式を決める入力です。</param>
 internal sealed record DuplicateMergeCandidateGroupTarget(
     DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed,
-    IReadOnlyList<string> RegisteredFolders, DuplicateMergeVerificationResult Verification = null);
+    IReadOnlyList<string> RegisteredFolders, DuplicateMergeVerificationResult Verification = null,
+    DuplicateMergeCollisionCleanupMode CollisionCleanup = DuplicateMergeCollisionCleanupMode.KeepBoth);
+
+/// <summary>統合候補一覧の「衝突整理」の値です。同等と確認した同名のWAVとOGGの、一括整理での扱いを決めます。</summary>
+public enum DuplicateMergeCollisionCleanupMode
+{
+    /// <summary>両方残します（既定）。</summary>
+    KeepBoth,
+
+    /// <summary>OGGを残し、WAVをごみ箱へ送ります。</summary>
+    KeepOgg,
+
+    /// <summary>WAVを残し、OGGをごみ箱へ送ります。</summary>
+    KeepWav
+}
 
 /// <summary>現在の状態表の一グループの識別とフォルダです。別のグループとの重なりを判定する入力です。</summary>
 /// <param name="Group">グループ。</param>

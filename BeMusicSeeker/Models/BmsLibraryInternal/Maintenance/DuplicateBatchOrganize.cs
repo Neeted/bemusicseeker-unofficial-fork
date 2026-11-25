@@ -14,11 +14,20 @@ internal sealed class DuplicateBatchOrganizeGroup
     /// <summary>グループの処理対象を固定します。</summary>
     /// <param name="keepDirectory">残すフォルダ。一フォルダのグループでは、整理するフォルダです。</param>
     /// <param name="sourceDirectories">KEEP へ統合する移動元フォルダ。PATH 昇順で渡します。0 件で一フォルダのグループです。</param>
-    internal DuplicateBatchOrganizeGroup(string keepDirectory, IEnumerable<string> sourceDirectories)
+    /// <param name="audioCollisionCleanup">同等な WAV・OGG の衝突整理の指定。指定しないグループは null です。一フォルダのグループでは無視します。</param>
+    internal DuplicateBatchOrganizeGroup(
+        string keepDirectory, IEnumerable<string> sourceDirectories, DuplicateBatchAudioCollisionCleanup audioCollisionCleanup = null)
     {
         KeepDirectory = keepDirectory ?? throw new ArgumentNullException(nameof(keepDirectory));
         SourceDirectories = Array.AsReadOnly((sourceDirectories ?? []).ToArray());
+        AudioCollisionCleanup = audioCollisionCleanup;
     }
+
+    /// <summary>
+    /// 同等な WAV・OGG の衝突整理の指定です。ないときは null です。
+    /// 移動元を一つ以上統合できた二フォルダ以上のグループだけが、KEEP 直下の重複整理の後に使います。
+    /// </summary>
+    internal DuplicateBatchAudioCollisionCleanup AudioCollisionCleanup { get; }
 
     /// <summary>残すフォルダ。一フォルダのグループでは、整理するフォルダです。</summary>
     internal string KeepDirectory { get; }
@@ -28,6 +37,63 @@ internal sealed class DuplicateBatchOrganizeGroup
 
     /// <summary>移動元がなく、フォルダ直下の重複整理だけを行うグループかどうかです。</summary>
     internal bool IsSingleFolder => SourceDirectories.Count == 0;
+}
+
+/// <summary>
+/// グループごとの、同等な WAV・OGG の衝突整理の指定です。KEEP で同名の WAV と OGG が両方とも実在する名前について、
+/// 捨てる形式のファイルだけをごみ箱へ送ります。音源の復号・比較は行いません（同等かどうかは指定を作る側が確認済みの前提です）。
+/// </summary>
+internal sealed class DuplicateBatchAudioCollisionCleanup
+{
+    /// <summary>指定を固定します。</summary>
+    /// <param name="discardExtension">捨てる形式の拡張子。大文字小文字と先頭のピリオドの有無を問わず、wav または ogg だけを受け付けます。</param>
+    /// <param name="names">対象の名前。KEEP からの相対ディレクトリと拡張子なしの名前を <c>\</c> でつないだ文字列で、
+    /// <see cref="DuplicateMergeVerificationResult.EquivalentAudioNames"/> と同じ書式です。大文字小文字を無視して重複を除きます。</param>
+    /// <exception cref="ArgumentException">拡張子が wav・ogg でない場合、または名前が空・絶対パス・<c>..</c> を含む場合。呼出し側の誤りとして扱います。</exception>
+    internal DuplicateBatchAudioCollisionCleanup(string discardExtension, IEnumerable<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        string normalized = (discardExtension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        DiscardExtension = normalized switch
+        {
+            "wav" => ".wav",
+            "ogg" => ".ogg",
+            _ => throw new ArgumentException("The discard extension must be .wav or .ogg.", nameof(discardExtension))
+        };
+        KeepExtension = DiscardExtension == ".wav" ? ".ogg" : ".wav";
+        var distinct = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in names)
+        {
+            if (!IsValidRelativeName(name))
+            {
+                throw new ArgumentException("A name must be a non-empty relative path without '..'.", nameof(names));
+            }
+            if (seen.Add(name))
+            {
+                distinct.Add(name);
+            }
+        }
+        Names = distinct.AsReadOnly();
+    }
+
+    /// <summary>捨てる形式の拡張子です。小文字で、<c>.wav</c> または <c>.ogg</c> です。</summary>
+    internal string DiscardExtension { get; }
+
+    /// <summary>残す形式の拡張子です。小文字で、<see cref="DiscardExtension"/> のもう一方です。</summary>
+    internal string KeepExtension { get; }
+
+    /// <summary>対象の名前です。重複を除いた、与えられた順です。</summary>
+    internal IReadOnlyList<string> Names { get; }
+
+    private static bool IsValidRelativeName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || System.IO.Path.IsPathRooted(name) || name.StartsWith('\\') || name.StartsWith('/'))
+        {
+            return false;
+        }
+        return !name.Split('\\', '/').Any(segment => segment == "..");
+    }
 }
 
 /// <summary>重複グループの一括整理の要求です。グループの順序は処理順です。</summary>
@@ -71,13 +137,13 @@ internal readonly record struct DuplicateBatchOrganizeProgress(
 internal enum DuplicateBatchOrganizeGroupStatus
 {
     /// <summary>
-    /// 移動元をすべて統合でき、重複整理の削除にも失敗がありません。
+    /// 移動元をすべて統合でき、重複整理の削除と衝突整理の音源の削除にも失敗がありません。
     /// 一フォルダのグループは、削除に失敗がなければ、削除対象が 0 件でも完了です。
     /// </summary>
     Completed,
 
     /// <summary>
-    /// 統合できた移動元が一つ以上あり、残った移動元があります。または、統合はすべてできたが、重複整理の個別の削除に失敗がありました。
+    /// 統合できた移動元が一つ以上あり、残った移動元があります。または、統合はすべてできたが、重複整理の個別の削除、または衝突整理の音源の個別の削除に失敗がありました。
     /// 一フォルダのグループで個別の削除に失敗があった場合も一部完了です。
     /// </summary>
     PartiallyCompleted,
@@ -176,7 +242,9 @@ internal sealed class DuplicateBatchOrganizeGroupResult
         IEnumerable<string> mergedSources,
         IEnumerable<DuplicateBatchOrganizeRetainedSource> retainedSources,
         int trashedChartCount,
-        int trashFailureCount)
+        int trashFailureCount,
+        int trashedAudioCount = 0,
+        int audioTrashFailureCount = 0)
     {
         KeepDirectory = keepDirectory;
         IsSingleFolder = isSingleFolder;
@@ -187,6 +255,8 @@ internal sealed class DuplicateBatchOrganizeGroupResult
         RetainedSources = Array.AsReadOnly((retainedSources ?? []).ToArray());
         TrashedChartCount = trashedChartCount;
         TrashFailureCount = trashFailureCount;
+        TrashedAudioCount = trashedAudioCount;
+        AudioTrashFailureCount = audioTrashFailureCount;
     }
 
     /// <summary>残すフォルダ。一フォルダのグループでは、整理したフォルダです。</summary>
@@ -215,6 +285,12 @@ internal sealed class DuplicateBatchOrganizeGroupResult
 
     /// <summary>重複整理でごみ箱へ送れなかった譜面の数です。送れなかった譜面は残します。</summary>
     internal int TrashFailureCount { get; }
+
+    /// <summary>衝突整理でごみ箱へ送れた音源の数です。削除の成功を確認した実数で、確定に失敗しても変わりません。</summary>
+    internal int TrashedAudioCount { get; }
+
+    /// <summary>衝突整理でごみ箱へ送れなかった音源の数です。送れなかった音源は残します。</summary>
+    internal int AudioTrashFailureCount { get; }
 }
 
 /// <summary>重複グループの一括整理の結果です。</summary>

@@ -3486,6 +3486,10 @@ public class Resources
     public static string Duplicate_batch_organize_confirm_merge_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_merge_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、同じフォルダにある重複した譜面をごみ箱へ送る旨の行です。</summary>
     public static string Duplicate_batch_organize_confirm_trash => ResourceManager.GetString("Duplicate_batch_organize_confirm_trash", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同等なWAVとOGGの衝突整理でOGGを残しWAVをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_audio_keep_ogg_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_ogg_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同等なWAVとOGGの衝突整理でWAVを残しOGGをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_audio_keep_wav_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_wav_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認と要注意のグループを含む旨の行です。{0}は未確認、{1}は要注意のグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_unverified_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_caution_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認のグループだけを含む旨の行です。{0}は未確認のグループ数です。</summary>
@@ -3504,6 +3508,8 @@ public class Resources
     public static string Duplicate_batch_organize_result_format => ResourceManager.GetString("Duplicate_batch_organize_result_format", resourceCulture);
     /// <summary>重複グループの一括整理の結果で、ごみ箱へ送った重複した譜面の数を示す行です。{0}は譜面の数です。</summary>
     public static string Duplicate_batch_organize_result_trashed_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果へ加える、衝突整理でごみ箱へ送った同等な音源の合計の行です。{0}は件数です。</summary>
+    public static string Duplicate_batch_organize_result_trashed_audio_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_audio_format", resourceCulture);
     /// <summary>重複グループの一括整理を取り消した旨を、結果へ加える文言です。</summary>
     public static string Duplicate_batch_organize_result_canceled => ResourceManager.GetString("Duplicate_batch_organize_result_canceled", resourceCulture);
     /// <summary>重複グループの一括整理の結果で、詳細の最大件数を超えたグループをログへ案内する行です。{0}は超えたグループ数です。</summary>

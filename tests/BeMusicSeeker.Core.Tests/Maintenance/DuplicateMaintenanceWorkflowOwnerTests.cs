@@ -1486,8 +1486,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         IEnumerable<DuplicateBatchOrganizeRetainedSource>? retained = null,
         int trashed = 0,
         int trashFailed = 0,
-        bool single = false)
-        => new(keep, single, status, skip, null, merged, retained, trashed, trashFailed);
+        bool single = false,
+        int trashedAudio = 0,
+        int audioFailed = 0)
+        => new(keep, single, status, skip, null, merged, retained, trashed, trashFailed, trashedAudio, audioFailed);
 
     private static LibraryMutationSessionReceipt DurableSession(
         Exception? applyFailure = null, Exception? finalizationFailure = null, Exception? cleanupFailure = null, bool durable = true,
@@ -2459,6 +2461,168 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_format,
             fixture.Store.Requests.Single().Groups[2].KeepDirectory, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed),
             "もともと失敗したグループには、確定の失敗を付けません。");
+    }
+
+    /// <summary>
+    /// 衝突整理の指定は、対象の捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、捕捉時点の確認結果が全衝突の同等を示すグループにだけ作る（段階は問わない）。
+    /// 名前は確認結果の同等な名前の全件、捨てる形式は「OGGを残す」なら .wav、「WAVを残す」なら .ogg。確認文の通常の本文へ、ごみ箱の行の後に、指定するグループ数の行を残す形式ごとの文言で足し、
+    /// 警告用の本文・アイコン・続行のチェック欄には影響させない。両方残すでは指定も行も作らない。
+    /// 検出する誤り：条件に合わないグループ（一部だけ同等・検査オフ・未確認・衝突なし・一フォルダ）への指定、段階での絞込み、名前の欠落、形式の取り違え、行の位置・文言・件数の誤り、警告用の本文への混入。
+    /// </summary>
+    [TestMethod]
+    [DataRow(DuplicateMergeCollisionCleanupMode.KeepBoth, DisplayName = "両方残す")]
+    [DataRow(DuplicateMergeCollisionCleanupMode.KeepOgg, DisplayName = "OGGを残す")]
+    [DataRow(DuplicateMergeCollisionCleanupMode.KeepWav, DisplayName = "WAVを残す")]
+    public async Task OrganizeSelectedGroups_AudioCollisionSpecFollowsCapturedModeAndAllEquivalentVerification(DuplicateMergeCollisionCleanupMode mode)
+    {
+        DuplicateGroup safe = Lists.Group(@"C:\S\e0\a", @"C:\S\e0\b"), caution = Lists.Group(@"C:\S\e1\a", @"C:\S\e1\b"),
+            partial = Lists.Group(@"C:\S\e2\a", @"C:\S\e2\b"), off = Lists.Group(@"C:\S\e3\a", @"C:\S\e3\b"),
+            unverified = Lists.Group(@"C:\S\e4\a", @"C:\S\e4\b"), none = Lists.Group(@"C:\S\e5\a", @"C:\S\e5\b"),
+            single = Lists.Group(@"C:\S\e6");
+        using var fixture = new BatchFixture([safe, caution, partial, off, unverified, none, single]);
+        var cautionReason = new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\e1", "a.wav")]);
+        fixture.List.WriteVerifications(
+        [
+            new DuplicateMergeVerificationWrite(safe, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true)),
+            new DuplicateMergeVerificationWrite(caution, new(DuplicateMergeVerificationStage.Caution, [cautionReason], EquivalentAudioNames: ["y", @"sub\z"], AllAudioCollisionsEquivalent: true)),
+            new DuplicateMergeVerificationWrite(partial, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["w"], AllAudioCollisionsEquivalent: false)),
+            new DuplicateMergeVerificationWrite(off, new(DuplicateMergeVerificationStage.Safe, [])),
+            new DuplicateMergeVerificationWrite(none, new(DuplicateMergeVerificationStage.Safe, [])),
+            new DuplicateMergeVerificationWrite(single, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["q"], AllAudioCollisionsEquivalent: true))
+        ]);
+        fixture.List.CollisionCleanupMode = mode;
+        fixture.List.SelectVisible();
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        DuplicateBatchOrganizeGroup[] requested = [.. fixture.Store.Requests.Single().Groups];
+        Assert.AreEqual(7, requested.Length);
+        for (int index = 2; index < requested.Length; index++)
+        {
+            Assert.IsNull(requested[index].AudioCollisionCleanup, "条件に合わないグループには指定しません。index=" + index);
+        }
+        UiConfirmationRequest confirmation = fixture.Dialogs.ConfirmationRequest!;
+        string[] lines = Lines(confirmation.MessageBoxText);
+        string[] baseLines =
+        [
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_groups_format, 7),
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_merge_format, 6, 6),
+            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_trash
+        ];
+        if (mode == DuplicateMergeCollisionCleanupMode.KeepBoth)
+        {
+            Assert.IsNull(requested[0].AudioCollisionCleanup);
+            Assert.IsNull(requested[1].AudioCollisionCleanup);
+            CollectionAssert.AreEqual(baseLines, lines);
+        }
+        else
+        {
+            string discard = mode == DuplicateMergeCollisionCleanupMode.KeepOgg ? ".wav" : ".ogg";
+            Assert.AreEqual(discard, requested[0].AudioCollisionCleanup!.DiscardExtension);
+            CollectionAssert.AreEqual(new[] { "x" }, requested[0].AudioCollisionCleanup!.Names.ToArray());
+            Assert.AreEqual(discard, requested[1].AudioCollisionCleanup!.DiscardExtension, "要注意の段階でも指定します。");
+            CollectionAssert.AreEqual(new[] { "y", @"sub\z" }, requested[1].AudioCollisionCleanup!.Names.ToArray());
+            string line = string.Format(mode == DuplicateMergeCollisionCleanupMode.KeepOgg
+                ? BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format
+                : BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format, 2);
+            CollectionAssert.AreEqual(baseLines.Append(line).ToArray(), lines, "ごみ箱の行の後に、指定するグループ数の行を足します。");
+            Assert.IsFalse(Lines(confirmation.WarningMessageBoxText).Contains(line), "警告用の本文へ出しません。");
+        }
+        Assert.AreEqual(MessageBoxImage.Warning, confirmation.Icon, "未確認を含むため警告のままです。");
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, 1, 1),
+            Lines(confirmation.WarningMessageBoxText)[0], "警告用の本文の先頭は未確認・要注意の行のままです。");
+        Assert.IsNotNull(confirmation.AcknowledgmentText, "続行のチェック欄は未確認・要注意だけで決まります。");
+    }
+
+    /// <summary>
+    /// 結果の案内は、衝突整理でごみ箱へ送った音源の合計が一件以上のときだけ、譜面の行の後・取消の行の前に音源の行を出し（確定に失敗したグループの分も数える）、
+    /// 音源の削除だけが失敗したグループの状態の理由は「削除の失敗」にする。
+    /// 検出する誤り：音源の行の欠落・過剰・位置の誤り、確定失敗の分の脱落、削除の失敗の理由の欠落。
+    /// </summary>
+    [TestMethod]
+    [DataRow("audio-chart-cancel", DisplayName = "音源と譜面と取消")]
+    [DataRow("audio-only", DisplayName = "音源だけ")]
+    [DataRow("audio-failure-only", DisplayName = "音源の削除失敗だけ")]
+    [DataRow("commit-failure", DisplayName = "確定失敗")]
+    public async Task OrganizeSelectedGroups_ResultShowsTrashedAudioLineOnlyWhenAnyAudioWasTrashed(string scenario)
+    {
+        DuplicateGroup[] groups = [Lists.Group(@"C:\S\r0\a", @"C:\S\r0\b"), Lists.Group(@"C:\S\r1\a", @"C:\S\r1\b")];
+        using var fixture = new BatchFixture(groups);
+        fixture.List.SelectVisible();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            DuplicateBatchOrganizeGroup[] g = [.. request.Groups];
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(2, 2, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            DuplicateBatchOrganizeRetainedSource[] notCommitted(int index)
+                => [new(g[index].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.NotCommitted)];
+            return scenario switch
+            {
+                "audio-chart-cancel" => Result(
+                    [
+                        GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[0].SourceDirectories, trashed: 2, trashedAudio: 3),
+                        GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed)
+                    ], canceled: true),
+                "audio-only" => Result(
+                    [
+                        GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[0].SourceDirectories, trashedAudio: 2),
+                        GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[1].SourceDirectories, trashedAudio: 1)
+                    ]),
+                "audio-failure-only" => Result(
+                    [
+                        GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, merged: g[0].SourceDirectories, audioFailed: 1),
+                        GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[1].SourceDirectories)
+                    ]),
+                _ => Result(
+                    [
+                        GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed, retained: notCommitted(0), trashedAudio: 2),
+                        GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed, retained: notCommitted(1), trashedAudio: 1, audioFailed: 1)
+                    ],
+                    session: DurableSession(applyFailure: new IOException("commit failed"), durable: false), mergeApplied: false)
+            };
+        };
+
+        await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        string[] lines = Lines(fixture.Dialogs.Messages.Last().MessageBoxText);
+        string audio(int count) => string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_trashed_audio_format, count);
+        string[] keeps = [.. fixture.Store.Requests.Single().Groups.Select(group => group.KeepDirectory)];
+        switch (scenario)
+        {
+            case "audio-chart-cancel":
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 2, 1, 0, 0, 0, 1),
+                        string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_trashed_format, 2),
+                        audio(3),
+                        BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_canceled
+                    },
+                    lines.Take(4).ToArray());
+                break;
+            case "audio-only":
+                CollectionAssert.AreEqual(
+                    new[] { string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 2, 2, 0, 0, 0, 0), audio(3) }, lines);
+                break;
+            case "audio-failure-only":
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 2, 1, 1, 0, 0, 0),
+                        string.Empty,
+                        string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format, keeps[0],
+                            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_partial,
+                            BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_delete_failure)
+                    },
+                    lines, "音源の行は出さず、削除の失敗を理由にします。");
+                break;
+            default:
+                CollectionAssert.AreEqual(
+                    new[] { string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_format, 2, 0, 0, 0, 2, 0), audio(3), string.Empty },
+                    lines.Take(3).ToArray(), "確定に失敗したグループの音源も数えます。");
+                CollectionAssert.Contains(lines, string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_result_group_reason_format, keeps[0],
+                    BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_status_failed, BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_commit_failure));
+                break;
+        }
     }
 
     /// <summary>

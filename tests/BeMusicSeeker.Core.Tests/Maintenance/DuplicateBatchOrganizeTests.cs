@@ -1203,6 +1203,314 @@ public sealed class DuplicateBatchOrganizeTests
         }
     }
 
+    private static DuplicateBatchAudioCollisionCleanup Cleanup(string discardExtension, params string[] names) => new(discardExtension, names);
+
+    private static string[] ShellDeletedAudio(Rig rig)
+        => [.. rig.Mutations.ShellDeletedFiles
+            .Where(path => path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
+            .Select(path => Path.GetRelativePath(rig.Root, path).ToLowerInvariant())
+            .Order(StringComparer.Ordinal)];
+
+    /// <summary>
+    /// 衝突整理の指定があるグループは、移動元の統合と KEEP 直下の重複整理の後に、KEEP で WAV と OGG が両方ともファイルとして実在する名前だけ、捨てる形式をごみ箱へ送ります。
+    /// 統合で両形式が揃う名前、元から両形式がある名前（拡張子の大文字を含む、下位フォルダの名前も含む）は送り、捨てる形式だけの名前・残す形式だけの名前・存在しない名前・一覧にない名前は変えません。
+    /// 実在を確かめずに送る誤り（残す形式がない音源を失う）、一覧にない名前を送る誤り、大文字の拡張子を見逃す誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(".wav", DisplayName = "OGGを残す")]
+    [DataRow(".ogg", DisplayName = "WAVを残す")]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_TrashesDiscardFormatOnlyWhereBothFormsExistInKeep(string discard)
+    {
+        string keepExtension = discard == ".wav" ? ".ogg" : ".wav";
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            rig.Chart("K", "k1.bms", "k", BaseTime.AddDays(-1));
+            rig.Chart("K", "k2.bms", "k");
+            rig.Resource("K", "a" + discard, "keep-a-discard", BaseTime);
+            rig.Resource("K", "sub\\s" + discard.ToUpperInvariant(), "sub-discard", BaseTime);
+            rig.Resource("K", "sub\\s" + keepExtension.ToUpperInvariant(), "sub-keep", BaseTime);
+            rig.Resource("K", "up" + discard, "up-discard", BaseTime);
+            rig.Resource("K", "up" + keepExtension.ToUpperInvariant(), "up-keep", BaseTime);
+            rig.Resource("K", "onlydiscard" + discard, "only-discard", BaseTime);
+            rig.Resource("K", "onlykeep" + keepExtension, "only-keep", BaseTime);
+            rig.Resource("K", "unlisted" + discard, "unlisted-discard", BaseTime);
+            rig.Resource("K", "unlisted" + keepExtension, "unlisted-keep", BaseTime);
+            rig.Chart("A", "a.bms", "a");
+            rig.Resource("A", "a" + keepExtension, "source-a-keep", BaseTime);
+            rig.Start();
+            try
+            {
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K", ["A"])],
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup>
+                    {
+                        ["K"] = Cleanup(discard, "a", "sub\\s", "up", "onlydiscard", "onlykeep", "missing")
+                    });
+
+                DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, group.Status);
+                Assert.AreEqual(3, group.TrashedAudioCount);
+                Assert.AreEqual(0, group.AudioTrashFailureCount);
+                Assert.AreEqual(1, group.TrashedChartCount);
+                CollectionAssert.AreEqual(
+                    new[] { "k\\a" + discard, "k\\sub\\s" + discard, "k\\up" + discard }.Order(StringComparer.Ordinal).ToArray(),
+                    ShellDeletedAudio(rig));
+                Assert.IsFalse(File.Exists(rig.At("K\\a" + discard)) || File.Exists(rig.At("K\\sub\\s" + discard)) || File.Exists(rig.At("K\\up" + discard)));
+                Assert.AreEqual("source-a-keep", File.ReadAllText(rig.At("K\\a" + keepExtension)));
+                Assert.AreEqual("sub-keep", File.ReadAllText(rig.At("K\\sub\\s" + keepExtension)));
+                Assert.AreEqual("up-keep", File.ReadAllText(rig.At("K\\up" + keepExtension)));
+                Assert.AreEqual("only-discard", File.ReadAllText(rig.At("K\\onlydiscard" + discard)));
+                Assert.AreEqual("only-keep", File.ReadAllText(rig.At("K\\onlykeep" + keepExtension)));
+                Assert.AreEqual("unlisted-discard", File.ReadAllText(rig.At("K\\unlisted" + discard)));
+                Assert.AreEqual("unlisted-keep", File.ReadAllText(rig.At("K\\unlisted" + keepExtension)));
+                Assert.IsFalse(File.Exists(rig.At("K\\missing" + discard)) || File.Exists(rig.At("K\\missing" + keepExtension)));
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 指定がないグループ、一フォルダのグループ（指定があっても無視）、移動元を一つも統合できなかったグループ、書込み前に拒否したグループでは音源を変えません。
+    /// 移動元を一つ統合して一つ残したグループでは KEEP だけを整理し、残した移動元の両形式は変えません。
+    /// 条件を見ずに整理する誤りと、移動元のフォルダまで整理する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("no-spec")]
+    [DataRow("single-folder")]
+    [DataRow("no-source-merged")]
+    [DataRow("skipped")]
+    [DataRow("retained-source")]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_DoesNotTouchAudioWithoutSpecOrMerge(string scenario)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            rig.Chart("K", "k.bms", "k");
+            rig.Resource("K", "a.wav", "k-wav", BaseTime);
+            rig.Resource("K", "a.ogg", "k-ogg", BaseTime);
+            if (scenario == "retained-source")
+            {
+                rig.Resource("K", "BGA\\sentinel.txt", "directory", BaseTime);
+                rig.Chart("A", "a1.bms", "y");
+                rig.Resource("A", "BGA", "file", BaseTime);
+                rig.Resource("A", "a.wav", "a-wav", BaseTime);
+                rig.Resource("A", "a.ogg", "a-ogg", BaseTime);
+                rig.Chart("D", "d.bms", "d");
+            }
+            else if (scenario == "no-spec")
+            {
+                rig.Chart("A", "a.bms", "a");
+            }
+            else if (scenario == "skipped")
+            {
+                rig.Dir("K\\sub");
+            }
+            rig.Start();
+            if (scenario == "no-source-merged")
+            {
+                Assert.IsFalse(Directory.Exists(rig.At("A")));
+            }
+            try
+            {
+                var cleanups = new Dictionary<string, DuplicateBatchAudioCollisionCleanup> { ["K"] = Cleanup(".wav", "a") };
+                if (scenario == "no-spec")
+                {
+                    cleanups.Clear();
+                }
+                (string, string[])[] groups = scenario switch
+                {
+                    "single-folder" => [("K", [])],
+                    "no-source-merged" => [("K", ["A"])],
+                    "skipped" => [("K", ["K\\sub"])],
+                    "retained-source" => [("K", ["A", "D"])],
+                    _ => [("K", ["A"])]
+                };
+                DuplicateBatchOrganizeResult result = rig.Organize(groups, cleanups: cleanups);
+
+                DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
+                Assert.AreEqual(scenario switch
+                {
+                    "no-spec" => DuplicateBatchOrganizeGroupStatus.Completed,
+                    "single-folder" => DuplicateBatchOrganizeGroupStatus.Completed,
+                    "no-source-merged" => DuplicateBatchOrganizeGroupStatus.Failed,
+                    "skipped" => DuplicateBatchOrganizeGroupStatus.Skipped,
+                    _ => DuplicateBatchOrganizeGroupStatus.PartiallyCompleted
+                }, group.Status);
+                Assert.AreEqual(0, group.AudioTrashFailureCount);
+                if (scenario == "retained-source")
+                {
+                    Assert.AreEqual(1, group.TrashedAudioCount, "統合できた移動元がある KEEP は整理します。");
+                    CollectionAssert.AreEqual(new[] { "k\\a.wav" }, ShellDeletedAudio(rig));
+                    Assert.IsFalse(File.Exists(rig.At("K\\a.wav")));
+                    Assert.AreEqual("k-ogg", File.ReadAllText(rig.At("K\\a.ogg")));
+                    Assert.AreEqual("a-wav", File.ReadAllText(rig.At("A\\a.wav")), "残した移動元は整理しません。");
+                    Assert.AreEqual("a-ogg", File.ReadAllText(rig.At("A\\a.ogg")));
+                }
+                else
+                {
+                    Assert.AreEqual(0, group.TrashedAudioCount);
+                    Assert.AreEqual(0, ShellDeletedAudio(rig).Length);
+                    Assert.AreEqual("k-wav", File.ReadAllText(rig.At("K\\a.wav")));
+                    Assert.AreEqual("k-ogg", File.ReadAllText(rig.At("K\\a.ogg")));
+                }
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup-untouched");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 音源のごみ箱への送信が一件失敗しても、そのファイルは残して数え、同じグループの残りの名前と次のグループの整理を続けます。
+    /// 失敗が一件以上あるグループは一部完了で、確定は成立します。失敗で整理を止める誤りと、失敗を完了として報告する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_TrashFailureKeepsTheFileCountsItAndContinues()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            foreach (string keep in new[] { "K1", "K2" })
+            {
+                rig.Chart(keep, keep + ".bms", keep);
+                foreach (string name in new[] { "x", "y" })
+                {
+                    rig.Resource(keep, name + ".wav", keep + name + "wav", BaseTime);
+                    rig.Resource(keep, name + ".ogg", keep + name + "ogg", BaseTime);
+                }
+            }
+            rig.Chart("A1", "a1.bms", "a1");
+            rig.Chart("A2", "a2.bms", "a2");
+            rig.Start();
+            string failing = rig.At("K1\\x.wav");
+            rig.Mutations.FailDeleteFileShellWhen = path => string.Equals(path, failing, StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K1", ["A1"]), ("K2", ["A2"])],
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup>
+                    {
+                        ["K1"] = Cleanup(".wav", "x", "y"),
+                        ["K2"] = Cleanup(".wav", "x", "y")
+                    });
+
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
+                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
+                Assert.AreEqual(1, result.Groups[0].AudioTrashFailureCount);
+                Assert.IsTrue(File.Exists(rig.At("K1\\x.wav")) && !File.Exists(rig.At("K1\\y.wav")));
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
+                Assert.AreEqual(2, result.Groups[1].TrashedAudioCount);
+                Assert.IsFalse(File.Exists(rig.At("K2\\x.wav")) || File.Exists(rig.At("K2\\y.wav")));
+                Assert.IsTrue(result.Receipt.MergeApplied);
+                Assert.IsTrue(result.Receipt.HasDurableCommit);
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup-failure");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 確定に失敗しても、ごみ箱へ送れた音源の数は実数のままで、グループは失敗になります。
+    /// 確定の失敗で数を0へ戻す誤りと、物理的に送った音源を数えない誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_CountKeepsActualTrashesOnCommitFailure()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            rig.Chart("K1", "k1.bms", "k1");
+            rig.Resource("K1", "x.wav", "wav", BaseTime);
+            rig.Resource("K1", "x.ogg", "ogg", BaseTime);
+            rig.Chart("A1", "a1.bms", "a1");
+            rig.Start();
+            using (LR2SongDBExtended db = rig.OpenSongWrite())
+            {
+                db.Execute("CREATE TRIGGER fail_batch_commit BEFORE INSERT ON song WHEN NEW.path = '"
+                    + rig.At("K1\\a1.bms").Replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'forced batch commit failure'); END;");
+            }
+            try
+            {
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K1", ["A1"])],
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup> { ["K1"] = Cleanup(".wav", "x") });
+
+                Assert.IsFalse(result.Receipt.HasDurableCommit);
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Failed, result.Groups[0].Status);
+                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
+                Assert.AreEqual(0, result.Groups[0].AudioTrashFailureCount);
+                Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
+                Assert.IsTrue(File.Exists(rig.At("K1\\x.ogg")));
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup-commit-failure");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 処理中のグループは取消の合図の後も音源の整理まで行い、未着手のグループの音源は変えません。
+    /// 取消で処理中のグループの整理を省く誤りと、未着手のグループの音源を整理する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_CancelFinishesTheStartedGroupsCleanup()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            foreach (string keep in new[] { "K1", "K2", "K3" })
+            {
+                rig.Chart(keep, keep + ".bms", keep);
+                rig.Resource(keep, "x.wav", keep + "wav", BaseTime);
+                rig.Resource(keep, "x.ogg", keep + "ogg", BaseTime);
+            }
+            rig.Chart("A1", "a1.bms", "a1");
+            rig.Chart("A2", "a2.bms", "a2");
+            rig.Chart("A3", "a3.bms", "a3");
+            rig.Start();
+            try
+            {
+                using var cancellation = new CancellationTokenSource();
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K1", ["A1"]), ("K2", ["A2"]), ("K3", ["A3"])],
+                    value =>
+                    {
+                        if (value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted && value.Number == 2)
+                        {
+                            cancellation.Cancel();
+                        }
+                    },
+                    cancellation.Token,
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup>
+                    {
+                        ["K1"] = Cleanup(".wav", "x"),
+                        ["K2"] = Cleanup(".wav", "x"),
+                        ["K3"] = Cleanup(".wav", "x")
+                    });
+
+                Assert.IsTrue(result.Canceled);
+                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
+                Assert.AreEqual(1, result.Groups[1].TrashedAudioCount);
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Unprocessed, result.Groups[2].Status);
+                Assert.AreEqual(0, result.Groups[2].TrashedAudioCount);
+                Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")) || File.Exists(rig.At("K2\\x.wav")));
+                Assert.IsTrue(File.Exists(rig.At("K3\\x.wav")) && File.Exists(rig.At("K3\\x.ogg")));
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-audio-cleanup-cancel");
+            }
+        });
+    }
+
     /// <summary>別のスレッドから、モデルの短期ロック（譜面・保留・初期化）の排他取得が待たずにできることで、呼出元スレッドが保持していないことを確かめます。</summary>
     private static bool AreModelLocksFree(BMSLibrary library)
     {
@@ -1330,10 +1638,12 @@ public sealed class DuplicateBatchOrganizeTests
             IEnumerable<(string Keep, string[] Sources)> groups,
             Action<DuplicateBatchOrganizeProgress>? progress = null,
             CancellationToken cancellationToken = default,
-            LibraryOperationNotices? notices = null)
+            LibraryOperationNotices? notices = null,
+            IReadOnlyDictionary<string, DuplicateBatchAudioCollisionCleanup>? cleanups = null)
             => Library.OrganizeDuplicateGroups(
                 new DuplicateBatchOrganizeRequest(groups.Select(group => new DuplicateBatchOrganizeGroup(
-                    Path.Combine(Root, group.Keep), group.Sources.Select(source => Path.Combine(Root, source))))),
+                    Path.Combine(Root, group.Keep), group.Sources.Select(source => Path.Combine(Root, source)),
+                    cleanups != null && cleanups.TryGetValue(group.Keep, out DuplicateBatchAudioCollisionCleanup? cleanup) ? cleanup : null))),
                 1,
                 notices ?? new LibraryOperationNotices(),
                 progress,

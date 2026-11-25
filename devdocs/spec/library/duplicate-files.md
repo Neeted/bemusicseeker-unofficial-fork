@@ -119,7 +119,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 右クリック「このグループを確認」 | 選択行が属するグループを、グループごとに一度、SELECTの状態によらず対象にする。解析不能で統合不可になったグループの再確認もここから行う。 |
 | ツールバー「高速化のための簡易チェック（サイズと更新日時が同じファイルは読まずに同一とみなす）」 | 既定はオフで、アプリの起動中だけ保持する（起動のたびにオフから始まり、ライブラリを交換しても保つ）。確認の開始時の値を使い、チェックに触れずに確認を始めればオフ（内容を読む比較）で検査する。利用者がチェックを入れる操作のたびに、警告を一件案内し、外す操作では案内しない。警告は、内容が異なるファイルを同一と判定することがあること、名前・サイズ・更新日時が同じファイルは通常は内容も一致すること、破損による不一致を見逃すこと、古いBMSでは入手経路によって1ビットの反転と推定される音源の破損が実在するためオフのままを推奨することを伝える。 |
 | 検索欄の行の下の「衝突WAV/OGGの同等性を検査」 | 既定はオフで、簡易チェックと同じ寿命で保持する。確認の開始時の値を使い、オンなら[WAVとOGGの同等性検査](#wavとoggの同等性検査)を行う。切替えで案内は出さない。 |
-| 同じ行の「衝突整理」（両方残す／OGGを残す／WAVを残す） | 既定は「両方残す」で、簡易チェックと同じ寿命で保持する。確認には使わず、[一括整理](#同等なwavoggの衝突整理)の開始時の値を使う。 |
+| 同じ行の「衝突整理」（両方残す／OGGを残す／WAVを残す） | 既定は「両方残す」で、簡易チェックと同じ寿命で保持する。切替えで案内は出さない。確認には使わず、[一括整理](#同等なwavoggの衝突整理)の開始時の値を使う。 |
 
 確認は、共通のライブラリ変更受付を非待機で取得します（[操作の競合ポリシー](../core/operation-concurrency-policy.md)）。競合時は既存のBusy案内を一件だけ出して未開始とし、検査・進捗・状態を変えません。受付が閉じている（終了の要求中など）ための不成立は案内せずに未開始とし、検査・進捗・状態を変えません。検査の開始から結果の書込みまで受付を保持し、書込みの後、結果の案内の前に解放します。確認中はモーダルの進捗（既存の進捗画面。所有者はメインウィンドウ）に「[何番目/総数] 代表フォルダ名」を示し、他のアプリ内操作を受け付けません。代表フォルダ名はグループのKEEPのフォルダ名です。取消は、処理中のグループを最後まで処理して書き込んでから止まり、着手しなかったグループの確認結果とSELECTは変えません。入出力以外の予期しない例外は、完了済みのグループの結果を書き込み、受付を解放した後に、既存の操作失敗の通知を一度出します。
 
@@ -165,7 +165,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 
 しきい値は `DuplicateMergeSafetyPolicy` で一か所に定めます。OGGは再生と同じ復号器（`VorbisDecoder`）で復号します。WAVは再生の経路を使わず、RIFF/WAVEの無圧縮PCM（整数8・16・24・32ビット、32ビット浮動小数点。`WAVE_FORMAT_EXTENSIBLE` の同じ形式を含む）だけを読みます。`data` チャンクの申告長がファイルの残りを超える場合は、実在する範囲をフレーム単位に切り捨てて読みます。再生の音声セッションと出力デバイスの状態には依存しません。
 
-復号できない音源（非PCMのWAV、壊れたOGGなど）を含む名前は、同等でないものとして扱い、理由を増やしません。読取りの入出力の失敗は、内容の比較と同じく解析不能の理由になり、その名前は同等と判定しません。音声ランタイムの致命的な失敗は、入出力以外の予期しない例外として確認の手順へ伝えます。
+復号できない音源（非PCMのWAV、壊れたOGGなど）を含む名前は、同等でないものとして扱い、理由を増やしません。読取りの入出力の失敗は、内容の比較と同じく解析不能の理由になり、その名前は同等と判定しません。音声ランタイムの致命的な失敗は、入出力以外の予期しない例外として確認の手順へ伝えます。音声ランタイムが未初期化で、他の音声要求が初期化の受付を保持している間に確認を始めた場合も同じで、再試行や待機は行いません。
 
 グループは従来どおり逐次に処理し、一つのグループの中では、対象の名前を論理プロセッサ数を上限に並列で処理します。一つの名前の中で同じファイルを相手ごとに復号し直さず、復号結果を名前の判定の外へ保持しません。
 
@@ -235,7 +235,9 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
 - 個別の削除の失敗は停止の理由にせず、そのファイルを残して数えます。失敗が一件以上あるグループは、重複整理の個別の削除の失敗と同じく一部完了です。
 - グループ結果は、ごみ箱へ送れた音源の数と、送れなかった数を持ちます。送れた数は削除の成功を確認した実数で、確定に失敗しても変わりません。
 
-指定がないグループ、一フォルダのグループ、移動元を一つも統合できなかったグループ、書込み前に拒否したグループは、音源を変えません。取消で処理中のグループは、この整理まで行ってから止まります。
+この整理は、KEEP直下の重複整理の後、確定の前に、既存の削除の窓口（`IFileMutationService.DeleteFileShell`）で一件ずつ行います。音源キーの集合は変わらないため、変更セッションへ事実を加えず、索引・通知への追加の反映を行いません。
+
+指定がないグループ、一フォルダのグループ（指定があっても無視します）、移動元を一つも統合できなかったグループ、書込み前に拒否したグループ、予期しない物理失敗で止まったグループは、音源を変えません。取消で処理中のグループは、この整理まで行ってから止まります。
 
 #### 最後のコピーの保護
 
@@ -272,8 +274,8 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
 
 | 状態 | 条件 |
 | --- | --- |
-| 完了 | 二フォルダ以上のグループは、移動元をすべて統合でき、重複整理の削除にも失敗がない。一フォルダのグループは削除に失敗がない（削除対象が 0 件でも完了）。 |
-| 一部完了 | 統合できた移動元が一つ以上あり、残った移動元がある。または統合はすべてできたが、重複整理の個別の削除に失敗がある。一フォルダのグループで個別の削除に失敗がある場合も同じ。 |
+| 完了 | 二フォルダ以上のグループは、移動元をすべて統合でき、重複整理と衝突整理の削除にも失敗がない。一フォルダのグループは削除に失敗がない（削除対象が 0 件でも完了）。 |
+| 一部完了 | 統合できた移動元が一つ以上あり、残った移動元がある。または統合はすべてできたが、重複整理または衝突整理の個別の削除に失敗がある。一フォルダのグループで個別の削除に失敗がある場合も同じ。 |
 | スキップ | 書込み前の拒否。 |
 | 失敗 | 二フォルダ以上のグループで、移動元を一つも統合できなかった。ごみ箱へ送った数は別に報告する。確定に失敗した操作では、物理的に成功していたグループも失敗。 |
 | 未処理 | 取消、または予期しない物理失敗による停止で、開始しなかった。 |
@@ -303,7 +305,7 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
 | 通常 | 「{n}グループを整理します。」 | 常に |
 | 通常 | 「{m}グループは、移動元の{k}フォルダをKEEPのフォルダへ統合します。移動元のフォルダは削除され、元に戻せません。」 | 二フォルダ以上のグループがあるときだけ（mはそのグループ数、kは移動元の合計） |
 | 通常 | 「同じフォルダにある重複した譜面は、一つを残してごみ箱へ送ります。」 | 常に |
-| 通常 | 「WAVとOGGが同等な{n}グループは、OGG（またはWAV）を残し、もう一方の形式をごみ箱へ送ります。」 | 衝突整理を指定するグループが一件以上あるとき（nはそのグループ数） |
+| 通常 | 「WAVとOGGが同等な{n}グループは、OGGを残し、WAVをごみ箱へ送ります。」（「WAVを残す」では形式を入れ替えた文） | 衝突整理を指定するグループが一件以上あるとき（nはそのグループ数） |
 | 警告用 | 「未確認 {u}グループ／要注意 {c}グループを含みます。」 | 未確認または要注意が一件以上あるとき。0件の側は省き、このときダイアログのアイコンは警告（どちらも0なら質問） |
 | 警告用 | 内容が異なる同名のファイルの扱い。スマート上書きがオフなら「移動元のファイルで上書きされ、一方だけが残る」、オンなら「更新日時の新しい方だけが残る（差がなければ統合先のファイル）」旨 | 確認結果に別内容ファイル衝突（要注意の理由）を持つグループがあるとき。または、.bmx/.txtの衝突（付記）を持つグループがあり、スマート上書き時の連番名での保持が効かない（スマート上書きがオフ、または連番名での保持がオフ）とき |
 | 警告用 | 内容が異なる同名の .bmx・.pmx・.txt は、移動元のファイルが連番付きの名前で保存され、両方が残る旨 | .bmx/.txtの衝突（付記）を持つグループがあり、スマート上書きと連番名での保持がどちらもオンのとき |
@@ -431,9 +433,9 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
 | 実ジャンクション・シンボリックリンクの検出とリンク先へ入らないこと | `DuplicateMergeFolderScan` | [`DuplicateMergeSafetyJunctionTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Maintenance/DuplicateMergeSafetyJunctionTests.cs)（`Suite.Junction`）と [`FolderMergeSymbolicLinkRefusalTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Maintenance/FolderMergeSymbolicLinkRefusalTests.cs)（`Suite.DirectorySymbolicLink`）が、実リンクで確認する |
 | 統合候補一覧の画面受付（未解析のBusy、実行中の準備への合流、準備済みの受付なし、後発画面の優先、再構築での状態の保持、ライブラリ交換での旧構築の不採用） | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（`DuplicateCandidateList`、`PrepareRegularView`）、`DuplicateMergeCandidateListOwner.Adopt` | [`RegularChartNavigationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.CandidateList.cs) の `CandidateList_ColdBusyKeepsViewAndNotifiesOnce`、`CandidateList_JoinsRunningPreparationOrUsesPreparedResultWithoutAdmission`、`CandidateList_LaterSelectedScreenWins`、`CandidateList_RebuildKeepsUnaffectedGroupStateAndResetsAffectedGroup`、`CandidateList_LibraryReplacementRejectsOldBuild`。構築の保留は構築の中の到達の待合せで行う。再構築のケースは、結果の差替え後に一覧を選び直す経路で確認し、表示中に受理済みの変更が入る内部継続は、このテストでは確認せず、`MainWindowDuplicateCandidateListWpfTests` の `CandidateList_OrganizeButtonMergesTheSelectedGroupsAndRebuildsTheListKeepingTheRest` が、実ボタンの一括整理から、再構築での状態の保持、解消したグループの行の消失、ノードの選択の維持まで確認する（受付中のツリー選択の合流は `AcceptedChangeDuplicatePreparationTests` の一括整理の行が担う） |
 | 統合候補一覧の構築の失敗・取消・停止 | `RegularChartListOwner.PresentDuplicateData` | [`RegularChartCommitAndLifecycleTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartCommitAndLifecycleTests.CandidateList.cs) の `CandidateListBuild_FailureNotifiesOnceCancelIsSilentAndStopCollectsBuild` が、解決の例外で通知が一度、停止による取消で通知なし、構築中の停止で構築Taskの回収を確認する |
-| WAVとOGGの同等性検査（対象の名前、全組の判定、形式・無音・相関・ゲインの境界、WAVの読取り、復号できない音源、読取りの失敗、該当からの除外、「全衝突が同等」、オフでは復号しない、確認開始時の値の受渡し） | [`DuplicateMergeAudioEquivalence.Judge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioEquivalence.cs)、[`DuplicateMergeWaveReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeWaveReader.cs)、[`DuplicateMergeAudioReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioReader.cs)、`DuplicateMergeSafetyInspector.JudgeAudioEquivalence`、`DuplicateMergeVerificationResult` の `EquivalentAudioNames`・`AllAudioCollisionsEquivalent`、`DuplicateMergeCandidateListOwner.AudioEquivalenceEnabled`、`DuplicateMergeVerificationWorkflowOwner` | [`DuplicateMergeAudioEquivalenceTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeAudioEquivalenceTests.cs) の `Judge_` で始まるケースが、合成したサンプルで形式の不一致・無音・相関0.95とゲイン0.85・1.15の境界・ゲインの式・チャンネルの入替えと位置ずれ・3チャンネル以上を確認する。[`DuplicateMergeWaveReaderTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeWaveReaderTests.cs) は対応形式の正規化、余分なチャンク、申告長の超過、復号できない入力と入出力の失敗の区別を確認する。`DuplicateMergeSafetyInspectorTests.AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason` はオフで復号しないことを、[`DuplicateMergeAudioEquivalenceInspectionTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMergeAudioEquivalenceInspectionTests.cs) の `Inspect_` で始まるケースは、実ファイルと実際のOGG復号を未初期化の音声ランタイムから通し、該当からの除外と「全衝突が同等」（KEEPによらない）、全組の判定、他形式を含む名前を復号しないこと、復号できない音源、読取りの失敗を確認する。`DuplicateMergeVerificationWorkflowOwnerTests` の `Verify_PassesQuickCompareAndAudioEquivalenceValuesIndependently` と `Verify_WithoutTouchingTheCheck_PassesTheDisabledDefaultToEveryRequest` は値の受渡しと既定のオフを確認する。音声ランタイムの致命的な失敗が伝わることは自動テストで確認していない |
-| 同等なWAV・OGGの衝突整理（KEEPで両形式が実在する名前だけ、残す形式がない名前の保護、個別の削除の失敗、実数、指定しない条件、確認文と結果の案内） | 未実装 | 未実装 |
-| 同等性検査のチェックと衝突整理の選択（既定、寿命、一覧ごとの独立、確認・整理への値の受渡し、STATUSの付記とツールチップ） | 未実装 | 未実装 |
+| WAVとOGGの同等性検査（対象の名前、全組の判定、形式・無音・相関・ゲインの境界、WAVの読取り、復号できない音源、読取りの失敗、該当からの除外、「全衝突が同等」、オフでは復号しない、確認開始時の値の受渡し） | [`DuplicateMergeAudioEquivalence.Judge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioEquivalence.cs)、[`DuplicateMergeWaveReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeWaveReader.cs)、[`DuplicateMergeAudioReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioReader.cs)、`DuplicateMergeSafetyInspector.JudgeAudioEquivalence`、`DuplicateMergeVerificationResult` の `EquivalentAudioNames`・`AllAudioCollisionsEquivalent`、`DuplicateMergeCandidateListOwner.AudioEquivalenceEnabled`、`DuplicateMergeVerificationWorkflowOwner` | [`DuplicateMergeAudioEquivalenceTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeAudioEquivalenceTests.cs) の `Judge_` で始まるケースが、合成したサンプルで形式の不一致・無音・相関0.95とゲイン0.85・1.15の境界・ゲインの式・チャンネルの入替えと位置ずれ・3チャンネル以上を確認する。[`DuplicateMergeWaveReaderTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeWaveReaderTests.cs) は対応形式の正規化、余分なチャンク、申告長の超過、復号できない入力と入出力の失敗の区別を確認する。`DuplicateMergeSafetyInspectorTests.AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason` はオフで復号しないことを、[`DuplicateMergeAudioEquivalenceInspectionTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMergeAudioEquivalenceInspectionTests.cs) の `Inspect_` で始まるケースは、実ファイルと実際のOGG復号を未初期化の音声ランタイムから通し、該当からの除外と「全衝突が同等」（KEEPによらない）、全組の判定、他形式を含む名前を復号しないこと、復号できない音源、読取りの失敗を確認する。`DuplicateMergeVerificationWorkflowOwnerTests` の `Verify_PassesQuickCompareAndAudioEquivalenceValuesIndependently` と `Verify_WithoutTouchingTheCheck_PassesTheDisabledDefaultToEveryRequest` は値の受渡しと既定のオフを確認する。音声ランタイムの致命的な失敗が伝わることは自動テストで確認せず、失敗の分類をコードレビューで確認する |
+| 同等なWAV・OGGの衝突整理（KEEPで両形式が実在する名前だけ、残す形式がない名前の保護、個別の削除の失敗、実数、行わない条件、取消、衝突整理の選択の既定と寿命、指定する条件、確認文と結果の案内） | [`DuplicateBatchAudioCollisionCleanup`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/DuplicateBatchOrganize.cs)、[`LibraryMutationOwner` の `CleanupAudioCollisions`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.BatchOrganize.cs)、[`DuplicateBatchOrganizePresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateBatchOrganizePresentation.cs) の `CreateAudioCollisionCleanup`・`CreateConfirmationMessage`・`CreateResultMessage`、`DuplicateMergeCandidateListOwner.CollisionCleanupMode` | [`DuplicateBatchOrganizeTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateBatchOrganizeTests.cs) の `OrganizeDuplicateGroups_AudioCollisionCleanup_` で始まるケースが、実ファイル・SQLite・実ライブラリと削除の窓口の代替で確認する。`TrashesDiscardFormatOnlyWhereBothFormsExistInKeep` は残す形式ごとに、統合で揃う名前・サブディレクトリ・元からの両形式・大文字の拡張子を送り、一方だけの名前・存在しない名前・一覧にない名前を変えないことと、音源と譜面の数を別に数えることを、`DoesNotTouchAudioWithoutSpecOrMerge` は指定なし・一フォルダ・統合0件・書込み前の拒否・残した移動元を、`TrashFailureKeepsTheFileCountsItAndContinues` は個別の失敗での一部完了と継続を、`CountKeepsActualTrashesOnCommitFailure` は確定失敗での実数を、`CancelFinishesTheStartedGroupsCleanup` は取消を確認する。予期しない物理失敗で止まったグループで整理しないことは自動テストで確認していない。[`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `OrganizeSelectedGroups_AudioCollisionSpecFollowsCapturedModeAndAllEquivalentVerification` は選択ごとの指定の有無・形式・名前と確認文の行を、`OrganizeSelectedGroups_ResultShowsTrashedAudioLineOnlyWhenAnyAudioWasTrashed` は結果の案内の行と「削除の失敗」の理由を確認する。`DuplicateMergeCandidateListOwnerTests.CollisionCleanup_DefaultsKeepBothAndKeepsSelectionAcrossLibraryExchange` は既定と寿命を、`DuplicateMaintenanceWorkflowOwnerSplitPlacementTests.Organize_UsesTheSplitPlacementListsCollisionCleanupMode` は分裂配置の一覧の値を使うことを確認する。実際の音源の確認から整理までを一続きに通す確認は、画面部品の行が分担する |
+| 同等性検査のチェックと衝突整理の選択の画面部品、STATUSの付記とツールチップ | 未実装 | 未実装 |
 
 ## 関連資料
 

@@ -1386,6 +1386,34 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
+    /// 保証：衝突整理の値は既定で両方残すで、変更を一回通知し、ライブラリを交換しても保つ（アプリの起動中だけの値）。対象の捕捉は捕捉時点の値を持ち、以後の変更は捕捉した値へ影響しない。
+    /// 検出する誤り：既定が両方残す以外、ライブラリの交換での値の消失・既定への復帰、変更の通知の欠落・重複、捕捉した値の後からの変化。
+    /// </summary>
+    [TestMethod]
+    public void CollisionCleanup_DefaultsKeepBothAndKeepsSelectionAcrossLibraryExchange()
+    {
+        var fixture = new Fixture();
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, fixture.Owner.CollisionCleanupMode, "既定は両方残すです。");
+
+        fixture.Adopt(Group(@"C:\S\a1", @"C:\S\a2"));
+        fixture.Owner.SelectVisible();
+        fixture.Owner.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepOgg;
+        fixture.Owner.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepOgg;
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> captured = fixture.Owner.CaptureSelectedGroups();
+        fixture.Owner.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepWav;
+        Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepOgg, captured.Single().CollisionCleanup, "捕捉した値は後の変更で変わりません。");
+        Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, fixture.Owner.CaptureSelectedGroups().Single().CollisionCleanup);
+
+        fixture.Owner.AttachLibrary(new object());
+
+        Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, fixture.Owner.CollisionCleanupMode, "ライブラリの交換後も保ちます。");
+        Assert.AreEqual(2, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.CollisionCleanupMode)),
+            "値が変わった二回だけ通知し、同じ値の設定と交換では通知しません。");
+    }
+
+    /// <summary>
     /// 保証：確認の入力の捕捉は、行が属するグループをグループごとに一度、SELECTの状態によらず行の順で返し、現在の状態表にない行は除く。
     /// 全グループのフォルダの捕捉は、検索で非表示のグループも含む。対象は登録範囲のフォルダを持つ。
     /// 検出する誤り：同じグループの重複捕捉、SELECTによる絞込み、非表示のグループの欠落（別のグループとの重なりの見落とし）、登録範囲の欠落。

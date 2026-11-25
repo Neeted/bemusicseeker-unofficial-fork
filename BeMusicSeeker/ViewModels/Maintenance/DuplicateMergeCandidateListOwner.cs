@@ -68,6 +68,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     private int selectedGroupCount;
     private bool quickCompareEnabled;
     private bool audioEquivalenceEnabled;
+    private DuplicateMergeCollisionCleanupMode collisionCleanupMode;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
@@ -237,6 +238,21 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             if (audioEquivalenceEnabled == value) { return; }
             audioEquivalenceEnabled = value;
             RaisePropertyChanged(nameof(AudioEquivalenceEnabled));
+        }
+    }
+
+    /// <summary>
+    /// 一括整理で、同等と確認した同名のWAVとOGGをどう扱うか（衝突整理）です。既定は両方残すで、<see cref="QuickCompareEnabled"/> と同じく、
+    /// アプリの起動中だけ保持し、ライブラリの交換後も残ります。対象の捕捉と同じ時点で一度だけ読み、整理の途中の変更は進行中の整理へ影響しません。切替えで案内は出しません。
+    /// </summary>
+    public DuplicateMergeCollisionCleanupMode CollisionCleanupMode
+    {
+        get => collisionCleanupMode;
+        internal set
+        {
+            if (collisionCleanupMode == value) { return; }
+            collisionCleanupMode = value;
+            RaisePropertyChanged(nameof(CollisionCleanupMode));
         }
     }
 
@@ -621,8 +637,8 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         return targets;
     }
 
-    private static DuplicateMergeCandidateGroupTarget CaptureTarget(DuplicateMergeCandidateGroupState state)
-        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders], state.Verification);
+    private DuplicateMergeCandidateGroupTarget CaptureTarget(DuplicateMergeCandidateGroupState state)
+        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders], state.Verification, collisionCleanupMode);
 
     /// <summary>
     /// 現在の状態表の全グループ（検索で非表示のグループと確認対象外のグループを含む）のフォルダを捕捉します。

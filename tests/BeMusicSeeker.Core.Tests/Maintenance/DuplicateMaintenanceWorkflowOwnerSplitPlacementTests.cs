@@ -374,6 +374,33 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
     }
 
     /// <summary>
+    /// 保証：分裂配置の一覧からの整理は、その一覧の「衝突整理」の値を使い、重複の一覧の値を使わない。
+    /// 検出する誤り：重複の一覧の値の使用、分裂配置の一覧の値の無視。
+    /// </summary>
+    [TestMethod]
+    public void Organize_UsesTheSplitPlacementListsCollisionCleanupMode()
+    {
+        Run(fixture =>
+        {
+            DuplicateGroup safe = fixture.Groups[0];
+            fixture.Write(safe, new DuplicateMergeVerificationResult(
+                DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true));
+            fixture.SplitList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepWav;
+            fixture.DuplicateList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepOgg;
+            fixture.SplitList.SelectVisible();
+            fixture.SplitList.SearchText = Path.GetFileName(fixture.State(safe).Folders[0]);
+
+            DuplicateBatchOrganizeRunResult run = fixture.OnUi(async () => await fixture.Owner.OrganizeSelectedSplitPlacementGroupsAsync()).GetAwaiter().GetResult();
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+            DuplicateBatchAudioCollisionCleanup? cleanup = fixture.Store.Requests.Single().Groups.Single().AudioCollisionCleanup;
+            Assert.IsNotNull(cleanup, "分裂配置の一覧の値（WAVを残す）で指定します。");
+            Assert.AreEqual(".ogg", cleanup.DiscardExtension, "重複の一覧の値（OGGを残す）は使いません。");
+            CollectionAssert.AreEqual(new[] { "x" }, cleanup.Names.ToArray());
+        });
+    }
+
+    /// <summary>
     /// 保証：整理の後の探索し直しでインスタンスを引き継いだグループは、整理の対象だったものはSELECTがオフで、対象でなかったもの（検索で非表示でオン）はオンのまま、
     /// KEEPと確認結果は保つ。解消したグループの状態は一覧の採用で破棄され、新しいインスタンスのグループは初期値（未確認・SELECTオフ）になる。
     /// 検出する誤り：引き継いだ対象のSELECTの残留、対象外のSELECTの消去、KEEP・確認結果の消失、新しいインスタンスへの状態の持込み、解消したグループの状態の残留。
