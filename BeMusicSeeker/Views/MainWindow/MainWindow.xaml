@@ -1038,6 +1038,7 @@
                   <ComboBoxItem Tag="{x:Static vm:DuplicateMergeCollisionCleanupMode.KeepOgg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup_keep_ogg, Mode=OneWay}" />
                   <ComboBoxItem Tag="{x:Static vm:DuplicateMergeCollisionCleanupMode.KeepWav}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav, Mode=OneWay}" />
                 </ComboBox>
+                <CheckBox x:Name="duplicateCandidateQuickCompareCheckBox" Style="{StaticResource App.Canonical.CheckBoxStyle}" AutomationProperties.AutomationId="DuplicateCandidateQuickCompare" Click="duplicateCandidateQuickCompareClick" VerticalAlignment="Center" Margin="12,0,0,0" IsChecked="{Binding DisplayedCandidateList.QuickCompareEnabled, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_quick_compare, Mode=OneWay}" />
               </StackPanel>
               <StackPanel x:Name="splitPlacementCriteriaRow" AutomationProperties.AutomationId="SplitPlacementCriteriaRow" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,0,0,4" Visibility="{Binding DisplaysSplitPlacementCandidateList, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <StackPanel.Resources>
@@ -1140,7 +1141,6 @@
                 <Button x:Name="duplicateCandidatePreferredDestinationsButton" AutomationProperties.AutomationId="DuplicateCandidatePreferredDestinations" Click="duplicateCandidatePreferredDestinationsClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_preferred_destinations, Mode=OneWay}" />
                 <Button x:Name="duplicateCandidateVerifyButton" AutomationProperties.AutomationId="DuplicateCandidateVerify" Click="duplicateCandidateVerifyClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_verify_selected, Mode=OneWay}" />
                 <Button x:Name="duplicateCandidateOrganizeButton" AutomationProperties.AutomationId="DuplicateCandidateOrganize" Click="duplicateCandidateOrganizeClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_batch_organize_selected, Mode=OneWay}" />
-                <CheckBox x:Name="duplicateCandidateQuickCompareCheckBox" Style="{StaticResource App.Canonical.CheckBoxStyle}" AutomationProperties.AutomationId="DuplicateCandidateQuickCompare" Click="duplicateCandidateQuickCompareClick" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding DisplayedCandidateList.QuickCompareEnabled, Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_quick_compare, Mode=OneWay}" />
               </StackPanel>
             </StackPanel>
           </Border>
