@@ -2108,7 +2108,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td><code>Safe</code></td>
-<td>Nothing was found that gets in the way of merging. <code>Safe (.bmx/.txt collision)</code> means that same-name <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> files exist in more than one folder and differ in content. The <code>STATUS</code> tooltip explains what happens to them when the folders are merged.</td>
+<td>Nothing was found that gets in the way of merging. <code>Safe (.bmx/.txt collision)</code> means that same-name <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> files exist in more than one folder and differ in content. The <code>STATUS</code> tooltip explains what happens to them when the folders are merged. <code>Safe (WAV/OGG equivalent)</code> means every colliding same-name WAV and OGG pair was judged equivalent.</td>
 </tr>
 <tr>
 <td><code>Caution</code></td>
@@ -2138,7 +2138,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <tr>
 <td><code>same audio name, different extension</code></td>
 <td><code>Caution</code></td>
-<td>For example, if one folder has only <code>foo.wav</code> and another has <code>foo.ogg</code> at the same relative location, a chart may play a different audio file after merging. If every folder containing that audio name already has the same set of formats, this warning does not appear.</td>
+<td>For example, if one folder has only <code>foo.wav</code> and another has <code>foo.ogg</code> at the same relative location, a chart may play a different audio file after merging. If every folder containing that audio name already has the same set of formats, this warning does not appear. A same-name WAV and OGG that are judged equivalent with <code>Check WAV/OGG collisions for equivalence</code> are also excluded from this warning.</td>
 </tr>
 <tr>
 <td><code>files with different content</code></td>
@@ -2185,6 +2185,32 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. <code>.bmx</code>, <code>.pmx</code>, and <code>.txt</code> files are compared in the same way.</p>
 <p><code>Quick check for speed (treat files with the same size and modified time as identical without reading them)</code> is disabled by default. When you check it, files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While <code>Quick check for speed</code> is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.</p></div>
+<p><code>Check WAV/OGG collisions for equivalence</code> is a check below the search box row. It is disabled by default, and checking it shows no message. When it is enabled and you press <code>Verify selected groups</code>, a same-name WAV and OGG that collide are compared by waveform to judge whether the OGG was converted from the WAV. Both files are read and decoded, so verification takes longer. Only WAV and OGG pairs are judged; a name that includes mp3 or flac is not judged and is reported as <code>same audio name, different extension</code> as before. A name judged equivalent is removed from <code>same audio name, different extension</code>. When every colliding WAV and OGG in a group was judged equivalent and nothing else gets in the way, <code>STATUS</code> becomes <code>Safe (WAV/OGG equivalent)</code>. The <code>STATUS</code> tooltip shows how many names were judged equivalent. A group that still has even one collision that is not equivalent keeps <code>same audio name, different extension</code>.</p>
+<p><code>Collision cleanup</code> is the combo box on the same row. It sets what <code>Organize selected groups</code> does with a WAV and OGG judged equivalent.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Choice</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Keep both</code></td>
+<td>The default. Neither the WAV nor the OGG is cleaned up, and merging follows the usual rules.</td>
+</tr>
+<tr>
+<td><code>Keep OGG</code></td>
+<td>For each name judged equivalent, the WAV in the <code>KEEP</code> folder is moved to the Recycle Bin.</td>
+</tr>
+<tr>
+<td><code>Keep WAV</code></td>
+<td>For each name judged equivalent, the OGG in the <code>KEEP</code> folder is moved to the Recycle Bin.</td>
+</tr>
+</tbody>
+</table></div>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>When <code>Collision cleanup</code> is <code>Keep OGG</code> or <code>Keep WAV</code>, <code>Organize selected groups</code> moves the files of the other format to the Recycle Bin for groups confirmed as equivalent. Check equivalence with <code>Verify selected groups</code> before organizing. Groups that were not verified, and groups whose colliding WAV and OGG were not judged equivalent, keep both. The confirmation dialog shows how many groups keep one format.</p></div>
+<p>The values of <code>Check WAV/OGG collisions for equivalence</code> and <code>Collision cleanup</code> are kept per list until you close the application.</p>
 <p><code>Organize selected groups</code> processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than <code>KEEP</code> is merged into the <code>KEEP</code> folder. Files are moved and overwritten by the same rules as <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>. Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in <a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></a>.</p>
 <p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.</p>
 <p>Other operations are as follows.</p>
@@ -2218,7 +2244,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <ul>
 <li>Groups whose <code>STATUS</code> is <code>Unchecked</code> cannot be organized. If you press <code>Organize selected groups</code> while an <code>Unchecked</code> group is checked, a message asks you to verify first and nothing is organized. Run <code>Verify selected groups</code> before organizing.</li>
 <li>When organizing finishes, the search runs again automatically. <code>KEEP</code> and the verification results of groups that were not affected are kept.</li>
-<li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, and the folders registered with <code>Preferred destinations...</code> are kept separately from the merge candidates list of duplicate file check.</li>
+<li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, the folders registered with <code>Preferred destinations...</code>, and the values of <code>Check WAV/OGG collisions for equivalence</code> and <code>Collision cleanup</code> are kept separately from the merge candidates list of duplicate file check.</li>
 </ul>
 <p>In the split-placement-check tree, <code>Merge to</code> in the folder context menu and <code>Ctrl + G</code> are not available.</p>
 <h4 id="adjust-the-search-conditions">Adjust the Search Conditions</h4>

@@ -1334,7 +1334,7 @@ The basic steps are as follows.
 | `STATUS` | Meaning |
 | --- | --- |
 | `Unchecked` | Not verified yet. |
-| `Safe` | Nothing was found that gets in the way of merging. `Safe (.bmx/.txt collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. |
+| `Safe` | Nothing was found that gets in the way of merging. `Safe (.bmx/.txt collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. `Safe (WAV/OGG equivalent)` means every colliding same-name WAV and OGG pair was judged equivalent. |
 | `Caution` | The group can be merged, but there is something you may want to review. |
 | `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
 
@@ -1343,7 +1343,7 @@ The reasons are as follows. `STATUS` lists every applicable reason separated by 
 | Reason | Level | Description |
 | --- | --- | --- |
 | `parent directory reference` | `Caution` | A chart to be moved refers to audio or other files outside its folder with `..`. The reference may break after merging. |
-| `same audio name, different extension` | `Caution` | For example, if one folder has only `foo.wav` and another has `foo.ogg` at the same relative location, a chart may play a different audio file after merging. If every folder containing that audio name already has the same set of formats, this warning does not appear. |
+| `same audio name, different extension` | `Caution` | For example, if one folder has only `foo.wav` and another has `foo.ogg` at the same relative location, a chart may play a different audio file after merging. If every folder containing that audio name already has the same set of formats, this warning does not appear. A same-name WAV and OGG that are judged equivalent with `Check WAV/OGG collisions for equivalence` are also excluded from this warning. |
 | `files with different content` | `Caution` | Files with the same name have different content. The folders may be works that use different audio. |
 | `no identical files shared` | `Caution` | When folders that share a file with identical content are connected to each other, the folders in the group do not all connect and split into separate sets. Unrelated works may be mixed in. Folders that have no files other than charts and `.bmx`, `.pmx`, and `.txt` files are not considered. |
 | `chart folder inside` | `Caution` | A folder to be moved contains another folder with charts. That folder is moved as well. |
@@ -1359,6 +1359,21 @@ When comparing content, same-name files with different sizes are treated as diff
 
 > [!CAUTION]
 > Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While `Quick check for speed` is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.
+
+`Check WAV/OGG collisions for equivalence` is a check below the search box row. It is disabled by default, and checking it shows no message. When it is enabled and you press `Verify selected groups`, a same-name WAV and OGG that collide are compared by waveform to judge whether the OGG was converted from the WAV. Both files are read and decoded, so verification takes longer. Only WAV and OGG pairs are judged; a name that includes mp3 or flac is not judged and is reported as `same audio name, different extension` as before. A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent and nothing else gets in the way, `STATUS` becomes `Safe (WAV/OGG equivalent)`. The `STATUS` tooltip shows how many names were judged equivalent. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`.
+
+`Collision cleanup` is the combo box on the same row. It sets what `Organize selected groups` does with a WAV and OGG judged equivalent.
+
+| Choice | Description |
+| --- | --- |
+| `Keep both` | The default. Neither the WAV nor the OGG is cleaned up, and merging follows the usual rules. |
+| `Keep OGG` | For each name judged equivalent, the WAV in the `KEEP` folder is moved to the Recycle Bin. |
+| `Keep WAV` | For each name judged equivalent, the OGG in the `KEEP` folder is moved to the Recycle Bin. |
+
+> [!CAUTION]
+> When `Collision cleanup` is `Keep OGG` or `Keep WAV`, `Organize selected groups` moves the files of the other format to the Recycle Bin for groups confirmed as equivalent. Check equivalence with `Verify selected groups` before organizing. Groups that were not verified, and groups whose colliding WAV and OGG were not judged equivalent, keep both. The confirmation dialog shows how many groups keep one format.
+
+The values of `Check WAV/OGG collisions for equivalence` and `Collision cleanup` are kept per list until you close the application.
 
 `Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
 
@@ -1402,7 +1417,7 @@ Folders are merged from `Merge candidates` at the top of the tree. Reading the l
 
 - Groups whose `STATUS` is `Unchecked` cannot be organized. If you press `Organize selected groups` while an `Unchecked` group is checked, a message asks you to verify first and nothing is organized. Run `Verify selected groups` before organizing.
 - When organizing finishes, the search runs again automatically. `KEEP` and the verification results of groups that were not affected are kept.
-- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, and the folders registered with `Preferred destinations...` are kept separately from the merge candidates list of duplicate file check.
+- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, the folders registered with `Preferred destinations...`, and the values of `Check WAV/OGG collisions for equivalence` and `Collision cleanup` are kept separately from the merge candidates list of duplicate file check.
 
 In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
 

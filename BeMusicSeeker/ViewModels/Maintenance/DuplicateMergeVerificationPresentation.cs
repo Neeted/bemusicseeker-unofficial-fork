@@ -34,7 +34,7 @@ internal static class DuplicateMergeVerificationPresentation
     /// STATUSの表示文言です。未確認は「未確認」、安全は「安全」（.bmx/.txtの衝突があれば付記つき）、
     /// 要注意と統合不可は「要注意：（理由, 理由…）」「統合不可：（理由, 理由…）」で、成立した理由をすべて結果の順に並べます。
     /// 区切りは表示言語によらない「, 」で、譜面一覧のWARNING列と同じです。理由の順は <see cref="DuplicateMergeVerificationReasonKind"/> の宣言順（結果が保つ順）です。
-    /// .bmx/.txtの衝突は、要注意と統合不可の文言には含めません。
+    /// .bmx/.txtの衝突は、要注意と統合不可の文言には含めません。同名のWAVとOGGの衝突がすべて同等と判定された結果は、安全のときだけ「WAV/OGG同等」を付記します。
     /// </summary>
     internal static string FormatStatus(this DuplicateMergeVerificationResult result)
     {
@@ -42,9 +42,13 @@ internal static class DuplicateMergeVerificationPresentation
         switch (result.Stage)
         {
             case DuplicateMergeVerificationStage.Safe:
-                return result.HasProtectedNameCollision
+                string safe = result.HasProtectedNameCollision
                     ? Resources.Duplicate_merge_candidate_status_safe_protected_collision
                     : StageName(result.Stage);
+                // 同名のWAVとOGGの衝突がすべて同等と判定された安全な結果だけ、既存の付記の後ろへ別の括弧で付記します。
+                return result.AllAudioCollisionsEquivalent
+                    ? string.Format(Resources.Duplicate_merge_candidate_status_note_format, safe, Resources.Duplicate_merge_candidate_status_audio_equivalent)
+                    : safe;
             case DuplicateMergeVerificationStage.Caution:
             case DuplicateMergeVerificationStage.Unmergeable:
                 if (result.Reasons.Count == 0) { break; }
@@ -67,6 +71,7 @@ internal static class DuplicateMergeVerificationPresentation
             StageName(DuplicateMergeVerificationStage.Unmergeable),
             .. Enum.GetValues<DuplicateMergeVerificationReasonKind>().Select(ReasonName),
             Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            Resources.Duplicate_merge_candidate_status_audio_equivalent,
             Resources.Duplicate_merge_candidate_title_mismatch,
             Resources.Duplicate_merge_candidate_artist_mismatch,
         ];
@@ -113,6 +118,11 @@ internal static class DuplicateMergeVerificationPresentation
         if (result.Stage == DuplicateMergeVerificationStage.Safe)
         {
             sections.Add(FormatComparisons(result.Comparisons ?? DuplicateMergeComparisonSummary.None));
+        }
+        // 同等と判定した名前の数は、段階によらずツールチップの末尾に示します。
+        if (result.EquivalentAudioNames is { Count: > 0 } equivalentNames)
+        {
+            sections.Add(string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, equivalentNames.Count));
         }
         return sections.Count == 0 ? null : string.Join(Environment.NewLine + Environment.NewLine, sections);
     }

@@ -3376,6 +3376,24 @@ public class Resources
     public static string Duplicate_merge_candidate_artist_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_artist_mismatch", resourceCulture);
     /// <summary>確認状況に代表値の不一致を添える書式です。</summary>
     public static string Duplicate_merge_candidate_status_note_format => ResourceManager.GetString("Duplicate_merge_candidate_status_note_format", resourceCulture);
+    /// <summary>STATUSで、同名のWAVとOGGがすべて同等と判定された安全なグループに添える付記です。</summary>
+    public static string Duplicate_merge_candidate_status_audio_equivalent => ResourceManager.GetString("Duplicate_merge_candidate_status_audio_equivalent", resourceCulture);
+    /// <summary>STATUSのツールチップの末尾に、同等と判定した同名のWAVとOGGの組数を示す書式です。</summary>
+    public static string Duplicate_merge_candidate_tooltip_audio_equivalent_format => ResourceManager.GetString("Duplicate_merge_candidate_tooltip_audio_equivalent_format", resourceCulture);
+    /// <summary>統合候補一覧の「衝突WAV/OGGの同等性を検査」のチェックの文言です。</summary>
+    public static string Duplicate_merge_candidate_audio_equivalence => ResourceManager.GetString("Duplicate_merge_candidate_audio_equivalence", resourceCulture);
+    /// <summary>「衝突WAV/OGGの同等性を検査」のチェックのツールチップです。</summary>
+    public static string Duplicate_merge_candidate_audio_equivalence_tooltip => ResourceManager.GetString("Duplicate_merge_candidate_audio_equivalence_tooltip", resourceCulture);
+    /// <summary>統合候補一覧の「衝突整理」の選択欄のラベルです。</summary>
+    public static string Duplicate_merge_candidate_collision_cleanup => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup", resourceCulture);
+    /// <summary>「衝突整理」の選択欄のツールチップです。</summary>
+    public static string Duplicate_merge_candidate_collision_cleanup_tooltip => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_tooltip", resourceCulture);
+    /// <summary>「衝突整理」の選択肢「両方残す」です。</summary>
+    public static string Duplicate_merge_candidate_collision_cleanup_keep_both => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_keep_both", resourceCulture);
+    /// <summary>「衝突整理」の選択肢「OGGを残す」です。</summary>
+    public static string Duplicate_merge_candidate_collision_cleanup_keep_ogg => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_keep_ogg", resourceCulture);
+    /// <summary>「衝突整理」の選択肢「WAVを残す」です。</summary>
+    public static string Duplicate_merge_candidate_collision_cleanup_keep_wav => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_keep_wav", resourceCulture);
     /// <summary>統合候補一覧のSTATUSで使う「要注意」の段階名です。</summary>
     public static string Duplicate_merge_candidate_status_caution => ResourceManager.GetString("Duplicate_merge_candidate_status_caution", resourceCulture);
     /// <summary>統合候補一覧のSTATUSで使う「統合不可」の段階名です。</summary>

@@ -4234,6 +4234,33 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_status_note_format" xml:space="preserve">
     <value>{0}（{1}）</value>
   </data>
+  <data name="Duplicate_merge_candidate_status_audio_equivalent" xml:space="preserve">
+    <value>WAV/OGG同等</value>
+  </data>
+  <data name="Duplicate_merge_candidate_tooltip_audio_equivalent_format" xml:space="preserve">
+    <value>同名のWAVとOGG {0}組を同等と判定しました。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_equivalence" xml:space="preserve">
+    <value>衝突WAV/OGGの同等性を検査</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_equivalence_tooltip" xml:space="preserve">
+    <value>同じ名前のWAVとOGGを復号して比べ、OGGがWAVから変換されたものかを判定します。確認に時間がかかります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_collision_cleanup" xml:space="preserve">
+    <value>衝突整理</value>
+  </data>
+  <data name="Duplicate_merge_candidate_collision_cleanup_tooltip" xml:space="preserve">
+    <value>安全性確認で衝突したWAVとOGGがすべて同等と判定されたグループを整理するときの、残し方を選びます。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_collision_cleanup_keep_both" xml:space="preserve">
+    <value>両方残す</value>
+  </data>
+  <data name="Duplicate_merge_candidate_collision_cleanup_keep_ogg" xml:space="preserve">
+    <value>OGGを残す</value>
+  </data>
+  <data name="Duplicate_merge_candidate_collision_cleanup_keep_wav" xml:space="preserve">
+    <value>WAVを残す</value>
+  </data>
   <data name="Duplicate_merge_candidate_status_caution" xml:space="preserve">
     <value>要注意</value>
   </data>

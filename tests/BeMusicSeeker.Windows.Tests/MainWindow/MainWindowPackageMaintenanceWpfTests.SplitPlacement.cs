@@ -276,6 +276,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
+            var audioEquivalence = (CheckBox)window.FindName("duplicateCandidateAudioEquivalenceCheckBox");
+            var collisionCleanup = (ComboBox)window.FindName("duplicateCandidateCollisionCleanupComboBox");
+            var audioRow = (FrameworkElement)window.FindName("duplicateCandidateAudioEquivalenceRow");
+            var criteriaRow = (FrameworkElement)window.FindName("splitPlacementCriteriaRow");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
             var historyBar = (Border)window.FindName("playHistorySummaryBar");
             TextBlock mainSummary = FindMainSummaryText(window);
@@ -325,6 +329,21 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             CollectionAssert.AreEqual(new[] { preferred }, split.PreferredDestinations.ToArray());
             Assert.AreEqual(preferred, split.RowSet.First(row => row.Path == preferred).State.KeepFolder, "優先統合先が分裂配置の一覧のKEEPへ適用される");
 
+            // 同等性検査のチェックと衝突整理：分裂配置の一覧では探索条件の行の上に出て、分裂配置の一覧主体にだけ作用し、案内を出さない。
+            Assert.IsTrue(audioRow.IsVisible, "分裂配置の一覧でも同等性検査の行が見える");
+            Assert.IsTrue(criteriaRow.IsVisible);
+            UIElementCollection barRows = ((Panel)audioRow.Parent).Children;
+            Assert.AreSame(audioRow.Parent, criteriaRow.Parent);
+            Assert.IsLessThan(barRows.IndexOf(criteriaRow), barRows.IndexOf(audioRow), "同等性検査の行は探索条件の行の上");
+            Assert.IsFalse(audioEquivalence.IsChecked, "前提：同等性検査は既定で外れています。");
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, collisionCleanup.SelectedValue, "前提：衝突整理は既定で両方残す");
+            audioEquivalence.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            collisionCleanup.SelectedItem = collisionCleanup.Items.Cast<ComboBoxItem>()
+                .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav));
+            Assert.IsTrue(split.AudioEquivalenceEnabled);
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, split.CollisionCleanupMode);
+            Assert.AreEqual(1, dialogs.Messages.Count, "同等性検査・衝突整理の切替えで案内は増えません。");
+
             // 重複の一覧へ切り替える：重複の一覧主体の値（独立した状態）が現れ、分裂配置の一覧の値は変わらない。
             SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(duplicateRoot));
             TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -337,6 +356,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(0, duplicate.PreferredDestinations.Count);
             Assert.IsFalse(quickCompare.IsChecked, "重複の一覧の簡易チェックは既定のまま");
             Assert.IsFalse(duplicate.QuickCompareEnabled);
+            Assert.IsTrue(audioRow.IsVisible, "重複の一覧でも同等性検査の行が見える");
+            Assert.IsFalse(audioEquivalence.IsChecked, "重複の一覧の同等性検査は既定のまま");
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, collisionCleanup.SelectedValue, "重複の一覧の衝突整理は既定のまま");
+            Assert.IsFalse(duplicate.AudioEquivalenceEnabled);
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, duplicate.CollisionCleanupMode);
             Assert.AreEqual(4, table.ItemsSource.Count);
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "重複の一覧の件数");
             Click(table, 2, "Select");
@@ -354,6 +378,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual("group0-0", candidateEditor.Text);
             Assert.AreEqual("group1-1", excludeEditor.Text);
             Assert.IsTrue(quickCompare.IsChecked);
+            Assert.IsTrue(audioEquivalence.IsChecked, "分裂配置の同等性検査の値が戻る");
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "分裂配置の衝突整理の値が戻る");
+            Assert.IsFalse(duplicate.AudioEquivalenceEnabled);
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, duplicate.CollisionCleanupMode);
             Assert.AreEqual(1, split.SelectedGroupCount);
             Assert.AreEqual(1, duplicate.SelectedGroupCount);
             Assert.AreEqual(0, duplicate.PreferredDestinations.Count);

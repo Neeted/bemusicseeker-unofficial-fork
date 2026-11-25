@@ -14,9 +14,12 @@ using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Media.Audio;
 using static BeMusicSeeker.Tests.TreeSelectionDisplayTestSupport;
+using AudioFiles = BeMusicSeeker.TestSupport.Components.DuplicateMergeAudioTestFiles;
 using ConversionTestSupport = BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
 using DuplicateSupport = BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
+using OwnedSupport = BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -517,9 +520,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：ツールバーの五つのボタンとチェックボックスは共通スタイルの見た目を保つ。表示言語を変えると、ノードの見出し・STATUS・件数・ボタン・メニュー・除外欄の名前と
-    /// プレースホルダーが現在の言語に追従する。終わったら元の言語へ戻す。
+    /// プレースホルダー、同等性検査のチェック、衝突整理の名前・説明・選択肢が現在の言語に追従し、チェックと選択の値は保たれる。
+    /// 切替え先の言語で書き込んだ同等の結果（STATUSの付記とツールチップの最後の文）は、元の言語へ戻すと戻した言語で読める。終わったら元の言語へ戻す。
     /// 検出する誤り：画面内の旧スタイル（個別の配色・テンプレート・無効時の不透明度）の残り、標準部品のままのチェックボックス、
-    /// 起動時の言語のまま残る文言、言語の変更で一覧の状態（SELECT）が失われる誤り。
+    /// 起動時の言語のまま残る文言、書込み時点の言語で固定した付記・ツールチップ、固定文字列の付記・ツールチップ、言語の変更で一覧の状態（SELECT）や
+    /// チェック・選択の値が失われる誤り。
     /// </summary>
     [TestMethod]
     public void CandidateList_PresentationFollowsDisplayLanguageRoundTrip()
@@ -533,6 +538,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var select = (Button)window.FindName("duplicateCandidateSelectVisibleButton");
             var verify = (Button)window.FindName("duplicateCandidateVerifyButton");
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
+            var audioEquivalence = (CheckBox)window.FindName("duplicateCandidateAudioEquivalenceCheckBox");
+            var collisionCleanup = (ComboBox)window.FindName("duplicateCandidateCollisionCleanupComboBox");
             var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var excludePlaceholder = (TextBlock)window.FindName("duplicateCandidateExcludePlaceholder");
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
@@ -549,14 +556,26 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     (Button)window.FindName("duplicateCandidateOrganizeButton")
                 ],
                 quickCompare);
+            AssertKeepsCanonicalPresentation(
+                audioEquivalence, "App.Canonical.CheckBoxStyle", "App.Canonical.CheckBoxTemplate",
+                [Control.TemplateProperty, Control.BackgroundProperty, Control.BorderBrushProperty]);
+            AssertKeepsCanonicalPresentation(
+                collisionCleanup, "App.Canonical.CompactComboBoxStyle", "App.Canonical.ComboBoxTemplate",
+                [Control.TemplateProperty, Control.BackgroundProperty, Control.BorderBrushProperty]);
             // 確認済みのグループ（要注意、理由に該当の一覧あり）を書き込み、STATUSとツールチップの追従も確かめる。
             DuplicateMergeVerificationResult cautionResult = new(
                 DuplicateMergeVerificationStage.Caution,
                 [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ParentReference, [new DuplicateMergeFinding(candidates.RowSet[0].Path, "c.bms", "../x.wav")])]);
             candidates.WriteVerifications([new DuplicateMergeVerificationWrite(candidates.RowSet[0].State.Group, cautionResult)]);
             Click(table, 0, "Select");
+            audioEquivalence.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+            collisionCleanup.SelectedItem = collisionCleanup.Items.Cast<ComboBoxItem>()
+                .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav));
             string previous = Resources.Culture?.Name ?? "ja-JP";
             string other = previous == "en-US" ? "ja-JP" : "en-US";
+            // 切替え先の言語で読んだ付記とツールチップの最後の文です。元の言語へ戻した後の文言と異なることで、言語の往復を判別できる前提を確かめます。
+            string otherEquivalentStatus;
+            string otherEquivalentTooltipLast;
             try
             {
                 ResourceService.Current.ChangeCulture(other);
@@ -576,12 +595,62 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     candidates.RowSet[0].StatusText, "確認済みのSTATUSは現在の言語で作り直します。");
                 string tooltip = ResolveStatusTooltip(table, 0);
                 StringAssert.StartsWith(tooltip, Resources.Duplicate_merge_candidate_reason_parent_reference_description, "ツールチップも現在の言語です。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence, audioEquivalence.Content);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence_tooltip, audioEquivalence.ToolTip);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_collision_cleanup, AutomationProperties.GetName(collisionCleanup));
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_collision_cleanup_tooltip, collisionCleanup.ToolTip);
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        Resources.Duplicate_merge_candidate_collision_cleanup_keep_both,
+                        Resources.Duplicate_merge_candidate_collision_cleanup_keep_ogg,
+                        Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav
+                    },
+                    collisionCleanup.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray(), "衝突整理の選択肢は現在の言語です。");
+                Assert.IsTrue(audioEquivalence.IsChecked == true && candidates.AudioEquivalenceEnabled, "言語の変更で同等性検査の値は保たれます。");
+                Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "言語の変更で衝突整理の選択は保たれます。");
+                Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, candidates.CollisionCleanupMode);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, candidates.RowSet[2].StatusText, "未確認のグループは未確認のままです。");
+                // 未確認のグループへ、全衝突が同等の安全な結果を書き込み、付記とツールチップの最後の文も現在の言語で作られることを確かめる。
+                DuplicateMergeVerificationResult equivalentResult = new(
+                    DuplicateMergeVerificationStage.Safe, [], null, null, [@"bgm\a", @"bgm\b"], true);
+                candidates.WriteVerifications([new DuplicateMergeVerificationWrite(candidates.RowSet[2].State.Group, equivalentResult)]);
+                otherEquivalentStatus = candidates.RowSet[2].StatusText;
+                otherEquivalentTooltipLast = ResolveStatusTooltip(table, 2).Split(Environment.NewLine)[^1];
+                Assert.AreEqual(
+                    string.Format(Resources.Duplicate_merge_candidate_status_note_format, Resources.Duplicate_merge_candidate_status_safe, Resources.Duplicate_merge_candidate_status_audio_equivalent),
+                    otherEquivalentStatus, "同等の付記は現在の言語です。");
+                Assert.AreEqual(
+                    string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 2),
+                    otherEquivalentTooltipLast, "ツールチップの最後の文は現在の言語です。");
                 Assert.AreEqual(1, candidates.SelectedGroupCount, "言語の変更で状態は失われません。");
             }
             finally { ResourceService.Current.ChangeCulture(previous); }
             TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
+            // 元の言語へ戻すと、切替え先の言語で書き込んだ同等の結果も、読む時点の言語（元の言語）で作り直す。書込み時点の言語の文言を保持する誤りと固定文字列を検出する。
+            string restoredEquivalentStatus = string.Format(
+                Resources.Duplicate_merge_candidate_status_note_format, Resources.Duplicate_merge_candidate_status_safe, Resources.Duplicate_merge_candidate_status_audio_equivalent);
+            string restoredEquivalentTooltipLast = string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 2);
+            Assert.AreNotEqual(otherEquivalentStatus, restoredEquivalentStatus, "前提：付記は二つの言語で異なる文言です。");
+            Assert.AreNotEqual(otherEquivalentTooltipLast, restoredEquivalentTooltipLast, "前提：ツールチップの最後の文は二つの言語で異なる文言です。");
+            Assert.AreEqual(restoredEquivalentStatus, candidates.RowSet[2].StatusText, "書込み後に言語を戻すと、同等の付記は戻した言語です。");
+            Assert.AreEqual(restoredEquivalentTooltipLast, ResolveStatusTooltip(table, 2).Split(Environment.NewLine)[^1], "書込み後に言語を戻すと、ツールチップの最後の文は戻した言語です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence, audioEquivalence.Content, "同等性検査のチェックは戻した言語です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence_tooltip, audioEquivalence.ToolTip);
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_collision_cleanup, AutomationProperties.GetName(collisionCleanup), "衝突整理のアクセシブル名は戻した言語です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_collision_cleanup_tooltip, collisionCleanup.ToolTip);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    Resources.Duplicate_merge_candidate_collision_cleanup_keep_both,
+                    Resources.Duplicate_merge_candidate_collision_cleanup_keep_ogg,
+                    Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav
+                },
+                collisionCleanup.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray(), "衝突整理の選択肢は戻した言語です。");
+            Assert.IsTrue(audioEquivalence.IsChecked == true && candidates.AudioEquivalenceEnabled, "言語を戻しても同等性検査の値は保たれます。");
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "言語を戻しても衝突整理の選択は保たれます。");
+            Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, candidates.CollisionCleanupMode);
         });
     }
 
@@ -700,6 +769,98 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsFalse(candidates.QuickCompareEnabled);
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "外す操作では案内しません。");
         }, dialogService: dialogs);
+    }
+
+    /// <summary>
+    /// 保証：実画面の同等性検査のチェックと衝突整理の選択が、実ファイル（実のWAVとOGG）・実の復号・実際の保存窓口を通る一連の操作として働く。
+    /// 初期はチェックなし・「両方残す」で、チェックを入れても案内は増えない。「選択グループを確認」でSTATUSが「安全（WAV/OGG同等）」になり、
+    /// ツールチップの最後の文が1組を示す。三つの選択肢の選択は値へ届き、案内を出さず、STATUSを変えない。「OGGを残す」でSELECTを入れて整理すると、
+    /// 確認文にOGGを残す行が1グループで出て、結果の案内に音源1件の行が出る。KEEP側にはOGGが元のバイト列で残りWAVはなくなり、ごみ箱へ送った音源はKEEP側のWAVだけで、移動元のフォルダは消える。
+    /// 検出する誤り：チェック・選択の未接続、チェックの値が確認へ届かない、同等の付記・ツールチップの欠落、選択の切替えでの案内・STATUSの変化、
+    /// 選択の値が整理へ届かない、残す形式と削除する形式の取り違え、移動元の音源のごみ箱への誤送、結果の案内の欠落。
+    /// </summary>
+    [TestMethod]
+    public void CandidateList_AudioEquivalenceCheckAndCollisionCleanupCarryRealWavOggFromVerificationToTrash()
+    {
+        string audioDirectory = Path.Combine(AppContext.BaseDirectory, "TestData", "audio");
+        byte[] originalOgg = File.ReadAllBytes(Path.Combine(audioDirectory, "nvorbis-1test.ogg"));
+        var trashed = new List<string>();
+        var mutations = new OwnedSupport.TestFileMutationService { BeforeFileDelete = path => trashed.Add(path) };
+        var dialogs = new DuplicateSupport.FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        BassAudioRuntime.Shutdown();
+        try
+        {
+            RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+            {
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+                var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+                var audioEquivalence = (CheckBox)window.FindName("duplicateCandidateAudioEquivalenceCheckBox");
+                var collisionCleanup = (ComboBox)window.FindName("duplicateCandidateCollisionCleanupComboBox");
+                DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
+                SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(root));
+                DuplicateMergeCandidateRow[] rows = [.. candidates.RowSet];
+                Assert.AreEqual(4, rows.Length);
+                string keep = rows[0].Path, source = rows[1].Path;
+                // KEEP側に参照PCMから作るWAV、移動元に同じ名前のOGG、両フォルダに同じ内容の共有ファイルを置く。
+                AudioFiles.WriteWave(
+                    Path.Combine(keep, "bgm", "a.wav"), 44100, 1,
+                    AudioFiles.ReadFloat32(File.ReadAllBytes(Path.Combine(audioDirectory, "nvorbis-1test-reference.f32"))));
+                Directory.CreateDirectory(Path.Combine(source, "bgm"));
+                File.WriteAllBytes(Path.Combine(source, "bgm", "a.ogg"), originalOgg);
+                File.WriteAllBytes(Path.Combine(keep, "shared.bin"), [9, 9, 9]);
+                File.WriteAllBytes(Path.Combine(source, "shared.bin"), [9, 9, 9]);
+
+                Assert.IsFalse(audioEquivalence.IsChecked, "初期はチェックなしです。");
+                Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, collisionCleanup.SelectedValue, "初期は「両方残す」です。");
+                audioEquivalence.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
+                Assert.IsTrue(candidates.AudioEquivalenceEnabled);
+                Assert.AreEqual(0, dialogs.Messages.Count, "チェックを入れても案内は出ません。");
+
+                Click(table, 0, "Select");
+                AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "verify-audio-equivalence");
+                string equivalentStatus = "安全（WAV/OGG同等）";
+                Assert.AreEqual(equivalentStatus, rows[0].StatusText);
+                Assert.AreEqual(
+                    string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 1),
+                    ResolveStatusTooltip(table, 0).Split(Environment.NewLine)[^1]);
+                int messagesAfterVerify = dialogs.Messages.Count;
+                Assert.AreEqual(1, messagesAfterVerify, "確認の結果の案内だけが一件です。");
+
+                (string Label, DuplicateMergeCollisionCleanupMode Mode)[] choices =
+                [
+                    (Resources.Duplicate_merge_candidate_collision_cleanup_keep_both, DuplicateMergeCollisionCleanupMode.KeepBoth),
+                    (Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav, DuplicateMergeCollisionCleanupMode.KeepWav),
+                    (Resources.Duplicate_merge_candidate_collision_cleanup_keep_ogg, DuplicateMergeCollisionCleanupMode.KeepOgg)
+                ];
+                foreach ((string label, DuplicateMergeCollisionCleanupMode mode) in choices)
+                {
+                    collisionCleanup.SelectedItem = collisionCleanup.Items.Cast<ComboBoxItem>().Single(item => Equals(item.Content, label));
+                    Assert.AreEqual(mode, candidates.CollisionCleanupMode, label);
+                }
+                Assert.AreEqual(messagesAfterVerify, dialogs.Messages.Count, "選択の切替えで案内は出ません。");
+                Assert.AreEqual(equivalentStatus, rows[0].StatusText, "選択の切替えでSTATUSは変わりません。");
+
+                // 「OGGを残す」でSELECTを入れて整理する。
+                Click(table, 0, "Select");
+                Assert.AreEqual(1, candidates.SelectedGroupCount);
+                AwaitHandler(() => ClickButton(window, "duplicateCandidateOrganizeButton"), "organize-keep-ogg");
+                AwaitCandidateRows(candidates, 2);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, string.Format(Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format, 1));
+                StringAssert.Contains(dialogs.Messages[^1].MessageBoxText, string.Format(Resources.Duplicate_batch_organize_result_trashed_audio_format, 1));
+                CollectionAssert.AreEqual(originalOgg, File.ReadAllBytes(Path.Combine(keep, "bgm", "a.ogg")), "OGGは元のバイト列で残ります。");
+                Assert.IsFalse(File.Exists(Path.Combine(keep, "bgm", "a.wav")), "WAVはなくなります。");
+                string[] trashedAudio = [.. trashed.Where(path => path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))];
+                CollectionAssert.AreEqual(new[] { Path.Combine(keep, "bgm", "a.wav") }, trashedAudio, "ごみ箱へ送った音源はKEEP側のWAVだけです。");
+                Assert.IsFalse(Directory.Exists(source), "移動元のフォルダは消えています。");
+            }, dialogService: dialogs, fileMutations: mutations);
+        }
+        finally { BassAudioRuntime.Shutdown(); }
     }
 
     /// <summary>実Dispatcherへ配送するasync voidのハンドラーを起こし、その終端まで待ちます。</summary>

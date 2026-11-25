@@ -1146,6 +1146,113 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         CollectionAssert.AreEqual(new[] { plain }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray(), "除外なら二番目の理由名に一致するグループが消えます。");
     }
 
+    private static DuplicateMergeVerificationResult WithEquivalence(
+        DuplicateMergeVerificationResult result, int names, bool all, bool protectedCollision = false)
+        => result with
+        {
+            EquivalentAudioNames = [.. Enumerable.Range(0, names).Select(index => @"bgm\n" + index)],
+            AllAudioCollisionsEquivalent = all,
+            ProtectedNameCollisions = protectedCollision ? ["readme.txt"] : null
+        };
+
+    /// <summary>
+    /// 保証：「全衝突が同等」の結果のSTATUSは、安全のときだけ「安全（WAV/OGG同等）」になり、.bmx/.txtの衝突があれば既存の付記の後ろへ別の括弧で続ける。
+    /// 要注意・統合不可には付記せず、全衝突が同等でない安全は従来のままで、代表TITLE不一致の付記は「WAV/OGG同等」の後ろに付く。
+    /// 検出する誤り：付記の括弧の形・順序の誤り、要注意・統合不可への付記、全同等でない結果への付記、代表値の付記との順序の入れ替え。
+    /// </summary>
+    [TestMethod]
+    public void StatusText_AnnotatesAllEquivalentAudioOnlyOnSafeBeforeRepresentativeNote()
+    {
+        DuplicateMergeVerificationResult safe = Result(DuplicateMergeVerificationStage.Safe);
+        Assert.AreEqual("安全（WAV/OGG同等）", WithEquivalence(safe, 1, true).FormatStatus());
+        Assert.AreEqual("安全（.bmx/.txtの衝突）（WAV/OGG同等）", WithEquivalence(safe, 1, true, protectedCollision: true).FormatStatus());
+
+        string equivalent = Resources.Duplicate_merge_candidate_status_audio_equivalent;
+        Assert.AreEqual(WithMismatch(Resources.Duplicate_merge_candidate_status_safe, equivalent), WithEquivalence(safe, 2, true).FormatStatus());
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, WithEquivalence(safe, 1, false).FormatStatus(), "全衝突が同等でない安全には付記しません。");
+        Assert.AreEqual(
+            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            WithEquivalence(safe, 0, false, protectedCollision: true).FormatStatus(),
+            ".bmx/.txtの衝突だけなら従来どおりです。");
+        foreach (DuplicateMergeVerificationResult other in new[]
+        {
+            Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1)),
+            Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Link, 1))
+        })
+        {
+            Assert.AreEqual(other.FormatStatus(), WithEquivalence(other, 1, true).FormatStatus(), "要注意・統合不可のSTATUSには付記しません。");
+        }
+
+        var fixture = new Fixture();
+        DuplicateGroup group = Group(@"C:\S\a", @"C:\S\b");
+        fixture.Source.Pairs[group.Folders[0]] = ("Song", "Artist");
+        fixture.Source.Pairs[group.Folders[1]] = ("Other", "Artist");
+        fixture.Adopt(group);
+        fixture.Owner.WriteVerifications([new(group, WithEquivalence(safe, 1, true))]);
+        Assert.AreEqual(
+            WithMismatch(WithMismatch(Resources.Duplicate_merge_candidate_status_safe, equivalent), Resources.Duplicate_merge_candidate_title_mismatch),
+            fixture.Row(group.Folders[0]).StatusText,
+            "代表TITLE不一致の付記は「WAV/OGG同等」の後ろです。");
+    }
+
+    /// <summary>
+    /// 保証：同等と判定した名前が一つ以上あれば、段階によらずツールチップの最後の行が「同名のWAVとOGG {n}組を同等と判定しました。」になり、0件なら出ない。
+    /// 検出する誤り：段階による出し分け、件数の取り違え、0件での表示、末尾以外への配置。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_EndsWithEquivalentAudioCountOnEveryStage()
+    {
+        DuplicateMergeVerificationResult[] stages =
+        [
+            Result(DuplicateMergeVerificationStage.Safe),
+            Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1)),
+            Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Link, 1))
+        ];
+        foreach (DuplicateMergeVerificationResult stage in stages)
+        {
+            foreach (int count in new[] { 0, 1, 3 })
+            {
+                string sentence = string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, count);
+                string[] lines = WithEquivalence(stage, count, count > 0).FormatTooltip(default)!.Split(Environment.NewLine);
+                if (count == 0) { CollectionAssert.DoesNotContain(lines, sentence); }
+                else { Assert.AreEqual(sentence, lines[^1], stage.Stage + " n=" + count); }
+            }
+        }
+        Assert.AreEqual(
+            "同名のWAVとOGG 3組を同等と判定しました。",
+            WithEquivalence(stages[0], 3, true).FormatTooltip(default)!.Split(Environment.NewLine)[^1]);
+    }
+
+    /// <summary>
+    /// 保証：STATUSの語「WAV/OGG同等」の検索と除外は、付記のある安全なグループだけに一致する。「安全」の検索は付記のあるグループにも一致する。
+    /// 検出する誤り：付記を検索・除外へ使わない、要注意の全同等グループへの一致、「安全」の検索からの脱落。
+    /// </summary>
+    [TestMethod]
+    public void StatusSearchAndExclude_MatchEquivalentAudioAnnotation()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup annotated = Group(@"C:\S\a1", @"C:\S\a2"), plain = Group(@"C:\S\b1", @"C:\S\b2"), caution = Group(@"C:\S\c1", @"C:\S\c2");
+        fixture.Adopt(annotated, plain, caution);
+        fixture.Owner.WriteVerifications(
+        [
+            new(annotated, WithEquivalence(Result(DuplicateMergeVerificationStage.Safe), 1, true)),
+            new(plain, Result(DuplicateMergeVerificationStage.Safe)),
+            new(caution, WithEquivalence(Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1)), 1, true))
+        ]);
+        string note = "status:\"" + Resources.Duplicate_merge_candidate_status_audio_equivalent + "\"";
+
+        fixture.Owner.SearchText = note;
+        CollectionAssert.AreEqual(new[] { annotated }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
+
+        fixture.Owner.SearchText = string.Empty;
+        fixture.Owner.ExcludeText = note;
+        CollectionAssert.AreEquivalent(new[] { plain, caution }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
+
+        fixture.Owner.ExcludeText = string.Empty;
+        fixture.Owner.SearchText = "status:" + Resources.Duplicate_merge_candidate_status_safe;
+        CollectionAssert.AreEquivalent(new[] { annotated, plain }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
+    }
+
     /// <summary>
     /// 保証：除外にSTATUSの語があるとき、確認結果の一括書込みで、行集合の差し替えは全体で一回になり、新しいSTATUSで除外を当て直して対象のグループが消える。
     /// 検出する誤り：書込みで除外を当て直さない（確認後も除外対象が残る）、グループごとの行集合の差し替え。
@@ -1383,6 +1490,25 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "ライブラリの交換後も有効のまま残ります。");
         Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.QuickCompareEnabled)));
+    }
+
+    /// <summary>
+    /// 保証：同等性検査の値は既定でオフで、有効にして変更を一回通知し、ライブラリを交換しても有効を保つ（アプリの起動中だけの値）。
+    /// 検出する誤り：既定がオン、ライブラリの交換での値の消失、変更の通知の欠落・重複。
+    /// </summary>
+    [TestMethod]
+    public void AudioEquivalence_DefaultsOffAndKeepsEnabledValueAcrossLibraryExchange()
+    {
+        var fixture = new Fixture();
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        Assert.IsFalse(fixture.Owner.AudioEquivalenceEnabled, "既定は無効です。");
+
+        fixture.Owner.AudioEquivalenceEnabled = true;
+        fixture.Owner.AttachLibrary(new object());
+
+        Assert.IsTrue(fixture.Owner.AudioEquivalenceEnabled, "ライブラリの交換後も有効のまま残ります。");
+        Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.AudioEquivalenceEnabled)));
     }
 
     /// <summary>

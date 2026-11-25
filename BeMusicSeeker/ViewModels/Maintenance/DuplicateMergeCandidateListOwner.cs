@@ -229,11 +229,12 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     /// 安全性の確認で、同名のWAVとOGGの波形が同等かを検査し、同等な名前を「同名音源の拡張子違い」から外すか（衝突WAV/OGGの同等性を検査）です。
     /// 既定はオフで、<see cref="QuickCompareEnabled"/> と同じく、アプリの起動中だけ保持し、ライブラリの交換後も残ります。
     /// 確認の開始時に一度だけ読み、確認の途中の変更は進行中の確認へ影響しません。
+    /// 画面のチェックから直接書き込みます（切替えで案内は出しません）。
     /// </summary>
     public bool AudioEquivalenceEnabled
     {
         get => audioEquivalenceEnabled;
-        internal set
+        set
         {
             if (audioEquivalenceEnabled == value) { return; }
             audioEquivalenceEnabled = value;
@@ -248,7 +249,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     public DuplicateMergeCollisionCleanupMode CollisionCleanupMode
     {
         get => collisionCleanupMode;
-        internal set
+        set
         {
             if (collisionCleanupMode == value) { return; }
             collisionCleanupMode = value;
