@@ -212,7 +212,7 @@ public sealed class DuplicateMergeCandidateListLibraryTests
                 var inspector = new DuplicateMergeSafetyInspector(library);
                 object ownerGroup = new object();
                 DuplicateMergeGroupInspection inspection = inspector.Inspect(new DuplicateMergeInspectionRequest(
-                    [a, b], [], new DuplicateMergeFolderIndex([(ownerGroup, [a, b])]), ownerGroup, SizeAndTimeOnly: false));
+                    [a, b], [], new DuplicateMergeFolderIndex([(ownerGroup, [a, b])]), ownerGroup, SizeAndTimeOnly: false, AudioEquivalence: false));
                 DuplicateMergeVerificationResult keepB = inspection.Evaluate(b);
                 DuplicateMergeVerificationResult keepA = inspection.Evaluate(a);
 
@@ -227,7 +227,7 @@ public sealed class DuplicateMergeCandidateListLibraryTests
                     "KEEP側の事実は該当しません。");
 
                 DuplicateMergeGroupInspection stale = inspector.Inspect(new DuplicateMergeInspectionRequest(
-                    [b, c], [], new DuplicateMergeFolderIndex([(ownerGroup, [b, c])]), ownerGroup, SizeAndTimeOnly: false));
+                    [b, c], [], new DuplicateMergeFolderIndex([(ownerGroup, [b, c])]), ownerGroup, SizeAndTimeOnly: false, AudioEquivalence: false));
                 CollectionAssert.AreEqual(
                     new[] { new DuplicateMergeFinding(c, "gone.bms") },
                     stale.Evaluate(b).Reasons.Single(reason => reason.Kind == DuplicateMergeVerificationReasonKind.Unreadable).Findings.ToArray(),

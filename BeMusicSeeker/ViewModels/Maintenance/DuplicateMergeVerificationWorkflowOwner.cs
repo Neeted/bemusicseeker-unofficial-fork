@@ -113,11 +113,13 @@ internal sealed class DuplicateMergeVerificationWorkflowOwner
         IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets,
         IReadOnlyList<DuplicateMergeCandidateGroupFolders> allGroups,
         bool sizeAndTimeOnly,
+        bool audioEquivalence,
         IDuplicateMergeSafetyInspector inspector)
     {
         internal IReadOnlyList<DuplicateMergeCandidateGroupTarget> Targets { get; } = targets;
         internal IReadOnlyList<DuplicateMergeCandidateGroupFolders> AllGroups { get; } = allGroups;
         internal bool SizeAndTimeOnly { get; } = sizeAndTimeOnly;
+        internal bool AudioEquivalence { get; } = audioEquivalence;
         internal IDuplicateMergeSafetyInspector Inspector { get; } = inspector;
 
         internal Task ScanTask;
@@ -159,6 +161,7 @@ internal sealed class DuplicateMergeVerificationWorkflowOwner
                     targets,
                     list.CaptureAllGroupFolders(),
                     list.QuickCompareEnabled,
+                    list.AudioEquivalenceEnabled,
                     inspectorFactory() ?? throw new InvalidOperationException("Duplicate merge safety inspector was not provided."));
                 UiProgressResult progressResult = await dialogs.RunWithProgressAsync(
                     new UiProgressRequest(
@@ -268,7 +271,7 @@ internal sealed class DuplicateMergeVerificationWorkflowOwner
                 Volatile.Write(ref run.CurrentIndex, position);
                 DuplicateMergeCandidateGroupTarget target = run.Targets[position];
                 DuplicateMergeGroupInspection inspection = run.Inspector.Inspect(
-                    new DuplicateMergeInspectionRequest(target.Folders, target.RegisteredFolders, index, target.Group, run.SizeAndTimeOnly));
+                    new DuplicateMergeInspectionRequest(target.Folders, target.RegisteredFolders, index, target.Group, run.SizeAndTimeOnly, run.AudioEquivalence));
                 run.Completed.Add((target, inspection));
                 Volatile.Write(ref run.CompletedCount, position + 1);
             }

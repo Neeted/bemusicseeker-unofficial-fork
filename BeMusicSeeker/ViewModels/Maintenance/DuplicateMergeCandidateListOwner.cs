@@ -67,6 +67,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     private int visibleGroupCount;
     private int selectedGroupCount;
     private bool quickCompareEnabled;
+    private bool audioEquivalenceEnabled;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
@@ -220,6 +221,22 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             if (quickCompareEnabled == value) { return; }
             quickCompareEnabled = value;
             RaisePropertyChanged(nameof(QuickCompareEnabled));
+        }
+    }
+
+    /// <summary>
+    /// 安全性の確認で、同名のWAVとOGGの波形が同等かを検査し、同等な名前を「同名音源の拡張子違い」から外すか（衝突WAV/OGGの同等性を検査）です。
+    /// 既定はオフで、<see cref="QuickCompareEnabled"/> と同じく、アプリの起動中だけ保持し、ライブラリの交換後も残ります。
+    /// 確認の開始時に一度だけ読み、確認の途中の変更は進行中の確認へ影響しません。
+    /// </summary>
+    public bool AudioEquivalenceEnabled
+    {
+        get => audioEquivalenceEnabled;
+        internal set
+        {
+            if (audioEquivalenceEnabled == value) { return; }
+            audioEquivalenceEnabled = value;
+            RaisePropertyChanged(nameof(AudioEquivalenceEnabled));
         }
     }
 

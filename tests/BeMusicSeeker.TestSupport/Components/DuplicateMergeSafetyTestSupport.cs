@@ -48,12 +48,13 @@ internal static class DuplicateMergeSafetyTestSupport
         MemoryOwnedChartSource? charts = null,
         bool sizeAndTimeOnly = false,
         IReadOnlyList<string>? registeredFolders = null,
-        IEnumerable<IReadOnlyList<string>>? otherGroups = null)
+        IEnumerable<IReadOnlyList<string>>? otherGroups = null,
+        bool audioEquivalence = false)
     {
         object own = new object();
         var groups = new List<(object Owner, IReadOnlyList<string> Folders)> { (own, folders) };
         foreach (IReadOnlyList<string> other in otherGroups ?? []) { groups.Add((new object(), other)); }
-        var request = new DuplicateMergeInspectionRequest(folders, registeredFolders ?? [], new DuplicateMergeFolderIndex(groups), own, sizeAndTimeOnly);
+        var request = new DuplicateMergeInspectionRequest(folders, registeredFolders ?? [], new DuplicateMergeFolderIndex(groups), own, sizeAndTimeOnly, audioEquivalence);
         return new DuplicateMergeSafetyInspector(charts ?? new MemoryOwnedChartSource()).Inspect(request);
     }
 

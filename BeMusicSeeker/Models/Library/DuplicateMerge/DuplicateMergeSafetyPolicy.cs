@@ -26,6 +26,15 @@ internal static class DuplicateMergeSafetyPolicy
         return DuplicateMergeComparisonMethod.Partial;
     }
 
+    /// <summary>WAVとOGGを同等と判定する正規化相関の下限です（以上）。</summary>
+    internal const double AudioCorrelationMinimum = 0.95;
+
+    /// <summary>WAVに対するOGGのゲインの下限です（以上）。</summary>
+    internal const double AudioGainMinimum = 0.85;
+
+    /// <summary>WAVに対するOGGのゲインの上限です（以下）。</summary>
+    internal const double AudioGainMaximum = 1.15;
+
     private static readonly HashSet<string> ChartExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".bms", ".bme", ".bml", ".pms", ".bmson"

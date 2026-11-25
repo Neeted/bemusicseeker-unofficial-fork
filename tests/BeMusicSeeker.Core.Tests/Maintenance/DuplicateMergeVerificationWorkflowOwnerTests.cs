@@ -380,6 +380,29 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
     }
 
     /// <summary>
+    /// 保証：簡易チェックと同等性検査の値は互いに独立で、確認の開始時の値の組をすべての要求へ渡す。
+    /// 検出する誤り：二つの値の取り違え・連動、片方の値の受渡しの欠落（既定値のままの受渡し）。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task Verify_PassesQuickCompareAndAudioEquivalenceValuesIndependently(bool quickCompare, bool audioEquivalence)
+    {
+        var inspector = new ScriptedInspector();
+        using var fixture = new Fixture(inspector, Group(@"C:\S\a1", @"C:\S\a2"), Group(@"C:\S\b1", @"C:\S\b2"));
+        fixture.Owner.QuickCompareEnabled = quickCompare;
+        fixture.Owner.AudioEquivalenceEnabled = audioEquivalence;
+        fixture.Ui(() => fixture.Owner.SelectVisible());
+
+        DuplicateMergeVerificationRunResult result = await fixture.UiAsync(() => fixture.Workflow.VerifySelectedAsync());
+
+        Assert.AreEqual(2, result.Checked);
+        Assert.AreEqual(2, inspector.Calls.Count);
+        Assert.IsTrue(inspector.Calls.All(call => call.Request.SizeAndTimeOnly == quickCompare), "簡易チェックの値を渡します。");
+        Assert.IsTrue(inspector.Calls.All(call => call.Request.AudioEquivalence == audioEquivalence), "同等性検査の値を渡します。");
+    }
+
+    /// <summary>
     /// 保証：チェックに触れずに確認を実行すると、すべての要求で簡易チェックが無効（既定値）として検査器へ渡り、確認の実行では警告の案内を出さない。
     /// 検出する誤り：既定のオンのまま検査器へ渡す、既定の値を確認の入力へ反映しない、確認で警告の案内を出す。
     /// </summary>
@@ -396,6 +419,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.AreEqual(2, result.Checked);
         Assert.AreEqual(2, inspector.Calls.Count);
         Assert.IsTrue(inspector.Calls.All(call => !call.Request.SizeAndTimeOnly), "既定の無効をすべての要求へ渡します。");
+        Assert.IsTrue(inspector.Calls.All(call => !call.Request.AudioEquivalence), "同等性検査の既定の無効もすべての要求へ渡します。");
         Assert.IsFalse(
             fixture.Dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice),
             "確認の実行は注意の案内を出しません。");

@@ -24,17 +24,23 @@ internal sealed class DuplicateMergeGroupInspection
     private readonly IReadOnlyList<string> protectedNameCollisions;
     private readonly DuplicateMergeComparisonSummary comparisons;
     private readonly IReadOnlyDictionary<string, DuplicateMergeKeepDependentFacts> keepDependentFacts;
+    private readonly IReadOnlyList<string> equivalentAudioNames;
+    private readonly bool allAudioCollisionsEquivalent;
 
     internal DuplicateMergeGroupInspection(
         IReadOnlyDictionary<DuplicateMergeVerificationReasonKind, IReadOnlyList<DuplicateMergeFinding>> independentReasons,
         IReadOnlyList<string> protectedNameCollisions,
         DuplicateMergeComparisonSummary comparisons,
-        IReadOnlyDictionary<string, DuplicateMergeKeepDependentFacts> keepDependentFacts)
+        IReadOnlyDictionary<string, DuplicateMergeKeepDependentFacts> keepDependentFacts,
+        IReadOnlyList<string> equivalentAudioNames = null,
+        bool allAudioCollisionsEquivalent = false)
     {
         this.independentReasons = independentReasons ?? throw new ArgumentNullException(nameof(independentReasons));
         this.protectedNameCollisions = protectedNameCollisions ?? [];
         this.comparisons = comparisons ?? DuplicateMergeComparisonSummary.None;
         this.keepDependentFacts = keepDependentFacts ?? new Dictionary<string, DuplicateMergeKeepDependentFacts>();
+        this.equivalentAudioNames = equivalentAudioNames ?? [];
+        this.allAudioCollisionsEquivalent = allAudioCollisionsEquivalent;
     }
 
     /// <summary>
@@ -66,7 +72,8 @@ internal sealed class DuplicateMergeGroupInspection
         DuplicateMergeVerificationStage stage = reasons.Any(reason => reason.IsUnmergeable)
             ? DuplicateMergeVerificationStage.Unmergeable
             : reasons.Length > 0 ? DuplicateMergeVerificationStage.Caution : DuplicateMergeVerificationStage.Safe;
-        return new DuplicateMergeVerificationResult(stage, reasons, protectedNameCollisions, comparisons);
+        return new DuplicateMergeVerificationResult(
+            stage, reasons, protectedNameCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent);
     }
 
     /// <summary>該当の並びを、フォルダのPATH昇順、次に相対パスの昇順（どちらも大文字小文字を無視）にします。</summary>

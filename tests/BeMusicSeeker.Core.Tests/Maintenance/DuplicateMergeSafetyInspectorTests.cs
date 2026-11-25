@@ -287,6 +287,31 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
+    /// 保証：同等性検査がオフの確認は、WAVとOGGを復号せず（排他ロックして読めなくしても解析不能が出ない）、従来どおり拡張子違いの理由が残り、
+    /// 同等と判定した名前の一覧は空、「全衝突が同等」は偽である。
+    /// 検出する誤り：オフでの復号、オフの結果への同等性の情報の混入、理由の欠落。
+    /// </summary>
+    [TestMethod]
+    public void AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason()
+    {
+        string a = Folder("g/a"), b = Folder("g/b");
+        WriteFile(Path.Combine(a, "common.bin"), [1]);
+        WriteFile(Path.Combine(b, "common.bin"), [1]);
+        string wav = WriteFile(Path.Combine(a, "x.wav"), [2]);
+        string ogg = WriteFile(Path.Combine(b, "x.ogg"), [3]);
+        using var holdWav = new FileStream(wav, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var holdOgg = new FileStream(ogg, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        DuplicateMergeVerificationResult result = Inspect([a, b], audioEquivalence: false).Evaluate(a);
+
+        Assert.AreEqual(DuplicateMergeVerificationStage.Caution, result.Stage);
+        CollectionAssert.AreEqual(new[] { DuplicateMergeVerificationReasonKind.AudioExtension }, Kinds(result));
+        CollectionAssert.AreEqual(new[] { Finding(a, "x.wav"), Finding(b, "x.ogg") }, Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)!.Findings.ToArray());
+        Assert.AreEqual(0, result.EquivalentAudioNames!.Count);
+        Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+    }
+
+    /// <summary>
     /// 保証：三フォルダの一部で形式が増える名前だけを、KEEPによらず全パスとともに報告する。同じパスの別内容は独立した理由になる。
     /// 検出する誤り：先頭の二フォルダだけの比較、形式数だけの比較、同じ形式を持つ側の報告漏れ、内容衝突と拡張子違いの混同。
     /// </summary>
