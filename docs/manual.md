@@ -1360,7 +1360,17 @@ When comparing content, same-name files with different sizes are treated as diff
 > [!CAUTION]
 > Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While `Quick check for speed` is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.
 
-`Check WAV/OGG collisions for equivalence` is a check below the search box row. It is disabled by default, and checking it shows no message. When it is enabled and you press `Verify selected groups`, a same-name WAV and OGG that collide are compared by waveform to judge whether the OGG was converted from the WAV. The judgment is based on an ordinary Vorbis conversion at about 128 kbps or higher. A pair whose lengths differ only by a short stretch of silence at the end, and a 44.1 kHz OGG paired with a 48 kHz WAV, are also judged. A low-bitrate OGG may not be judged equivalent. A pair that has sound in the part where the lengths differ is not judged equivalent. Both files are read and decoded, so verification takes longer. Only WAV and OGG pairs are judged; a name that includes mp3 or flac is not judged and is reported as `same audio name, different extension` as before. A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent and nothing else gets in the way, `STATUS` becomes `Safe (WAV/OGG equivalent)`. The `STATUS` tooltip shows how many names were judged equivalent. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`.
+`Check WAV/OGG collisions for equivalence` is a check below the search box row. It is disabled by default. When it is enabled and you press `Verify selected groups`, a same-name WAV and OGG that collide are both read and compared by waveform to judge whether the OGG was converted from the WAV. The files are decoded for the comparison, so verification takes longer. Only names that have just WAV and OGG are judged; a name that includes mp3 or flac is not judged.
+
+A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent and nothing else gets in the way, `STATUS` becomes `Safe (WAV/OGG equivalent)`. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`. The `STATUS` tooltip shows how many names were judged equivalent.
+
+The tolerance of the judgment is based on the change in sound caused by converting to Ogg Vorbis at about 128 kbps. The following differences are treated as part of the conversion and can be judged equivalent.
+
+| Difference | Range that can be judged equivalent |
+| --- | --- |
+| Sound quality | The change caused by converting to Ogg Vorbis at about 128 kbps or higher. A lower-quality OGG may not be judged equivalent. |
+| Sampling rate | A 44.1 kHz OGG paired with a 48 kHz WAV. |
+| Length | A difference only in the length of the silence at the end, where the OGG is up to 1152 samples longer or up to 128 samples shorter. |
 
 `Collision cleanup` is the combo box on the same row. It sets what `Organize selected groups` does with a WAV and OGG judged equivalent.
 
