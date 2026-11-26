@@ -95,7 +95,7 @@ public sealed class OwnedProcessTests
         using var workspace = new Workspace();
         await using OwnedProcess process = Start("child", workspace.Ready, workspace.Release, "exit");
         await workspace.WaitReadyAsync();
-        using var child = Process.GetProcessById(int.Parse(File.ReadAllText(workspace.Ready)));
+        using var child = Process.GetProcessById(int.Parse(workspace.ReadReady()));
         ProcessDeadline rootDeadline = Deadline();
         Assert.AreEqual(7, await process.WaitForRootExitAsync(rootDeadline));
         Assert.IsTrue(process.RootExit.IsCompletedSuccessfully);
@@ -310,8 +310,8 @@ public sealed class OwnedProcessTests
         await using OwnedProcess unrelated = Start("hang", otherWorkspace.Ready, otherWorkspace.Release);
         await using OwnedProcess target = Start("child", workspace.Ready, workspace.Release, "wait");
         await Task.WhenAll(workspace.WaitReadyAsync(), otherWorkspace.WaitReadyAsync());
-        using var child = Process.GetProcessById(int.Parse(File.ReadAllText(workspace.Ready)));
-        using var other = Process.GetProcessById(int.Parse(File.ReadAllText(otherWorkspace.Ready)));
+        using var child = Process.GetProcessById(int.Parse(workspace.ReadReady()));
+        using var other = Process.GetProcessById(int.Parse(otherWorkspace.ReadReady()));
         Assert.IsTrue(target.ContainsProcess(child));
         Assert.IsFalse(target.ContainsProcess(other));
         using var missing = new Process();
@@ -448,7 +448,7 @@ public sealed class OwnedProcessTests
             ["owner", workspace.Ready, workspace.Release], AppContext.BaseDirectory,
             ownershipPolicy: ProcessOwnershipPolicy.Preparation));
         await workspace.WaitReadyAsync();
-        using var child = Process.GetProcessById(int.Parse(File.ReadAllText(workspace.Ready)));
+        using var child = Process.GetProcessById(int.Parse(workspace.ReadReady()));
         using var root = Process.GetProcessById(owner.ProcessId);
         ProcessDeadline exitDeadline = Deadline();
         try
@@ -579,6 +579,8 @@ public sealed class OwnedProcessTests
                 await Task.Delay(10);
             }
         }
+        /// <summary>fixtureが一時名からの名前変更で公開したreadyの内容を、公開直後でも名前変更と共有して読みます。</summary>
+        internal string ReadReady() => PublishedFile.ReadAllText(Ready);
         public void Dispose() => directory.Dispose();
     }
 }

@@ -68,7 +68,8 @@ public sealed class UpdaterPackageSyncTests
             startInfo.WorkingDirectory = workingDirectory;
             OwnedProcess process = Commands.StartOwnedProcess(startInfo);
             Assert.IsTrue(Commands.WaitForReadyOrProcessExit(process, readyPath), "Root request failed before ready: " + process.ProcessId.ToString());
-            Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
+            // 受付マーカーは名前変更で公開されます。公開直後の読取りを名前変更と共有します。
+            Assert.AreEqual("1", PublishedFile.ReadAllText(readyPath).Trim());
             Assert.IsFalse(Commands.WaitForExit(process, 250), "The exited parent must not bypass the proceed decision.");
             Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
             Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));

@@ -246,7 +246,7 @@ public sealed class RuntimeIsolationProcessTests
         }
         if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("プローブのready観測が期限を超えました: " + path); }
         // 完成JSONのrename公開直後はDELETE handleが残り得るため、読取りをrenameと共有します。
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using FileStream stream = PublishedFile.OpenRead(path);
         return JsonDocument.Parse(stream);
     }
 

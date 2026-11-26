@@ -161,6 +161,8 @@ HTTPを使うMainWindowのfixtureは、HTTPの元のTask・全サーバーの実
 
 失敗時は、実行中または最後に確認したテスト、経過時間、出力、進捗・TRX・停止診断の場所を残します。元の失敗を後片付けの失敗で置換せず、二次的な診断に保持します。元の失敗がなくても後片付けが失敗したら失敗です。開始前の環境変数と作業ディレクトリも復元します。追跡対象ファイルの指紋による外部変更監視は行いません。
 
+別プロセスがファイルで公開する準備通知や観測結果は、内容を書いて閉じた一時名から完成名へ名前変更して公開します。Windowsでは完成名が見えた後も、名前変更に使った `DELETE` 権限のハンドルが閉じるまで残る区間があり、削除の共有を許さない読取り（`File.ReadAllText` など）はこの区間で共有違反になります。完成名の存在を確認した直後に内容を読むテストは、[`PublishedFile`](../../../tests/BeMusicSeeker.TestSupport/Files/PublishedFile.cs) で名前変更と共有して読み、読み直しや待機の追加で共有違反を避けません。存在だけを確認する通知と、書込み側のプロセスの終端を待ってから読むファイルは対象外です。製品の更新マーカーの読取りが同じ共有条件を使う理由は[更新仕様](../integration/portable-update.md)に示します。
+
 標準入口の期限・回収を偽プロセスで検査するテストは、次を守ります。
 
 - readyファイルや起動の通知は、生成元（所有するプロセスのJob全体の終端、またはrunnerの実行）と結んで期限なしで待ち、生成元が通知なしで終端したらその場で失敗にします。停止はrunnerの段階期限と検証全体の期限で検出します。
@@ -228,6 +230,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | --- | --- | --- |
 | テスト時間の短縮 | [検証入口](../../../tools/BeMusicSeeker.Verify/README.md)、本書の[テスト時間の短縮](#テスト時間の短縮) | 同条件の全体経過時間、全終端、結果件数を比較し、保証の整理と目標時間の達成を区別して報告する。運用文言を固定する自動テストは設けない。 |
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |
+| 名前変更で公開されたファイルの公開直後の読取り | [`PublishedFile`](../../../tests/BeMusicSeeker.TestSupport/Files/PublishedFile.cs) | Coreの [`PublishedFileTests`](../../../tests/BeMusicSeeker.Core.Tests/Verification/PublishedFileTests.cs) で、`DELETE` 権限のハンドルを保持した区間に読取り専用で開けて全体を一回で読めること、書込みを共有しないこと、BOMの検出と既定のUTF-8、読取りハンドルを残さないことを確認し、同じ区間で `File.ReadAllText` が共有違反になる対照で前提を確かめる。利用側は `OwnedProcessTests`、Windowsの `WpfHostLifecycleTests`・`RuntimeIsolationProcessTests`、Compatibilityの `UpdaterPackageSyncTests`、`UpdaterPackageProbe`。 |
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | ロック不成立・デッドロックの停止検出と到達待ち | [`ConcurrencyProbe`](../../../tests/BeMusicSeeker.TestSupport/Components/ConcurrencyProbe.cs) | 専用スレッドのprobe、保持中の完了判定、probeと保持側の失敗の伝播、通知なしの終端、期限なしの到達待ちを、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | ループバックHTTPの共有操作期限・独立した後片付け、通知前のクライアント・サーバーの終端、実際の取消と相手側の切断 | [`SingleRequestHttpServer`](../../../tests/BeMusicSeeker.TestSupport/Components/SingleRequestHttpServer.cs)、HTTPを使う各機能のfixture | [`AppHttpClientTests`](../../../tests/BeMusicSeeker.Core.Tests/Runtime/AppHttpClientTests.cs) は、有限の二応答で要求されなかった受付の回収、取消済みの後片付けの取消で未終端のクライアントを成功扱いしないこと、補助の生成側の正常終了後のクライアントの先行故障、通知の有無と同時終端・元の故障、準備待機の取消後の遅い結果・故障、GET・フォーム送信の元の要求の取消とローカル解放前の実際の相手側の切断を確認する。PlaylistのURL取得・完了は、未終端の処理が依存するDB・設定を `TestCleanup` でも保持して非成功にすることを待合せで確認する。Playlist・MainWindowは同じ期限・回収の入口で既存の取得・保存・表示の保証を保持する。 |

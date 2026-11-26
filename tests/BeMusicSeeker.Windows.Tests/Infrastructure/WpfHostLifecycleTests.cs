@@ -39,7 +39,8 @@ public sealed class WpfHostLifecycleTests
                     Task.Delay(remaining < TimeSpan.FromMilliseconds(20) ? remaining : TimeSpan.FromMilliseconds(20)));
             }
             Assert.AreNotEqual(TimeSpan.Zero, deadline.Remaining);
-            using var result = JsonDocument.Parse(File.ReadAllText(ready));
+            // readyは一時名からの名前変更で公開されます。公開直後の読取りを名前変更と共有します。
+            using var result = JsonDocument.Parse(PublishedFile.ReadAllText(ready));
             JsonElement value = result.RootElement;
             Assert.IsFalse(process.Completion.IsCompleted, "OSのprocess終了前に回収結果を観測します。");
             nint window = (nint)value.GetProperty("WindowHandle").GetInt64();

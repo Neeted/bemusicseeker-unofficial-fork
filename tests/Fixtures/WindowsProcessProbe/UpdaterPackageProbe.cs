@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.TestSupport.Components.Update;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Verification;
 using static BeMusicSeeker.TestSupport.Components.Update.UpdaterPackageTestSupport;
@@ -132,7 +133,8 @@ internal sealed class UpdaterPackageProbe
             Path.Combine(appDirectoryPath, "restart.exe"), []);
         UpdaterLaunchReceipt receipt = gateway.Prepare(launchRequest).Start();
         Assert.IsNotNull(process);
-        Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
+        // 受付マーカーは名前変更で公開されます。gatewayの受理直後の読取りも名前変更と共有します。
+        Assert.AreEqual("1", PublishedFile.ReadAllText(readyPath).Trim());
         Assert.IsFalse(process.HasExited);
         Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
         receipt.Abort();
