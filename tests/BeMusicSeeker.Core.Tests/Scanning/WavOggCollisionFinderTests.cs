@@ -29,6 +29,8 @@ public sealed class WavOggCollisionFinderTests
             ("ディレクトリの大文字小文字を無視し表記はwav", [@"C:\A\k.wav", @"C:\a\K.OGG"], [(@"C:\A", "k")]),
             ("日本語", [@"C:\日本語\音.wav", @"C:\日本語\音.ogg"], [(@"C:\日本語", "音")]),
             ("ドライブ直下", [@"C:\r.wav", @"C:\r.ogg"], [(@"C:\", "r")]),
+            ("同じディレクトリが連続せず交互に現れる", [@"C:\a\i.wav", @"C:\b\j.ogg", @"C:\A\i.OGG", @"C:\c\k.wav", @"C:\b\J.wav", @"C:\a\x.wav", @"C:\c\k.ogg", @"C:\a\x.mp3"], [(@"C:\a", "i"), (@"C:\b", "J"), (@"C:\c", "k")]),
+            ("表記は組で最初の.wavのもの", [@"C:\A\x.wav", @"C:\a\k.wav", @"C:\a\k.ogg"], [(@"C:\a", "k")]),
             ("名前が空", [@"C:\a\.wav", @"C:\a\.ogg"], []),
             ("片方の形式だけ", [@"C:\a\w.wav", @"C:\a\o.ogg"], []),
             ("別のディレクトリ", [@"C:\a\x.wav", @"C:\b\x.ogg"], []),
@@ -69,9 +71,9 @@ public sealed class WavOggCollisionFinderTests
         WavOggCollisionSearchResult everything = everythingSucceeded
             ? WavOggCollisionSearchResult.Succeeded(
                 EverythingNative.GroupedEnumerationBackendName,
-                [.. Enumerable.Range(0, everythingCollisionCount).Select(index => new WavOggCollision(@"C:\a", "n" + index))], 1L, 1L)
+                [.. Enumerable.Range(0, everythingCollisionCount).Select(index => new WavOggCollision(@"C:\a", "n" + index))], 1L, 1L, hitCount: null)
             : WavOggCollisionSearchResult.Failed(EverythingNative.GroupedEnumerationBackendName, everythingFailureReason);
-        var managed = WavOggCollisionSearchResult.Succeeded("fast", [new WavOggCollision(@"C:\managed", "only")], 1L, 1L);
+        var managed = WavOggCollisionSearchResult.Succeeded("fast", [new WavOggCollision(@"C:\managed", "only")], 1L, 1L, hitCount: null);
         int managedCount = 0;
 
         WavOggCollisionSearchResult selected = WavOggCollisionFinder.SelectResult(everything, () =>

@@ -1500,8 +1500,13 @@ internal sealed class EverythingNative
 
         internal ulong HitCount { get; set; }
 
+        /// <summary>問い合わせ全体の所要時間。結果の読取りとコールバックでの集計を含み、<see cref="AggregateMs"/> とコールバックの時間が重なります。</summary>
         internal long QueryMs { get; set; }
 
+        /// <summary>
+        /// ネイティブ側の集計の実時間（コールバックでの集計、整列、結果バッファの構築の合計）。
+        /// 多ヒットの問い合わせのコールバックの時間は標本からの推定値です。
+        /// </summary>
         internal long AggregateMs { get; set; }
     }
 

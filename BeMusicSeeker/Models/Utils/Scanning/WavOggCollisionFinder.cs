@@ -34,18 +34,22 @@ internal sealed class WavOggCollisionSearchResult
     /// <summary>列挙（問い合わせまたは走査）の所要時間。</summary>
     internal long EnumerationMs { get; private init; }
 
-    /// <summary>集計の所要時間。ネイティブ側で集計した場合はネイティブ側の値です。</summary>
+    /// <summary>集計の所要時間。ネイティブ側で集計した場合は、ネイティブ側の集計・整列・結果の構築の実時間です。</summary>
     internal long AggregateMs { get; private init; }
 
+    /// <summary>集計したファイルのヒット数（診断用）。ヒット数を取得できなかった失敗の結果と、未計測の結果は <see langword="null"/> で、実測の0と区別します。</summary>
+    internal ulong? HitCount { get; private init; }
+
     internal static WavOggCollisionSearchResult Succeeded(
-        string backendName, IReadOnlyList<WavOggCollision> collisions, long enumerationMs, long aggregateMs)
+        string backendName, IReadOnlyList<WavOggCollision> collisions, long enumerationMs, long aggregateMs, ulong? hitCount)
         => new()
         {
             Success = true,
             BackendName = backendName ?? string.Empty,
             Collisions = collisions ?? [],
             EnumerationMs = enumerationMs,
-            AggregateMs = aggregateMs
+            AggregateMs = aggregateMs,
+            HitCount = hitCount
         };
 
     internal static WavOggCollisionSearchResult Failed(string backendName, string reason)
@@ -169,6 +173,7 @@ internal static class WavOggCollisionFinder
     /// <remarks>
     /// <paramref name="rootFileEnumerator"/> があればそれだけで列挙し、Everythingを使いません。なければEverythingで列挙し、
     /// 結果の採用と切替えは <see cref="SelectResult"/> に従います。登録ルートが存在しないなど、列挙が不完全な場合は失敗です。
+    /// Everythingから管理側の列挙へ切り替えたときは、その理由を診断ログへ残し、管理側も失敗した場合は失敗の理由にEverything側の理由を含めます。
     /// </remarks>
     /// <param name="rootDirectories">登録BMSルート。</param>
     /// <param name="everythingNative">ネイティブブリッジの窓口。</param>
@@ -193,11 +198,36 @@ internal static class WavOggCollisionFinder
         }
         if (roots.Count == 0)
         {
-            return WavOggCollisionSearchResult.Succeeded(ManagedBackendName, [], 0L, 0L);
+            return WavOggCollisionSearchResult.Succeeded(ManagedBackendName, [], 0L, 0L, hitCount: 0UL);
         }
 
         WavOggCollisionSearchResult everything = TryFindWithEverything(roots, everythingNative);
-        return SelectResult(everything, () => EnumerateManaged(new FastRootFileEnumerator(), roots));
+        WavOggCollisionSearchResult selected = SelectResult(everything, () => EnumerateManaged(new FastRootFileEnumerator(), roots));
+        if (!ReferenceEquals(selected, everything))
+        {
+            // Everythingから管理側の列挙へ切り替えた。理由を残し、管理側も失敗した場合は両方の理由を失敗に含める。
+            LogFallback(everything.FailureReason, selected);
+            if (!selected.Success)
+            {
+                selected = WavOggCollisionSearchResult.Failed(
+                    selected.BackendName, selected.FailureReason + " (everything: " + everything.FailureReason + ")");
+            }
+        }
+        return selected;
+    }
+
+    private static void LogFallback(string everythingReason, WavOggCollisionSearchResult managed)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info(
+                "wav_ogg_collisions fallback=managed everythingReason={0} managedSuccess={1} managedHits={2} managedReason={3}",
+                everythingReason, managed.Success, managed.HitCount?.ToString() ?? "unknown", managed.FailureReason);
+        }
+        catch
+        {
+            // 診断出力で探索の成功・失敗を変えない。
+        }
     }
 
     /// <summary>
@@ -234,7 +264,7 @@ internal static class WavOggCollisionFinder
             return WavOggCollisionSearchResult.Failed(EverythingNative.GroupedEnumerationBackendName, reason);
         }
         return WavOggCollisionSearchResult.Succeeded(
-            EverythingNative.GroupedEnumerationBackendName, result.Collisions, result.QueryMs, result.AggregateMs);
+            EverythingNative.GroupedEnumerationBackendName, result.Collisions, result.QueryMs, result.AggregateMs, result.HitCount);
     }
 
     private static WavOggCollisionSearchResult EnumerateManaged(IRootFileEnumerator enumerator, IEnumerable<string> roots)
@@ -249,6 +279,7 @@ internal static class WavOggCollisionFinder
         var aggregateStopwatch = Stopwatch.StartNew();
         List<WavOggCollision> collisions = WavOggCollisionAggregator.Collect(enumeration.GetPaths(AudioGroupName));
         aggregateStopwatch.Stop();
-        return WavOggCollisionSearchResult.Succeeded(backend, collisions, enumeration.EnumerationMs, aggregateStopwatch.ElapsedMilliseconds);
+        return WavOggCollisionSearchResult.Succeeded(
+            backend, collisions, enumeration.EnumerationMs, aggregateStopwatch.ElapsedMilliseconds, (ulong)enumeration.GetPaths(AudioGroupName).Count);
     }
 }

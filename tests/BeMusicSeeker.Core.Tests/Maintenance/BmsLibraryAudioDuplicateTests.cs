@@ -57,7 +57,7 @@ public sealed class BmsLibraryAudioDuplicateTests
 
     private static void Search(
         BMSLibrary library, IProgress<AudioDuplicateSearchProgress>? progress = null, CancellationToken token = default)
-        => library.SearchAudioDuplicateFolders(progress!, token);
+        => library.SearchAudioDuplicateFolders(progress, token);
 
     private static string Rel(string root, string folder) => folder.Length == root.Length ? "." : folder[(root.Length + 1)..];
 

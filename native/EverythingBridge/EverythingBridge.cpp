@@ -9,6 +9,8 @@
 #include <type_traits>
 #include <thread>
 #include <mutex>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -178,6 +180,9 @@ static constexpr unsigned int EBRIDGE_WAV_OGG_COLLISIONS_CONTRACT_VERSION = 2026
 /// 同じディレクトリに拡張子なしの名前が一致する.wavと.oggが両方ある名前の組を、一つのバッファで返す。
 /// directory_offsets[i]とname_offsets[i]は、blobの先頭からのバイト単位の位置で、組は
 /// ディレクトリ、名前の順（大文字小文字を区別する序数順）に並ぶ。名前は.wavのファイルの表記で、拡張子を含まない。
+/// ディレクトリと名前の表記は、その組で最初に集計した.wavのファイルのものを使う。
+/// query_msは問い合わせ全体（結果の読取りとコールバックでの集計を含む）、aggregate_msはコールバックでの集計、整列、結果の構築の合計で、
+/// 二つはコールバックの時間が重なる。多ヒットの問い合わせのコールバックの時間は、標本からの推定値である。
 struct EBridgeWavOggCollisionsResult {
 	unsigned int contract_version;
 	unsigned int header_size;
@@ -1521,21 +1526,62 @@ int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& grouped
 	return BRIDGE_OK;
 }
 
-/// 同じディレクトリ・拡張子なしの名前（大文字小文字を無視）ごとに、.wavと.oggの有無を集める。
-/// 音源の全パスは保持せず、組の候補（名前の種類数）だけを持つ。
-struct WavOggCollisionSlot {
-	std::wstring wavDirectory;
-	std::wstring wavStem;
-	bool hasWav = false;
-	bool hasOgg = false;
-};
+/// 大文字化を呼出し側の作業領域へ書き込み、ヒットごとの確保を避ける。
+void ToUpperInvariantInto(const wchar_t* data, size_t length, std::wstring& output) {
+	output.clear();
+	if (length == 0) {
+		return;
+	}
+	output.resize(length);
+	int converted = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, data, static_cast<int>(length), output.data(), static_cast<int>(length), nullptr, nullptr, 0);
+	if (converted <= 0) {
+		int required = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, data, static_cast<int>(length), nullptr, 0, nullptr, nullptr, 0);
+		if (required > 0) {
+			output.resize(static_cast<size_t>(required));
+			converted = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, data, static_cast<int>(length), output.data(), required, nullptr, nullptr, 0);
+		}
+	}
+	if (converted <= 0) {
+		output.assign(data, length);
+		for (auto& ch : output) {
+			ch = static_cast<wchar_t>(towupper(ch));
+		}
+		return;
+	}
+	output.resize(static_cast<size_t>(converted));
+}
 
+/// 音源のヒット一件。ディレクトリは表記の番号で参照し、名前は共有の領域の位置と長さで持つ（一件あたり16バイト）。
+/// .wavだけが元の表記の位置を持ち、.oggでは位置が WAV_OGG_NO_WAV_NAME になる（種類の判定と整列の順に使う）。
+struct WavOggHit {
+	uint32_t spellingId;
+	uint32_t upperOffset;
+	uint32_t wavNameOffset;
+	uint16_t upperLength;
+	uint16_t originalLength;
+};
+static_assert(sizeof(WavOggHit) == 16, "WavOggHit must stay 16 bytes");
+
+constexpr uint32_t WAV_OGG_NO_WAV_NAME = 0xFFFFFFFFu;
+
+/// 音源のヒットを集める。グループ化の鍵（大文字のディレクトリ）と出力の表記（正確な表記）を分け、
+/// 表記ごとにディレクトリ文字列を一回だけ保持する。組の判定は最後に一回の整列で行い、Everythingの結果の並びを前提にしない。
 struct WavOggCollisionAggregate {
-	std::unordered_map<std::wstring, size_t> index;
-	std::vector<WavOggCollisionSlot> slots;
+	std::unordered_map<std::wstring, uint32_t> spellingIndex; // 正確なディレクトリの表記 -> 表記の番号
+	std::unordered_map<std::wstring, uint32_t> groupIndex; // 大文字のディレクトリ -> グループ番号
+	std::vector<std::wstring> spellings;
+	std::vector<uint32_t> spellingGroups; // 表記の番号 -> グループ番号
+	std::vector<WavOggHit> hits;
+	std::vector<wchar_t> upperNames;
+	std::vector<wchar_t> wavNames;
+	std::wstring upperScratch;
+	std::wstring lastDirectory;
+	uint32_t lastSpellingId = 0xFFFFFFFFu;
 };
 
 /// 一件のファイルを集計へ加える。拡張子なしの名前が空のファイル（.wav）と、.wav/.ogg以外は数えない。
+/// メモリ不足は std::bad_alloc、領域の位置が32ビットを超える場合は std::length_error、
+/// 名前の長さを記録できない場合は std::runtime_error を送出する。
 void AddWavOggHit(WavOggCollisionAggregate& aggregate, const std::wstring& directory, const std::wstring& name) {
 	size_t dot = name.find_last_of(L'.');
 	if (dot == std::wstring::npos || dot == 0u) {
@@ -1547,50 +1593,138 @@ void AddWavOggHit(WavOggCollisionAggregate& aggregate, const std::wstring& direc
 	if (!isWav && !isOgg) {
 		return;
 	}
-	std::wstring stem = name.substr(0, dot);
-	std::wstring key = directory;
-	key.push_back(L'\0');
-	key += stem;
-	key = ToUpperInvariant(key);
-	auto found = aggregate.index.find(key);
-	size_t slotIndex;
-	if (found == aggregate.index.end()) {
-		slotIndex = aggregate.slots.size();
-		aggregate.index.emplace(std::move(key), slotIndex);
-		aggregate.slots.emplace_back();
-	} else {
-		slotIndex = found->second;
+	if (dot > 0xFFFFu) {
+		throw std::runtime_error("wav/ogg name too long");
 	}
-	WavOggCollisionSlot& slot = aggregate.slots[slotIndex];
-	if (isWav) {
-		if (!slot.hasWav) {
-			slot.hasWav = true;
-			slot.wavDirectory = directory;
-			slot.wavStem = std::move(stem);
+
+	uint32_t spellingId;
+	if (aggregate.lastSpellingId != 0xFFFFFFFFu && directory == aggregate.lastDirectory) {
+		spellingId = aggregate.lastSpellingId;
+	} else {
+		auto exact = aggregate.spellingIndex.find(directory);
+		if (exact != aggregate.spellingIndex.end()) {
+			spellingId = exact->second;
+		} else {
+			ToUpperInvariantInto(directory.data(), directory.size(), aggregate.upperScratch);
+			uint32_t groupId;
+			auto group = aggregate.groupIndex.find(aggregate.upperScratch);
+			if (group != aggregate.groupIndex.end()) {
+				groupId = group->second;
+			} else {
+				groupId = static_cast<uint32_t>(aggregate.groupIndex.size());
+				aggregate.groupIndex.emplace(aggregate.upperScratch, groupId);
+			}
+			spellingId = static_cast<uint32_t>(aggregate.spellings.size());
+			aggregate.spellings.push_back(directory);
+			aggregate.spellingGroups.push_back(groupId);
+			aggregate.spellingIndex.emplace(directory, spellingId);
 		}
-	} else {
-		slot.hasOgg = true;
+		aggregate.lastDirectory = directory;
+		aggregate.lastSpellingId = spellingId;
 	}
+
+	ToUpperInvariantInto(name.data(), dot, aggregate.upperScratch);
+	if (aggregate.upperScratch.size() > 0xFFFFu) {
+		throw std::runtime_error("wav/ogg upper name too long");
+	}
+	if (aggregate.upperNames.size() + aggregate.upperScratch.size() >= WAV_OGG_NO_WAV_NAME
+		|| aggregate.wavNames.size() + dot >= WAV_OGG_NO_WAV_NAME) {
+		throw std::length_error("wav/ogg name area exceeds 32-bit offsets");
+	}
+	WavOggHit hit{};
+	hit.spellingId = spellingId;
+	hit.upperOffset = static_cast<uint32_t>(aggregate.upperNames.size());
+	hit.upperLength = static_cast<uint16_t>(aggregate.upperScratch.size());
+	hit.originalLength = static_cast<uint16_t>(dot);
+	hit.wavNameOffset = WAV_OGG_NO_WAV_NAME;
+	aggregate.upperNames.insert(aggregate.upperNames.end(), aggregate.upperScratch.begin(), aggregate.upperScratch.end());
+	if (isWav) {
+		hit.wavNameOffset = static_cast<uint32_t>(aggregate.wavNames.size());
+		aggregate.wavNames.insert(aggregate.wavNames.end(), name.begin(), name.begin() + static_cast<std::ptrdiff_t>(dot));
+	}
+	aggregate.hits.push_back(hit);
 }
 
-int BuildWavOggCollisionsResultBuffer(const WavOggCollisionAggregate& aggregate, unsigned long long hitCount, long long queryMs, long long aggregateMs, EBridgeWavOggCollisionsResult** outResult) {
+/// 組になる名前（その組で最初に集計した.wavの表記）の参照。
+struct WavOggPairRef {
+	uint32_t spellingId;
+	uint32_t wavNameOffset;
+	uint16_t length;
+};
+
+/// 一回の整列で、同じディレクトリ（大文字小文字を無視）・同じ名前（大文字小文字を無視）に.wavと.oggが両方ある組を取り出す。
+/// 出力の表記は、その組で最初に集計した.wavのディレクトリと名前の表記を使う。
+std::vector<WavOggPairRef> CollectWavOggPairs(WavOggCollisionAggregate& aggregate) {
+	const wchar_t* upper = aggregate.upperNames.data();
+	const std::vector<uint32_t>& groups = aggregate.spellingGroups;
+	auto compareUpper = [upper](const WavOggHit& left, const WavOggHit& right) {
+		size_t common = (std::min)(left.upperLength, right.upperLength);
+		int result = std::char_traits<wchar_t>::compare(upper + left.upperOffset, upper + right.upperOffset, common);
+		if (result != 0) {
+			return result;
+		}
+		return left.upperLength == right.upperLength ? 0 : (left.upperLength < right.upperLength ? -1 : 1);
+	};
+	// 整列の鍵：（グループ番号、大文字の名前、.wavが先で集計順の位置）。
+	std::sort(aggregate.hits.begin(), aggregate.hits.end(), [&compareUpper, &groups](const WavOggHit& left, const WavOggHit& right) {
+		uint32_t leftGroup = groups[left.spellingId];
+		uint32_t rightGroup = groups[right.spellingId];
+		if (leftGroup != rightGroup) {
+			return leftGroup < rightGroup;
+		}
+		int byName = compareUpper(left, right);
+		if (byName != 0) {
+			return byName < 0;
+		}
+		return left.wavNameOffset < right.wavNameOffset;
+	});
+
+	std::vector<WavOggPairRef> pairs;
+	size_t index = 0;
+	while (index < aggregate.hits.size()) {
+		const WavOggHit& first = aggregate.hits[index];
+		uint32_t firstGroup = groups[first.spellingId];
+		size_t groupEnd = index + 1;
+		bool hasOgg = first.wavNameOffset == WAV_OGG_NO_WAV_NAME;
+		while (groupEnd < aggregate.hits.size()
+			&& groups[aggregate.hits[groupEnd].spellingId] == firstGroup
+			&& compareUpper(aggregate.hits[groupEnd], first) == 0) {
+			hasOgg = hasOgg || aggregate.hits[groupEnd].wavNameOffset == WAV_OGG_NO_WAV_NAME;
+			groupEnd++;
+		}
+		// 並びは.wavが先なので、先頭が.wavでなければこの名前に.wavはない。
+		if (first.wavNameOffset != WAV_OGG_NO_WAV_NAME && hasOgg) {
+			pairs.push_back(WavOggPairRef{first.spellingId, first.wavNameOffset, first.originalLength});
+		}
+		index = groupEnd;
+	}
+	std::vector<WavOggHit>().swap(aggregate.hits);
+	std::vector<wchar_t>().swap(aggregate.upperNames);
+
+	const wchar_t* names = aggregate.wavNames.data();
+	const std::vector<std::wstring>& spellings = aggregate.spellings;
+	std::sort(pairs.begin(), pairs.end(), [names, &spellings](const WavOggPairRef& left, const WavOggPairRef& right) {
+		int byDirectory = spellings[left.spellingId].compare(spellings[right.spellingId]);
+		if (byDirectory != 0) {
+			return byDirectory < 0;
+		}
+		size_t common = (std::min)(left.length, right.length);
+		int byName = std::char_traits<wchar_t>::compare(names + left.wavNameOffset, names + right.wavNameOffset, common);
+		if (byName != 0) {
+			return byName < 0;
+		}
+		return left.length < right.length;
+	});
+	return pairs;
+}
+
+int BuildWavOggCollisionsResultBuffer(const WavOggCollisionAggregate& aggregate, const std::vector<WavOggPairRef>& pairs, unsigned long long hitCount, long long queryMs, long long aggregateMs, EBridgeWavOggCollisionsResult** outResult) {
 	if (!outResult) {
 		return BRIDGE_INVALID_ARGUMENT;
 	}
-	std::vector<const WavOggCollisionSlot*> pairs;
-	for (const WavOggCollisionSlot& slot : aggregate.slots) {
-		if (slot.hasWav && slot.hasOgg) {
-			pairs.push_back(&slot);
-		}
-	}
-	std::sort(pairs.begin(), pairs.end(), [](const WavOggCollisionSlot* left, const WavOggCollisionSlot* right) {
-		int byDirectory = left->wavDirectory.compare(right->wavDirectory);
-		return byDirectory != 0 ? byDirectory < 0 : left->wavStem < right->wavStem;
-	});
-
 	size_t blobBytes = 0;
-	for (const WavOggCollisionSlot* pair : pairs) {
-		blobBytes += (pair->wavDirectory.size() + 1 + pair->wavStem.size() + 1) * sizeof(wchar_t);
+	for (const WavOggPairRef& pair : pairs) {
+		blobBytes += (aggregate.spellings[pair.spellingId].size() + 1 + pair.length + 1) * sizeof(wchar_t);
 	}
 	size_t totalBytes = sizeof(EBridgeWavOggCollisionsResult)
 		+ sizeof(unsigned int) * pairs.size() * 2
@@ -1624,15 +1758,15 @@ int BuildWavOggCollisionsResultBuffer(const WavOggCollisionAggregate& aggregate,
 
 	unsigned char* blobCursor = reinterpret_cast<unsigned char*>(blob);
 	for (size_t i = 0; i < pairs.size(); i++) {
-		const WavOggCollisionSlot& pair = *pairs[i];
-		size_t directoryChars = pair.wavDirectory.size() + 1;
+		const WavOggPairRef& pair = pairs[i];
+		const std::wstring& directory = aggregate.spellings[pair.spellingId];
 		directoryOffsets[i] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(blob));
-		std::memcpy(blobCursor, pair.wavDirectory.c_str(), directoryChars * sizeof(wchar_t));
-		blobCursor += directoryChars * sizeof(wchar_t);
-		size_t nameChars = pair.wavStem.size() + 1;
+		std::memcpy(blobCursor, directory.c_str(), (directory.size() + 1) * sizeof(wchar_t));
+		blobCursor += (directory.size() + 1) * sizeof(wchar_t);
 		nameOffsets[i] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(blob));
-		std::memcpy(blobCursor, pair.wavStem.c_str(), nameChars * sizeof(wchar_t));
-		blobCursor += nameChars * sizeof(wchar_t);
+		std::memcpy(blobCursor, aggregate.wavNames.data() + pair.wavNameOffset, pair.length * sizeof(wchar_t));
+		reinterpret_cast<wchar_t*>(blobCursor)[pair.length] = L'\0';
+		blobCursor += (static_cast<size_t>(pair.length) + 1) * sizeof(wchar_t);
 	}
 
 	*outResult = result;
@@ -2660,23 +2794,73 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_FindWavOggCollisions(const 
 		return BRIDGE_CONNECT_FAILED;
 	}
 
+	// 例外はextern "C"の境界の外へ出さない。コールバックの中の例外は、ExecuteQueryが保持する資源を回収させるため
+	// ここで受け止めて印を付け、以降のヒットは読み捨てる。メモリ不足は失敗の戻り値にする。
 	// パスの取得を確認できなかった問い合わせは全体の失敗にする。部分集合を成功の結果として返さない。
-	WavOggCollisionAggregate aggregate;
-	QueryExecutionStats stats;
-	auto startedAt = std::chrono::steady_clock::now();
-	bool ok = ExecuteQuery(client, query, [&aggregate](const std::wstring& path, const std::wstring& name) {
-		if (path.empty() || name.empty()) {
-			return;
+	int failure = BRIDGE_OK;
+	bool ok = false;
+	long long queryMs = 0;
+	long long collectMs = 0;
+	unsigned long long hitCount = 0;
+	try {
+		WavOggCollisionAggregate aggregate;
+		QueryExecutionStats stats;
+		ok = ExecuteQuery(client, query, [&aggregate, &failure](const std::wstring& path, const std::wstring& name) {
+			if (failure != BRIDGE_OK || path.empty() || name.empty()) {
+				return;
+			}
+			try {
+				AddWavOggHit(aggregate, path, name);
+			} catch (const std::bad_alloc&) {
+				failure = BRIDGE_OUT_OF_MEMORY;
+			} catch (const std::length_error&) {
+				failure = BRIDGE_OUT_OF_MEMORY;
+			} catch (...) {
+				failure = BRIDGE_INTERNAL_ERROR;
+			}
+		}, &stats, [&aggregate, &failure](size_t hits) {
+			try {
+				aggregate.hits.reserve(hits);
+				aggregate.upperNames.reserve(hits * 8u);
+				aggregate.wavNames.reserve(hits * 4u);
+			} catch (...) {
+				// 先の確保は最適化だけで、足りなければ追加時に再確保する。
+			}
+		}, true);
+		g_api.DestroyClient(client);
+		client = nullptr;
+		if (failure != BRIDGE_OK) {
+			return failure;
 		}
-		AddWavOggHit(aggregate, path, name);
-	}, &stats, NoopHitCountCallback{}, true);
-	g_api.DestroyClient(client);
-	if (!ok) {
-		return BRIDGE_WAV_OGG_QUERY_FAILED;
+		if (!ok) {
+			return BRIDGE_WAV_OGG_QUERY_FAILED;
+		}
+		hitCount = stats.hitCount;
+		queryMs = stats.elapsedMs;
+		auto finishStartedAt = std::chrono::steady_clock::now();
+		std::vector<WavOggPairRef> pairs = CollectWavOggPairs(aggregate);
+		// 集計の実時間は、コールバックの集計、整列、結果バッファの構築の合計。
+		auto buildStartedAt = std::chrono::steady_clock::now();
+		long long sortMs = std::chrono::duration_cast<std::chrono::milliseconds>(buildStartedAt - finishStartedAt).count();
+		collectMs = stats.callbackMs + sortMs;
+		int status = BuildWavOggCollisionsResultBuffer(aggregate, pairs, hitCount, queryMs, collectMs, outResult);
+		if (status == BRIDGE_OK && *outResult != nullptr) {
+			long long buildMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - buildStartedAt).count();
+			(*outResult)->aggregate_ms = collectMs + buildMs;
+		}
+		return status;
+	} catch (const std::bad_alloc&) {
+		failure = BRIDGE_OUT_OF_MEMORY;
+	} catch (const std::length_error&) {
+		failure = BRIDGE_OUT_OF_MEMORY;
+	} catch (...) {
+		failure = BRIDGE_INTERNAL_ERROR;
 	}
-	long long totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
-	long long aggregateMs = totalMs > stats.elapsedMs ? totalMs - stats.elapsedMs : 0;
-	return BuildWavOggCollisionsResultBuffer(aggregate, stats.hitCount, stats.elapsedMs, aggregateMs, outResult);
+	if (client) {
+		g_api.DestroyClient(client);
+	}
+	*outResult = nullptr;
+	return failure;
 }
 
 extern "C" __declspec(dllexport) void __cdecl EBridge_FreeWavOggCollisionsResult(EBridgeWavOggCollisionsResult* result) {

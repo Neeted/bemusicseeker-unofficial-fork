@@ -163,7 +163,7 @@ internal static class DistributionValidation
         ["libs/x64/bassasio.dll"] = "73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96",
         ["libs/x64/bms_vorbis.dll"] = "403287F5E79580C4987F5018AF7FFE5B180F63819B10D09EA744AF5465D360C9",
         ["native/Everything3_x64.dll"] = "BE25B01C73BBF359B50DDF30255133225F93B4BC40A8D208173319373BCDAA5C",
-        ["native/EverythingBridge_x64.dll"] = "E033803DA1E0E5971290424CEF26947E8353ABCDEFEDC7E87C3B1E6896AEC542",
+        ["native/EverythingBridge_x64.dll"] = "24D166164EC7A7A163FE02ACA15F64F6A463BBFD7ECAB9C9BC5051B117FFB4A0",
     };
 
     /// <summary>Win32 ProductVersionに埋め込まれたInformationalVersionを実効版として読みます。</summary>

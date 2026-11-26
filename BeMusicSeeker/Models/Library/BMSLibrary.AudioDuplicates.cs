@@ -222,6 +222,7 @@ public partial class BMSLibrary
             + " collectMs=" + search.AggregateMs
             + " assignMs=" + (aggregateEndMs - enumerateEndMs)
             + " targetFolders=" + folderNames.Count
+            + " hits=" + (search.HitCount?.ToString() ?? "unknown")
             + " collisions=" + search.Collisions.Count
             + " Folders=" + folders.Count
             + " inheritedFolders=" + inherited);
