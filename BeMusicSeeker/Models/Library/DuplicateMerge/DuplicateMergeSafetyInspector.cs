@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 
@@ -293,17 +291,8 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
 
         DuplicateMergeAudioReader.EnsureRuntime();
         var judgements = new AudioNameJudgement[targets.Count];
-        try
-        {
-            Parallel.For(0, targets.Count, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-                index => judgements[index] = JudgeAudioName(targets[index].Entries));
-        }
-        catch (AggregateException failure) when (failure.InnerExceptions.Count > 0)
-        {
-            // 並列処理の包みを外し、入出力以外の予期しない例外を元の型のまま呼出元へ伝える。
-            ExceptionDispatchInfo.Capture(failure.InnerExceptions[0]).Throw();
-            throw;
-        }
+        // 並列処理の包みを外し、入出力以外の予期しない例外を元の型のまま呼出元へ伝える。
+        DuplicateMergeAudioNameJudge.RunParallel(targets.Count, index => judgements[index] = JudgeAudioName(targets[index].Entries));
 
         for (int index = 0; index < targets.Count; index++)
         {
@@ -335,29 +324,9 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
     /// </summary>
     private static AudioNameJudgement JudgeAudioName(List<Entry> entries)
     {
-        var wavs = new List<DuplicateMergeAudioSamples>();
-        var oggs = new List<DuplicateMergeAudioSamples>();
-        var unreadable = new List<Entry>();
-        bool decodable = true;
-        foreach (Entry entry in entries)
-        {
-            bool isWav = Path.GetExtension(entry.RelativePath).Equals(".wav", StringComparison.OrdinalIgnoreCase);
-            try
-            {
-                DuplicateMergeAudioSamples samples = isWav
-                    ? DuplicateMergeAudioReader.ReadWave(entry.File.FullPath)
-                    : DuplicateMergeAudioReader.ReadOgg(entry.File.FullPath);
-                if (samples == null) { decodable = false; }
-                else { (isWav ? wavs : oggs).Add(samples); }
-            }
-            catch (Exception failure) when (DuplicateMergeFolderScan.IsInputOutputFailure(failure))
-            {
-                decodable = false;
-                unreadable.Add(entry);
-            }
-        }
-        bool equivalent = decodable && wavs.All(wav => oggs.All(ogg => DuplicateMergeAudioEquivalence.Judge(wav, ogg)));
-        return new AudioNameJudgement(equivalent, unreadable);
+        DuplicateMergeAudioNameJudge.Result result = DuplicateMergeAudioNameJudge.Judge([.. entries.Select(entry =>
+            (entry.File.FullPath, Path.GetExtension(entry.RelativePath).Equals(".wav", StringComparison.OrdinalIgnoreCase)))]);
+        return new AudioNameJudgement(result.Equivalent, [.. result.UnreadableIndexes.Select(index => entries[index])]);
     }
 
     /// <summary>

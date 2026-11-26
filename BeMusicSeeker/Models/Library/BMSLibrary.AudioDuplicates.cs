@@ -233,6 +233,102 @@ public partial class BMSLibrary
     }
 
     /// <summary>
+    /// 重複音源フォルダを、一つの共通受付でまとめて整理し、保持している探索の結果を更新します。
+    /// フォルダごとに、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルをごみ箱へ送ります。
+    /// </summary>
+    /// <remarks>
+    /// 音源キーの集合は変わらないため、変更セッションを開かず、カタログ・DB・索引・LR2同期への反映と必須保守を行わず、結果を失効させません。
+    /// Busy・カタログ未収束・管理出力の保護を取れない場合は、物理変更の前に操作全体を未適用で返し（<see cref="AudioDuplicateOrganizeResult.Admitted"/> が false）、
+    /// 探索の結果を更新しません。
+    /// 探索の結果の更新は、全フォルダの処理の後、受付を保持している間に行い、変更があれば受付の解放後・ロックの外で一回通知します。
+    /// 結果がない場合と、探索に使ったリソース索引の世代が現在と異なる場合は更新しません。
+    /// 部品が受けない例外は、結果を返さずに呼出し側へ伝え、探索の結果を更新しません。
+    /// </remarks>
+    /// <param name="request">処理するフォルダ。順序が処理順です。</param>
+    /// <param name="operationId">診断識別子。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。管理出力の保護を取れない案内だけを加えます。</param>
+    /// <param name="progress">取消の確認の後、フォルダの開始ごとに同期で呼ぶ進捗の受け手。省略できます。待たずに戻る前提で、例外は結果を変えません。</param>
+    /// <param name="cancellationToken">取消の合図。フォルダの開始前にだけ効きます。</param>
+    /// <param name="capability">同じ受付の生存権限。省略時は新規の非待機受付を取得し、結果の更新・後片付けまで保持します。</param>
+    /// <returns>要求と同じ順のフォルダ結果、取消されたか、受付を取って処理を始めたか。</returns>
+    internal AudioDuplicateOrganizeResult OrganizeAudioDuplicateFolders(
+        AudioDuplicateOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<AudioDuplicateOrganizeProgress> progress,
+        CancellationToken cancellationToken,
+        LibraryFileMutationCapability capability = null)
+    {
+        return libraryMutationOwner.OrganizeAudioDuplicateFolders(
+            request, operationId, notices, progress, cancellationToken, ApplyAudioDuplicateOrganizeResult, capability);
+    }
+
+    /// <summary>
+    /// 整理の結果を、保持している探索の結果へ反映します。変更があれば、受付の解放後に呼ぶ通知を返します。
+    /// 完了・一部完了のフォルダの衝突名を、送れなかった名前だけにし、衝突名が残らないフォルダは除きます。
+    /// 衝突名の集合（大文字小文字を無視）が変わって残るフォルダは新しい <see cref="DuplicateGroup"/> インスタンスにし、
+    /// 集合が変わらないフォルダと、スキップ・未処理のフォルダは同じインスタンスのままにします。
+    /// </summary>
+    private Action ApplyAudioDuplicateOrganizeResult(AudioDuplicateOrganizeResult result)
+    {
+        long currentGeneration = libraryResourceIndexOwner.CaptureSnapshot().Generation;
+        lock (audioDuplicateGate)
+        {
+            if (audioDuplicateFolders == null || audioDuplicateGeneration != currentGeneration)
+            {
+                return null;
+            }
+            var processed = new Dictionary<string, AudioDuplicateOrganizeFolderResult>(StringComparer.OrdinalIgnoreCase);
+            foreach (AudioDuplicateOrganizeFolderResult folder in result.Folders)
+            {
+                if (folder.Status is AudioDuplicateOrganizeStatus.Completed or AudioDuplicateOrganizeStatus.PartiallyCompleted)
+                {
+                    processed[NormalizeAudioDuplicateKey(folder.Folder)] = folder;
+                }
+            }
+            if (processed.Count == 0)
+            {
+                return null;
+            }
+
+            var updated = new List<AudioDuplicateFolder>(audioDuplicateFolders.Count);
+            bool changed = false;
+            foreach (AudioDuplicateFolder current in audioDuplicateFolders)
+            {
+                if (!processed.TryGetValue(NormalizeAudioDuplicateKey(current.Folder), out AudioDuplicateOrganizeFolderResult folderResult))
+                {
+                    updated.Add(current);
+                    continue;
+                }
+                string[] remaining = [.. folderResult.UnsentNames
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)];
+                if (remaining.Length == 0)
+                {
+                    changed = true;
+                    continue;
+                }
+                if (HasSameCollisionNames(remaining, current.CollisionNames))
+                {
+                    updated.Add(current);
+                    continue;
+                }
+                changed = true;
+                updated.Add(new AudioDuplicateFolder(new DuplicateGroup([.. current.Group.ChartFiles], [.. current.Group.Folders]), remaining));
+            }
+            if (!changed)
+            {
+                return null;
+            }
+            audioDuplicateFolders = updated;
+            audioDuplicateBase = updated;
+            return () => TryInvokePostLeaseNotification(
+                () => RaisePropertyChanged(nameof(AudioDuplicateFolders)),
+                "audio_duplicate_folders_notification_failed");
+        }
+    }
+
+    /// <summary>
     /// 登録BMSルートを捕捉します。ライブラリの更新前検査の要求が持つ走査のルートのうち、存在するものと、更新前検査が存在を必須とするもの
     /// だけを範囲に残します。必須とするルートは更新前検査の要求（<see cref="CaptureDirectoryPreflightRequest"/>）の判定を共用し、
     /// 出力基点の配下の未作成のルートは範囲から外します。存在しない必須のルートは列挙を不完全にし、探索の失敗になります。

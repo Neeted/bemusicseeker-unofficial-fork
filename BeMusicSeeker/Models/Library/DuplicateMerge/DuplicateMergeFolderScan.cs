@@ -81,7 +81,8 @@ internal sealed class DuplicateMergeFolderScan
     /// フォルダを走査します。<paramref name="descend"/> が偽なら、フォルダ本体の属性だけを取得し、配下を走査しません。
     /// 本体がリンクなら、配下へ入りません。
     /// </summary>
-    internal static DuplicateMergeFolderScan Scan(string folder, bool descend)
+    /// <param name="excludeDirectory">配下のディレクトリのパス（<paramref name="folder"/> を正規化した位置と相対パスをつないだ値）を受け、真なら、そのディレクトリを記録せず、その配下へも入らない判定です。重複音源の確認が、配下の別の対象フォルダを所有範囲から除くために使います。省略時はすべて走査します。</param>
+    internal static DuplicateMergeFolderScan Scan(string folder, bool descend, Func<string, bool> excludeDirectory = null)
     {
         string root = DuplicateMergeSafetyPolicy.NormalizeFolder(folder);
         var scan = new DuplicateMergeFolderScan(folder);
@@ -115,11 +116,11 @@ internal sealed class DuplicateMergeFolderScan
             scan.Failures.Add(string.Empty);
             return scan;
         }
-        if (descend) { scan.Walk(root); }
+        if (descend) { scan.Walk(root, excludeDirectory); }
         return scan;
     }
 
-    private void Walk(string root)
+    private void Walk(string root, Func<string, bool> excludeDirectory)
     {
         var pending = new Stack<string>();
         pending.Push(string.Empty);
@@ -150,6 +151,10 @@ internal sealed class DuplicateMergeFolderScan
                     }
                     if (entry is DirectoryInfo)
                     {
+                        if (excludeDirectory != null && excludeDirectory(Path.Combine(root, relative)))
+                        {
+                            continue;
+                        }
                         Directories.Add(relative);
                         pending.Push(relative);
                     }

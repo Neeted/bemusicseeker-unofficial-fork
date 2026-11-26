@@ -13,9 +13,9 @@
 | chart-info-archive | 1 | 公式Export build出力、導入済み7-Zip、実native抽出 |
 | chartstring-java | 1 | [固定参照と準備JSON](../../tools/chartstring-dump/README.md) |
 | DriveRoot | 10 | 専有・非Z drive alias、必要caseの専有HKCU領域、実WPF、updater |
-| DirectorySymbolicLink | 11 | 実directory symlinkとfile symlinkを作成できる権限 |
+| DirectorySymbolicLink | 12 | 実directory symlinkとfile symlinkを作成できる権限 |
 | CrossVolume | 4 | 異なる実volume上の既存入力rootを明示 |
-| Junction | 28 | PowerShell 7と実junction作成能力 |
+| Junction | 31 | PowerShell 7と実junction作成能力 |
 | install-acl | 2 | 専有container/rootのDACLを変更・復旧できるWindows環境 |
 | everything-native-path-identity | 2 | 明示した固定Everything SDK 3.0.0.9とpath identity fixture DLL |
 | audio-encoders | 1 | 明示opt-in、対象encoderと必要decoderの実exe |
