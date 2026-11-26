@@ -83,6 +83,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Garbled Text Check](#garbled-text-check)
     - [Duplicate File Check](#duplicate-file-check)
     - [Split Placement Check](#split-placement-check)
+    - [Duplicate Audio Check](#duplicate-audio-check)
     - [Full Resource Scan](#full-resource-scan)
 - [Play Log](#play-log)
     - [Displayed History](#displayed-history)
@@ -1453,6 +1454,49 @@ When there are too many candidates, or a pair you expect does not become a candi
 Choosing a value does not change the result. Press `Search again` to search with the chosen values. While the chosen values are not applied yet, `Search again` is shown in bold. After searching again, the check marks, `KEEP`, and verification results are kept for groups whose folders and charts did not change.
 
 The applied values are kept until you exit the app and return to the defaults at the next start. Searches started from the left tree and the search after organizing also use the applied values.
+
+### Duplicate Audio Check
+
+This view finds chart folders that contain the same audio name as both WAV and OGG (for example `foo.wav` and `foo.ogg`) and lets you keep only one format. It is useful for works where both the WAV version and the OGG version were installed into the same folder. It does not merge folders.
+
+Selecting `Duplicate audio check` in the left tree starts the search. A progress dialog is shown during the search, and `Cancel` stops it. No result is shown when you cancel. When the search finishes, the folders that contain a same-name WAV and OGG appear in the tree. Selecting `Duplicate audio check` shows all folders that were found, and selecting a song title or a folder shows the charts in that folder.
+
+A pair is a WAV and an OGG in the same folder whose names match without the extension. Subfolders of a chart folder are searched too, so `sound/kick.wav` and `sound/kick.ogg` count as one pair. mp3 and flac files are not covered and are never changed.
+
+When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the folders disappear from the tree. Click `Duplicate audio check` again to search again.
+
+#### Organize Audio from Cleanup Candidates
+
+Selecting `Cleanup candidates` at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. From the context menu, you can `Check`, `Uncheck`, or `Check this folder` for the selected rows, and `Open in Explorer` for the folders. Double-clicking a row moves to that folder in the tree. There is no `KEEP` column because folders are not merged.
+
+| Column | Description |
+| --- | --- |
+| `SELECT` | The check mark for folders to check or organize. |
+| `STATUS` | The result of the check. It is `Unchecked` before you check the folder. |
+| `CONFLICTS` | The number of same-name WAV and OGG pairs. |
+| `PATH`, `FOLDER` | The path and name of the folder. |
+| `TITLE`, `ARTIST` | The representative title and artist of the folder. |
+
+Organize in the following order.
+
+1. Check the folders you want to organize and press `Check selected folders`. Each same-name WAV and OGG pair is compared by waveform to judge whether the OGG was converted from the WAV. The method and the differences treated as equivalent are the same as for `Check WAV/OGG collisions for equivalence` in the merge candidates list (see [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates)).
+2. Review `STATUS`.
+
+   | `STATUS` | Meaning |
+   | --- | --- |
+   | `Safe (WAV/OGG equivalent)` | Every pair was judged equivalent. |
+   | `Caution: WAV/OGG not equivalent` | Some pairs were not judged equivalent. The tooltip of `STATUS` lists the names. |
+   | `Cannot organize: Link`, `Cannot organize: Unreadable` | The folder is a link, or the folder or its audio could not be read, so it cannot be organized. |
+
+3. Choose the format to keep with `Collision cleanup` (`Keep OGG` or `Keep WAV`). The default is `Keep OGG`.
+4. Check the folders to organize again and press `Organize selected folders`. When you press `OK` in the confirmation dialog, the files of the other format are moved to the Recycle Bin.
+
+Folders are unchecked when their check finishes. If you press `Organize selected folders` while a folder whose `STATUS` is `Unchecked` is checked, a message asks you to check it first and nothing is organized. Folders that have been organized disappear from the list.
+
+> [!CAUTION]
+> Organizing a folder marked `Caution: WAV/OGG not equivalent` keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and `OK` stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent.
+
+The check marks, check results, the conditions in the search and exclude boxes, and the value of `Collision cleanup` are kept separately from the merge candidates lists of duplicate file check and split placement check. The value of `Collision cleanup` is kept until you close the application.
 
 ### Full Resource Scan
 

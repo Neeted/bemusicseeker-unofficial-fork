@@ -602,6 +602,9 @@ hr {
 <li class="toc-level-4"><a href="#merge-candidate-folders">Merge Candidate Folders</a></li>
 <li class="toc-level-4"><a href="#adjust-the-search-conditions">Adjust the Search Conditions</a></li>
 </ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#duplicate-audio-check">Duplicate Audio Check</a></summary><ul>
+<li class="toc-level-4"><a href="#organize-audio-from-cleanup-candidates">Organize Audio from Cleanup Candidates</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#play-log">Play Log</a></summary><ul>
@@ -770,6 +773,7 @@ hr {
 <li><a href="#garbled-text-check">Garbled Text Check</a></li>
 <li><a href="#duplicate-file-check">Duplicate File Check</a></li>
 <li><a href="#split-placement-check">Split Placement Check</a></li>
+<li><a href="#duplicate-audio-check">Duplicate Audio Check</a></li>
 <li><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul>
 </li>
@@ -2328,6 +2332,77 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </table></div>
 <p>Choosing a value does not change the result. Press <code>Search again</code> to search with the chosen values. While the chosen values are not applied yet, <code>Search again</code> is shown in bold. After searching again, the check marks, <code>KEEP</code>, and verification results are kept for groups whose folders and charts did not change.</p>
 <p>The applied values are kept until you exit the app and return to the defaults at the next start. Searches started from the left tree and the search after organizing also use the applied values.</p>
+<h3 id="duplicate-audio-check">Duplicate Audio Check</h3>
+<p>This view finds chart folders that contain the same audio name as both WAV and OGG (for example <code>foo.wav</code> and <code>foo.ogg</code>) and lets you keep only one format. It is useful for works where both the WAV version and the OGG version were installed into the same folder. It does not merge folders.</p>
+<p>Selecting <code>Duplicate audio check</code> in the left tree starts the search. A progress dialog is shown during the search, and <code>Cancel</code> stops it. No result is shown when you cancel. When the search finishes, the folders that contain a same-name WAV and OGG appear in the tree. Selecting <code>Duplicate audio check</code> shows all folders that were found, and selecting a song title or a folder shows the charts in that folder.</p>
+<p>A pair is a WAV and an OGG in the same folder whose names match without the extension. Subfolders of a chart folder are searched too, so <code>sound/kick.wav</code> and <code>sound/kick.ogg</code> count as one pair. mp3 and flac files are not covered and are never changed.</p>
+<p>When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the folders disappear from the tree. Click <code>Duplicate audio check</code> again to search again.</p>
+<h4 id="organize-audio-from-cleanup-candidates">Organize Audio from Cleanup Candidates</h4>
+<p>Selecting <code>Cleanup candidates</code> at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a> for duplicate file check. From the context menu, you can <code>Check</code>, <code>Uncheck</code>, or <code>Check this folder</code> for the selected rows, and <code>Open in Explorer</code> for the folders. Double-clicking a row moves to that folder in the tree. There is no <code>KEEP</code> column because folders are not merged.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SELECT</code></td>
+<td>The check mark for folders to check or organize.</td>
+</tr>
+<tr>
+<td><code>STATUS</code></td>
+<td>The result of the check. It is <code>Unchecked</code> before you check the folder.</td>
+</tr>
+<tr>
+<td><code>CONFLICTS</code></td>
+<td>The number of same-name WAV and OGG pairs.</td>
+</tr>
+<tr>
+<td><code>PATH</code>, <code>FOLDER</code></td>
+<td>The path and name of the folder.</td>
+</tr>
+<tr>
+<td><code>TITLE</code>, <code>ARTIST</code></td>
+<td>The representative title and artist of the folder.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Organize in the following order.</p>
+<ol>
+<li>Check the folders you want to organize and press <code>Check selected folders</code>. Each same-name WAV and OGG pair is compared by waveform to judge whether the OGG was converted from the WAV. The method and the differences treated as equivalent are the same as for <code>Check WAV/OGG collisions for equivalence</code> in the merge candidates list (see <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a>).</li>
+<li>Review <code>STATUS</code>.</li>
+</ol>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><code>STATUS</code></th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Safe (WAV/OGG equivalent)</code></td>
+<td>Every pair was judged equivalent.</td>
+</tr>
+<tr>
+<td><code>Caution: WAV/OGG not equivalent</code></td>
+<td>Some pairs were not judged equivalent. The tooltip of <code>STATUS</code> lists the names.</td>
+</tr>
+<tr>
+<td><code>Cannot organize: Link</code>, <code>Cannot organize: Unreadable</code></td>
+<td>The folder is a link, or the folder or its audio could not be read, so it cannot be organized.</td>
+</tr>
+</tbody>
+</table></div>
+<ol start="3">
+<li>Choose the format to keep with <code>Collision cleanup</code> (<code>Keep OGG</code> or <code>Keep WAV</code>). The default is <code>Keep OGG</code>.</li>
+<li>Check the folders to organize again and press <code>Organize selected folders</code>. When you press <code>OK</code> in the confirmation dialog, the files of the other format are moved to the Recycle Bin.</li>
+</ol>
+<p>Folders are unchecked when their check finishes. If you press <code>Organize selected folders</code> while a folder whose <code>STATUS</code> is <code>Unchecked</code> is checked, a message asks you to check it first and nothing is organized. Folders that have been organized disappear from the list.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Organizing a folder marked <code>Caution: WAV/OGG not equivalent</code> keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and <code>OK</code> stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent.</p></div>
+<p>The check marks, check results, the conditions in the search and exclude boxes, and the value of <code>Collision cleanup</code> are kept separately from the merge candidates lists of duplicate file check and split placement check. The value of <code>Collision cleanup</code> is kept until you close the application.</p>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>
