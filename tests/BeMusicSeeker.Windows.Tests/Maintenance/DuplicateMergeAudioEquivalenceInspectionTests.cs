@@ -11,6 +11,15 @@ namespace BeMusicSeeker.Tests;
 /// 統合の安全性確認の同等性検査を、実ファイル・実の復号器（<see cref="VorbisDecoder"/>）・実の同梱ネイティブで検査器の入口から確認します。
 /// 所持譜面の情報だけを既存の代替にします。各ケースは音声ランタイムが未初期化の状態から始め、検査が自分で用意できること（起動直後で再生していない状態）も確かめます。
 /// OGGは固定のmono（nvorbis-1test）とstereo（nvorbis-3test）を使い、同等なWAVは参照PCMから、同等でないWAVは決定的な雑音から作ります。
+/// 実際の符号化（libvorbisのVBR品質4、約128kbps相当）で作ったOGGと元音の固定データ（<c>equivalence-*</c>）で、通常の変換を同等と判定し、音量・音色・遅れ・末尾の破裂音の違いを同等と判定しないことも確かめます。
+/// 固定データは、元音をインターリーブしたfloat32リトルエンディアンの生データ（<c>*-source.f32</c>）と、同じ配列を soundfile 0.14.0／libsndfile 1.2.2 の
+/// <c>format="OGG", subtype="VORBIS", compression_level=0.6</c>（VBR品質4相当）で符号化したOGGです。元音の生成手順は次のとおりです（fs=44100、numpy・scipy）。
+/// hihat：モノラル13230フレーム。<c>numpy.random.default_rng(11).standard_normal(13230)</c> を <c>butter(4, 7000, "highpass", fs=44100)</c> の <c>sosfilt</c> に通し、
+/// 0・4410・8820フレームから始まる <c>exp(−(n−開始)/(0.015·fs))</c> の和を掛け、ピークを0.5へ正規化。
+/// snare：ステレオ13230フレーム。<c>body(n) = 0.35·exp(−n/(0.05·fs))·sin(2π·190·n/fs)</c>、<c>decay(n) = 0.25·exp(−n/(0.04·fs))</c>。
+/// 左 = <c>body + default_rng(21).uniform(−1, 1)·decay</c>、右 = <c>10^(−13/20)·(body + default_rng(22).uniform(−1, 1)·decay)</c>（右は左より13dB小さい）。
+/// pluck：48000Hz・モノラル14400フレームの元音は、<c>Σ_{h=1..8} (0.3/h)·exp(−n/(0.08·fs))·sin(2π·330h·n/fs) + default_rng(31).uniform(−1, 1)·0.1·exp(−n/(0.01·fs))</c>（fs=48000）を
+/// ピーク0.5へ正規化したもので、OGGは <c>scipy.signal.resample_poly(x, 147, 160)</c> で13230フレームにして44100Hzで符号化したものです（<c>147·Nw − 160·No = 0</c>）。
 /// </summary>
 [TestClass]
 [DoNotParallelize]
@@ -280,5 +289,117 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         CollectionAssert.AreEquivalent(new[] { Finding(a, "x.wav"), Finding(b, "x.ogg") }, AudioFindings(result));
         Assert.AreEqual(0, result.EquivalentAudioNames!.Count);
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+    }
+
+    private static float[] Source(string fileName) => ReadFloat32(File.ReadAllBytes(AudioPath(fileName)));
+
+    private static float[] Scale(float[] samples, double gain) => [.. samples.Select(sample => (float)(sample * gain))];
+
+    /// <summary>スネアの胴の音（190Hzの減衰する正弦波）です。</summary>
+    private static double SnareBody(int frame, double hertz) => 0.35 * Math.Exp(-frame / (0.05 * 44100)) * Math.Sin(2 * Math.PI * hertz * frame / 44100);
+
+    /// <summary>
+    /// 保証：実変換の固定データの形式が想定どおりである（固定データが変わったときに、実変換のケースの失敗の原因を特定するため）。
+    /// 検出する誤り：固定データの取り違え・欠落、復号器が返すサンプルレート・チャンネル数・フレーム数の変化。
+    /// </summary>
+    [TestMethod]
+    public void FixedConversionData_HasTheExpectedFormat()
+    {
+        DuplicateMergeAudioReader.EnsureRuntime();
+
+        foreach ((string file, int rate, int channels, int frames) in new[]
+        {
+            ("equivalence-hihat.ogg", 44100, 1, 13230),
+            ("equivalence-snare.ogg", 44100, 2, 13230),
+            ("equivalence-pluck-44100.ogg", 44100, 1, 13230)
+        })
+        {
+            DuplicateMergeAudioSamples decoded = DuplicateMergeAudioReader.ReadOgg(AudioPath(file));
+            Assert.IsNotNull(decoded, file);
+            Assert.AreEqual(rate, decoded.SampleRate, file);
+            Assert.AreEqual(channels, decoded.Channels, file);
+            Assert.AreEqual(frames, decoded.FrameCount, file);
+        }
+
+        Assert.AreEqual(13230, Source("equivalence-hihat-source.f32").Length);
+        Assert.AreEqual(13230 * 2, Source("equivalence-snare-source.f32").Length);
+        Assert.AreEqual(14400, Source("equivalence-pluck-source.f32").Length);
+    }
+
+    /// <summary>
+    /// 保証：実際の品質4の変換で作ったOGG（ハイハット・スネア、48000HzのWAVから変換した撥弦音、末尾へ0を100フレーム足したWAVのハイハット）は、同名のWAVと同等と判定される。
+    /// 全名前が同等の一覧にあり、拡張子違いの理由がなく、「全衝突が同等」が真になる。
+    /// 検出する誤り：実際の符号化雑音がある通常の変換（高域が中心の音、弱い側のチャンネル、雑音成分の多い打音）の拒否、実ファイルでレート違い・長さ違いの経路がつながらない誤り。
+    /// </summary>
+    [TestMethod]
+    public void Inspect_RealVorbisConversions_AreEquivalent()
+    {
+        (string a, string b) = Pair();
+        float[] hihat = Source("equivalence-hihat-source.f32");
+        WriteWave(Path.Combine(a, "hh.wav"), 44100, 1, hihat);
+        CopyOgg("equivalence-hihat.ogg", Path.Combine(b, "hh.ogg"));
+        WriteWave(Path.Combine(a, "sn.wav"), 44100, 2, Source("equivalence-snare-source.f32"));
+        CopyOgg("equivalence-snare.ogg", Path.Combine(b, "sn.ogg"));
+        WriteWave(Path.Combine(a, "r48.wav"), 48000, 1, Source("equivalence-pluck-source.f32"));
+        CopyOgg("equivalence-pluck-44100.ogg", Path.Combine(b, "r48.ogg"));
+        WriteWave(Path.Combine(a, "pad.wav"), 44100, 1, [.. hihat, .. new float[100]]);
+        CopyOgg("equivalence-hihat.ogg", Path.Combine(b, "pad.ogg"));
+
+        DuplicateMergeVerificationResult result = Inspect([a, b], audioEquivalence: true).Evaluate(a);
+
+        Assert.AreEqual(0, AudioFindings(result).Length, "拡張子違いの理由は残りません。");
+        CollectionAssert.AreEqual(new[] { "hh", "pad", "r48", "sn" }, Names(result));
+        Assert.IsTrue(result.AllAudioCollisionsEquivalent);
+        Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable));
+    }
+
+    /// <summary>
+    /// 保証：実際の符号化雑音があっても、意図的な違い（スネアの胴の音の190Hzから230Hzへの置換、−3dB・−6dBの音量変更、末尾の端数区間の高域の破裂音、220フレームの遅れ）は、
+    /// 同等と判定されない。全名前が拡張子違いに残り、同等の一覧は空で、解析不能は出ない。
+    /// 検出する誤り：符号化雑音を理由にした誤った同等（削除範囲の拡大）。
+    /// </summary>
+    [TestMethod]
+    public void Inspect_RealVorbisConversionsWithIntentionalDifferences_AreNotEquivalent()
+    {
+        (string a, string b) = Pair();
+        float[] hihat = Source("equivalence-hihat-source.f32");
+        float[] snare = Source("equivalence-snare-source.f32");
+
+        // adj：スネアの胴の音を230Hzへ置き換える（右は13dB小さい）。
+        double rightGain = Math.Pow(10, -13.0 / 20);
+        float[] adjusted = [.. snare];
+        for (int frame = 0; frame < adjusted.Length / 2; frame++)
+        {
+            adjusted[frame * 2] = (float)(snare[frame * 2] - SnareBody(frame, 190) + SnareBody(frame, 230));
+            adjusted[frame * 2 + 1] = (float)(snare[frame * 2 + 1] - rightGain * SnareBody(frame, 190) + rightGain * SnareBody(frame, 230));
+        }
+
+        // tail：末尾の端数区間（942フレーム）に、ピーク区間の10分の1以上のエネルギーの高域の破裂音（交番）を加える。
+        double peak = Enumerable.Range(0, 7).Max(segment => hihat.Skip(segment * 2048).Take(2048).Sum(sample => (double)sample * sample));
+        double burst = Math.Sqrt(0.3 * peak / 942);
+        float[] tailed = [.. hihat];
+        for (int frame = 6 * 2048; frame < tailed.Length; frame++) { tailed[frame] += (float)(burst * (frame % 2 == 0 ? 1 : -1)); }
+
+        float[] shifted = [.. new float[220], .. hihat.Take(hihat.Length - 220)];
+
+        foreach ((string name, int channels, float[] wav, string ogg) in new[]
+        {
+            ("adj", 2, adjusted, "equivalence-snare.ogg"),
+            ("v3", 2, Scale(snare, Math.Pow(10, -3.0 / 20)), "equivalence-snare.ogg"),
+            ("v6", 2, Scale(snare, Math.Pow(10, -6.0 / 20)), "equivalence-snare.ogg"),
+            ("tail", 1, tailed, "equivalence-hihat.ogg"),
+            ("shift", 1, shifted, "equivalence-hihat.ogg")
+        })
+        {
+            WriteWave(Path.Combine(a, name + ".wav"), 44100, channels, wav);
+            CopyOgg(ogg, Path.Combine(b, name + ".ogg"));
+        }
+
+        DuplicateMergeVerificationResult result = Inspect([a, b], audioEquivalence: true).Evaluate(a);
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), Names(result), "同等と判定された名前があります。");
+        Assert.AreEqual(10, AudioFindings(result).Length, "全名前の拡張子違いが残ります。");
+        Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+        Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable));
     }
 }
