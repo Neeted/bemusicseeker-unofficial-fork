@@ -670,6 +670,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     private static object CaptureMaintenanceParameter(MainViewUpdateMode mode, object parameter)
         => mode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected
+            or MainViewUpdateMode.AudioDuplicateFilterSelected
             ? CaptureDuplicateContext(parameter) : parameter;
 
     /// <summary>重複ルート、グループ、フォルダの入力を共通の選択文脈へ変換し、それぞれの対象の意味を保ちます。</summary>
@@ -736,6 +737,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
     /// 未設定なら、分裂配置の統合候補一覧の画面受付は空の譜面一覧を表示するだけで、一覧は構築しません。
     /// </summary>
     internal DuplicateMergeCandidateListOwner SplitPlacementCandidateList { get; set; }
+
+    /// <summary>
+    /// 重複音源の整理候補一覧の管理主体です。重複・分裂配置の一覧とは別の型で、状態を独立に持ちます。
+    /// 未設定なら、整理候補一覧の画面受付は空の譜面一覧を表示するだけで、一覧は構築しません。
+    /// </summary>
+    internal AudioDuplicateCandidateListOwner AudioDuplicateCandidateList { get; set; }
 
     /// <summary>選択命令を持たないデータ完成通知です。VMが現在の選択をUIで解決して表示を開始します。</summary>
     internal event EventHandler<RegularDuplicateDataReadyEventArgs> DuplicateDataReady;
@@ -895,6 +902,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             or MainViewUpdateMode.FileMissingIgnoredFilterSelected
             or MainViewUpdateMode.DuplicateFilterSelected
             or MainViewUpdateMode.SplitPlacementFilterSelected
+            or MainViewUpdateMode.AudioDuplicateFilterSelected
             or MainViewUpdateMode.GarbledFilterSelected
             or MainViewUpdateMode.GarbleFixedFilterSelected
             or MainViewUpdateMode.UnregisteredFilterSelected
@@ -2954,6 +2962,10 @@ internal sealed partial class RegularChartListOwner : IDisposable
             Func<bool> candidateInputIsCurrent = null;
             List<DuplicateGroup> candidateGroups = null;
             bool candidateNoResult = false;
+            AudioDuplicateCandidateListOwner audioOwner = null;
+            List<AudioDuplicateFolder> audioFolders = null;
+            AudioDuplicateCandidateListPreparation audioPreparation = null;
+            bool audioNoResult = false;
             if (subsetParameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList })
             {
                 if (duplicateView && duplicateInput != null && duplicateCandidateList != null)
@@ -2964,6 +2976,10 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 else if (request.CurrentTreeMode == MainViewUpdateMode.SplitPlacementFilterSelected && SplitPlacementCandidateList != null)
                 {
                     candidateOwner = SplitPlacementCandidateList;
+                }
+                else if (request.CurrentTreeMode == MainViewUpdateMode.AudioDuplicateFilterSelected && AudioDuplicateCandidateList != null)
+                {
+                    audioOwner = AudioDuplicateCandidateList;
                 }
             }
             return new PreparedRegularView(lease, () =>
@@ -3001,6 +3017,13 @@ internal sealed partial class RegularChartListOwner : IDisposable
                         candidateInputIsCurrent = () => ReferenceEquals(request.Library.SplitPlacementGroups, candidateGroups);
                     }
                 }
+                if (audioOwner != null)
+                {
+                    // 現在判定は、捕捉した結果が現在の結果と同じ参照であること。結果がない間は構築せず、状態を保ったまま行を空にする。
+                    audioFolders = request.Library.AudioDuplicateFolders;
+                    if (audioFolders == null) { audioNoResult = true; }
+                    else { audioPreparation = AudioDuplicateCandidateListOwner.Prepare(request.Library, audioFolders, request.Library, lease.Token); }
+                }
                 result = BuildVirtualChartSubset(input, lease, out RegularChartListPresentationResult presentation);
                 return presentation;
             }, terminal =>
@@ -3012,6 +3035,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 {
                     if (candidatePreparation != null) { candidateOwner.Adopt(candidatePreparation); }
                     else { candidateOwner.ShowNoResult(request.Library); }
+                }
+                if (terminal.WasCommitted && audioOwner != null && (audioPreparation != null || audioNoResult)
+                    && ReferenceEquals(request.Library.AudioDuplicateFolders, audioFolders) && (request.Navigation == null || IsCurrentNavigation(request.Navigation)))
+                {
+                    if (audioPreparation != null) { audioOwner.Adopt(audioPreparation); }
+                    else { audioOwner.ShowNoResult(request.Library); }
                 }
                 if (terminal.WasCommitted && sortWasReset) { ResetSortIfCurrent(lease, sort); }
                 return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
@@ -3152,6 +3181,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             || mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
             || mode == MainViewUpdateMode.DuplicateFilterSelected
             || mode == MainViewUpdateMode.SplitPlacementFilterSelected
+            || mode == MainViewUpdateMode.AudioDuplicateFilterSelected
             || mode == MainViewUpdateMode.GarbledFilterSelected
             || mode == MainViewUpdateMode.GarbleFixedFilterSelected
             || mode == MainViewUpdateMode.UnregisteredFilterSelected
@@ -3204,6 +3234,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         out RegularChartListSubsetSource source)
     {
         object parameter = request.CurrentTreeMode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected
+            or MainViewUpdateMode.AudioDuplicateFilterSelected
             ? request.TreeParameter ?? request.Parameter
             : request.Parameter;
         switch (request.CurrentTreeMode)
@@ -3219,6 +3250,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
             case MainViewUpdateMode.SplitPlacementFilterSelected:
                 // 結果がない状態は空の列として解決し、別のグループや全件へ広げない。世代の有効性は一覧の側では判定しない。
                 return TryResolveDuplicateSource(library?.SplitPlacementGroups ?? [], parameter, out source);
+            case MainViewUpdateMode.AudioDuplicateFilterSelected:
+                // 結果がない状態は空の列として解決し、別のフォルダや全件へ広げない。
+                return TryResolveAudioDuplicateSource([.. (library?.AudioDuplicateFolders ?? []).Select(folder => folder.Group)], parameter, out source);
             case MainViewUpdateMode.GarbledFilterSelected:
                 source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesGarbled, "garbled", ChartListSourceProjectionMode.OwnerBacked);
                 return true;
@@ -3307,6 +3341,36 @@ internal sealed partial class RegularChartListOwner : IDisposable
         source = null;
         return false;
     }
+
+    /// <summary>
+    /// 重複音源の結果から、一覧の譜面を解決します。ルート・グループ・整理候補一覧は重複・分裂配置と同じ解決を使います。
+    /// フォルダの文脈だけは「そのパス配下の譜面」ではなく、そのフォルダに完全一致（大文字小文字と末尾の区切りの違いを無視）する結果のフォルダの直下の譜面です。
+    /// </summary>
+    /// <remarks>
+    /// 重複音源の結果は一フォルダ一グループで、各グループの譜面はフォルダ直下の所持譜面だけです。入れ子の重複音源フォルダ（<c>A</c> と <c>A\sub</c>）は別々の結果のため、
+    /// 前方一致で集めると <c>A</c> のフォルダノードに <c>A\sub</c> の譜面が混じり、グループノードの表示と食い違います。
+    /// 捕捉したフォルダが現在の結果になければ、配下に結果のフォルダが残っていても空にし、別のフォルダへ広げません。
+    /// </remarks>
+    internal static bool TryResolveAudioDuplicateSource(
+        IEnumerable<DuplicateGroup> audioDuplicateGroups,
+        object parameter,
+        out RegularChartListSubsetSource source)
+    {
+        if (audioDuplicateGroups == null || parameter is not DuplicateViewContext { Kind: DuplicateViewContextKind.FolderPath } context)
+        {
+            return TryResolveDuplicateSource(audioDuplicateGroups, parameter, out source);
+        }
+        string folder = NormalizeAudioDuplicateFolder(context.Value);
+        source = RegularChartListSubsetSource.ForCharts(
+            [.. audioDuplicateGroups
+                .Where(group => folder != null && group?.Folders?.Any(member => string.Equals(NormalizeAudioDuplicateFolder(member), folder, StringComparison.OrdinalIgnoreCase)) == true)
+                .SelectMany(group => group.ChartFiles)],
+            "duplicate_folder", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
+        return true;
+    }
+
+    private static string NormalizeAudioDuplicateFolder(string folder)
+        => string.IsNullOrWhiteSpace(folder) ? null : folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private void LogDefaultVirtualEntry(
         RegularChartListEntryRequest request,

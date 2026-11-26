@@ -40,4 +40,49 @@ internal static class CandidateListAwaitSupport
         }
         finally { owner.PropertyChanged -= changed; }
     }
+
+    /// <summary>実Dispatcherで、整理候補一覧が表示中（採用済み）になるまで、<see cref="AudioDuplicateCandidateListOwner.IsViewActive"/> の通知を待ちます。</summary>
+    internal static void AwaitActive(AudioDuplicateCandidateListOwner owner, string stage)
+    {
+        var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) =>
+        { if (args.PropertyName == nameof(AudioDuplicateCandidateListOwner.IsViewActive) && owner.IsViewActive) { active.TrySetResult(); } };
+        owner.PropertyChanged += changed;
+        try
+        {
+            if (owner.IsViewActive) { active.TrySetResult(); }
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(active.Task, stage);
+        }
+        finally { owner.PropertyChanged -= changed; }
+    }
+
+    /// <summary>実Dispatcherで、整理候補一覧の行集合が指定の行数で採用されるまで、行集合の入替え通知（Rows）を待ちます。</summary>
+    internal static void AwaitRows(AudioDuplicateCandidateListOwner owner, int expectedRowCount)
+    {
+        var adopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) =>
+        { if (args.PropertyName == nameof(AudioDuplicateCandidateListOwner.Rows) && owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); } };
+        owner.PropertyChanged += changed;
+        try
+        {
+            if (owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); }
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(adopted.Task, "audio duplicate candidate list rebuilt with " + expectedRowCount + " rows");
+        }
+        finally { owner.PropertyChanged -= changed; }
+    }
+
+    /// <summary>実Dispatcherで、コレクションの要素数が指定の値になるまで、変更の通知（CollectionChanged）を待ちます。</summary>
+    internal static void AwaitCount(System.Collections.IList items, int expectedCount, string stage)
+    {
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifying = (System.Collections.Specialized.INotifyCollectionChanged)items;
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler changed = (_, _) => { if (items.Count == expectedCount) { reached.TrySetResult(); } };
+        notifying.CollectionChanged += changed;
+        try
+        {
+            if (items.Count == expectedCount) { reached.TrySetResult(); }
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(reached.Task, stage);
+        }
+        finally { notifying.CollectionChanged -= changed; }
+    }
 }

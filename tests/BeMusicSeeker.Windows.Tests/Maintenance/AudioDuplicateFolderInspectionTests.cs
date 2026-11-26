@@ -1,6 +1,4 @@
 using System.IO;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Media.Audio;
@@ -65,8 +63,8 @@ public sealed class AudioDuplicateFolderInspectionTests
         WriteFile(Path.Combine(folder, name + ".ogg"), []);
     }
 
-    private static AudioDuplicateFolderInspection Inspect(string folder, Func<string, bool>? isOtherTargetFolder = null, CancellationToken token = default)
-        => new AudioDuplicateFolderInspector().Inspect(new AudioDuplicateInspectionRequest(folder, isOtherTargetFolder, token));
+    private static AudioDuplicateFolderInspection Inspect(string folder, Func<string, bool>? isOtherTargetFolder = null)
+        => new AudioDuplicateFolderInspector().Inspect(new AudioDuplicateInspectionRequest(folder, isOtherTargetFolder));
 
     private static SortedDictionary<string, byte[]> Tree(string root)
         => new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
@@ -75,7 +73,7 @@ public sealed class AudioDuplicateFolderInspectionTests
     /// <summary>
     /// 保証：衝突名は、所有範囲を一回だけ列挙して実フォルダから確定する。隠し・システム属性のファイルとディレクトリを含み、配下の別の対象フォルダ以下は
     /// 入らずに除く（判定は配下のディレクトリごとに一回だけで、除いたディレクトリの中は列挙しない）。名前の規則は探索と同じで、大文字の拡張子・複数ピリオドの名前・
-    /// mp3/flacが並ぶ名前は衝突名、拡張子なしの名前が空のファイル・片方だけの名前・別のディレクトリの組・WAVという名前のディレクトリは衝突名でない。
+    /// mp3/flacが並ぶ名前は衝突名、拡張子なしの名前が空・空白だけ・<c>..</c>のファイル（整理の要求の名前として扱えない。確定した衝突名で <c>AudioDuplicateOrganizeFolder</c> を構築できる）・片方だけの名前・別のディレクトリの組・WAVという名前のディレクトリは衝突名でない。
     /// 衝突名は相対ディレクトリと名前を <c>\</c> でつないだ大文字小文字を無視する昇順で、復号できない組は同等でなくても整理不可にならない。
     /// 検出する誤り：隠し・システム属性の取りこぼし、配下の対象フォルダの混入、名前の規則の誤り、二重の列挙、復号不能の整理不可化。
     /// </summary>
@@ -92,6 +90,10 @@ public sealed class AudioDuplicateFolderInspectionTests
         WriteFile(Path.Combine(folder, "m.flac"), [1]);
         WriteFile(Path.Combine(folder, ".wav"), []);
         WriteFile(Path.Combine(folder, ".ogg"), []);
+        WriteFile(Path.Combine(folder, "  .wav"), []);
+        WriteFile(Path.Combine(folder, "  .ogg"), []);
+        WriteFile(Path.Combine(folder, "...wav"), []);
+        WriteFile(Path.Combine(folder, "...ogg"), []);
         WriteFile(Path.Combine(folder, "only.wav"), []);
         WriteFile(Path.Combine(folder, "solo.ogg"), []);
         WriteFile(Path.Combine(folder, "x.wav", "z.wav"), []);
@@ -124,6 +126,7 @@ public sealed class AudioDuplicateFolderInspectionTests
             new[] { "Foo", "foo.v2", "h", @"hid\d", "m", @"sub\t", "UP" }.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
             result.CollisionNames.ToArray());
         Assert.AreEqual(0, result.EquivalentCollisionNames.Count, "復号できない組は同等でなく、整理不可の理由も増やしません。");
+        _ = new AudioDuplicateOrganizeFolder(folder, ".wav", result.CollisionNames);
         CollectionAssert.AreEquivalent(
             new[] { "x.wav", "sub", "other", "hid", "inner" }, visited.ToArray(),
             "配下のディレクトリごとに判定は一回で、除いた配下の中（deep）は列挙しません。");
@@ -145,21 +148,10 @@ public sealed class AudioDuplicateFolderInspectionTests
         string folder = Folder("own");
         WriteEmptyPair(folder, "a");
         string denied = Folder("own/denied");
-        // DACLだけを変更する（所有者・SACLを書き戻すと特権が必要になる）。
-        var info = new DirectoryInfo(denied);
-        DirectorySecurity security = info.GetAccessControl(AccessControlSections.Access);
-        var rule = new FileSystemAccessRule(
-            WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny);
-        security.AddAccessRule(rule);
-        info.SetAccessControl(security);
-        try
+        // 列挙の失敗は、ディレクトリを共有違反の状態で保持して再現する（DuplicateMergeSafetyInspectorTests と同じ方法）。
+        using (DirectoryEnumerationBlocker.HoldSharingViolation(denied))
         {
             AssertUnreadable(Inspect(folder), folder, "denied");
-        }
-        finally
-        {
-            security.RemoveAccessRule(rule);
-            info.SetAccessControl(security);
         }
     }
 
@@ -248,17 +240,5 @@ public sealed class AudioDuplicateFolderInspectionTests
             }
             AssertUnreadable(locked, folder, lockedName);
         }
-    }
-
-    /// <summary>取消の合図が立っていれば、ファイルを調べず <see cref="OperationCanceledException"/> を送出します。</summary>
-    [TestMethod]
-    public void Inspect_CanceledToken_Throws()
-    {
-        string folder = Folder("canceled");
-        WriteEmptyPair(folder, "a");
-        using var cancellation = new CancellationTokenSource();
-        cancellation.Cancel();
-
-        Assert.ThrowsExactly<OperationCanceledException>(() => Inspect(folder, token: cancellation.Token));
     }
 }

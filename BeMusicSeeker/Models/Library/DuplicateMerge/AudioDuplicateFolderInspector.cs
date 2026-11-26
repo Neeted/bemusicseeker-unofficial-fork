@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
 
@@ -12,11 +12,9 @@ namespace BeMusicSeeker.Models;
 /// 所有範囲の列挙中に見つけた配下のディレクトリのパスを受け、別の対象フォルダなら真を返す判定です。真のディレクトリ以下は所有範囲から除きます。
 /// 確認の開始時に捕捉した所持集合から作ります（<see cref="CreateTargetFolderPredicate"/>）。省略（null）なら配下の別の対象フォルダを除きません。
 /// </param>
-/// <param name="CancellationToken">取消の合図。衝突名の判定の前後で確認し、<see cref="OperationCanceledException"/> を送出します。</param>
 internal sealed record AudioDuplicateInspectionRequest(
     string Folder,
-    Func<string, bool> IsOtherTargetFolder = null,
-    CancellationToken CancellationToken = default)
+    Func<string, bool> IsOtherTargetFolder = null)
 {
     /// <summary>
     /// 捕捉した対象フォルダの集合から、<see cref="IsOtherTargetFolder"/> に使う判定を作ります。
@@ -71,7 +69,10 @@ internal sealed record AudioDuplicateFolderInspection(
 /// <summary>重複音源の確認の検査器の窓口です。手順の主体は、この窓口だけで検査を行います。</summary>
 internal interface IAudioDuplicateFolderInspector
 {
-    /// <summary>一つの対象フォルダを検査します。UIスレッド外で呼びます。ファイルとDBを変更しません。</summary>
+    /// <summary>
+    /// 一つの対象フォルダを検査します。UIスレッド外で呼びます。ファイルとDBを変更しません。
+    /// 検査の途中では取り消さず、利用者の取消は呼出し側がフォルダの開始前にだけ確認します。
+    /// </summary>
     AudioDuplicateFolderInspection Inspect(AudioDuplicateInspectionRequest request);
 }
 
@@ -93,8 +94,6 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
     {
         ArgumentNullException.ThrowIfNull(request);
         string folder = request.Folder;
-        CancellationToken cancellationToken = request.CancellationToken;
-        cancellationToken.ThrowIfCancellationRequested();
 
         var scan = DuplicateMergeFolderScan.Scan(folder, descend: true, request.IsOtherTargetFolder);
         // 本体がリンクなら走査は配下へ入らず、リンクは空の相対パスだけです。配下のリンクは理由にせず、先へ入らず音源として数えません。
@@ -120,8 +119,7 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
         DuplicateMergeAudioNameJudge.RunParallel(
             collisions.Length,
             index => judgements[index] = DuplicateMergeAudioNameJudge.Judge(
-                [(collisions[index].Wav.FullPath, true), (collisions[index].Ogg.FullPath, false)]),
-            cancellationToken);
+                [(collisions[index].Wav.FullPath, true), (collisions[index].Ogg.FullPath, false)]));
 
         var unreadable = new List<DuplicateMergeFinding>();
         for (int index = 0; index < collisions.Length; index++)
@@ -156,7 +154,8 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
 
     /// <summary>
     /// 走査したファイルから衝突名を求めます。同じディレクトリで拡張子なしの名前が一致する <c>.wav</c> と <c>.ogg</c> の組で、
-    /// 拡張子なしの名前が空のファイルは数えません。名前の表記は <c>.wav</c> のファイルのもので、大文字小文字を無視した昇順に並べます。
+    /// 拡張子なしの名前が空のファイルは数えません。衝突名（相対ディレクトリを含む全体）が空白だけになるファイルと、拡張子なしの名前が <c>..</c> のファイルは、
+    /// 整理の要求の名前として扱えないため音源として数えません。判定は整理の要求の名前検査と共用します。名前の表記は <c>.wav</c> のファイルのもので、大文字小文字を無視した昇順に並べます。
     /// </summary>
     private static CollisionEntry[] FindCollisions(DuplicateMergeFolderScan scan)
     {
@@ -177,6 +176,12 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
             }
             string directory = Path.GetDirectoryName(file.RelativePath) ?? string.Empty;
             string name = directory.Length == 0 ? baseName : directory + "\\" + baseName;
+            // 衝突名（相対ディレクトリを含む全体）が空白だけになるファイルと、拡張子なしの名前が .. のファイルは、
+            // 整理の要求の名前として扱えないため音源として数えません。判定は整理の要求の名前検査と共用します。
+            if (!DuplicateBatchAudioCollisionCleanup.IsValidRelativeName(name))
+            {
+                continue;
+            }
             if (isWav) { wavs[name] = (name, file); }
             else { oggs[name] = file; }
         }

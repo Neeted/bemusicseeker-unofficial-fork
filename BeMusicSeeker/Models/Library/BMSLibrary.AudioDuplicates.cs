@@ -59,6 +59,32 @@ public partial class BMSLibrary
     }
 
     /// <summary>
+    /// 重複音源の確認が、配下の別の対象フォルダを所有範囲から除くための、対象フォルダの集合を捕捉します。
+    /// 探索と同じ所持集合の行（パスとMD5を持つ行）から、所持譜面を直下に持つフォルダを一回の走査で集め、大文字小文字を無視して重複を除きます。
+    /// 確認の開始時に一回だけ、UIスレッド外で呼びます。読取りのロックは既存の読取り（通常一覧の捕捉）と同じ順で、行の複製の間だけ保持し、ファイルを読みません。
+    /// </summary>
+    internal HashSet<string> CaptureAudioDuplicateTargetFolders()
+    {
+        OwnedDuplicateChartRowSnapshot rowSnapshot;
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                rowSnapshot = CreateOwnedDuplicateChartRowSnapshotUnsafe();
+            }
+        }
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (DuplicateChartRow row in rowSnapshot.Rows)
+        {
+            if (!string.IsNullOrWhiteSpace(row.DirectoryPath))
+            {
+                folders.Add(row.DirectoryPath);
+            }
+        }
+        return folders;
+    }
+
+    /// <summary>
     /// 重複音源の結果を失効させ、直前まで結果があった場合だけ変更を非同期に一回通知します。
     /// 重複検索の結果の有無と通知の抑止には従いません。基底は保持します。
     /// </summary>
@@ -246,7 +272,7 @@ public partial class BMSLibrary
     /// </remarks>
     /// <param name="request">処理するフォルダ。順序が処理順です。</param>
     /// <param name="operationId">診断識別子。</param>
-    /// <param name="notices">この操作の案内を集める入れ物。管理出力の保護を取れない案内だけを加えます。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。カタログが収束していない場合の警告と、管理出力の保護を取れない案内を加えます。</param>
     /// <param name="progress">取消の確認の後、フォルダの開始ごとに同期で呼ぶ進捗の受け手。省略できます。待たずに戻る前提で、例外は結果を変えません。</param>
     /// <param name="cancellationToken">取消の合図。フォルダの開始前にだけ効きます。</param>
     /// <param name="capability">同じ受付の生存権限。省略時は新規の非待機受付を取得し、結果の更新・後片付けまで保持します。</param>

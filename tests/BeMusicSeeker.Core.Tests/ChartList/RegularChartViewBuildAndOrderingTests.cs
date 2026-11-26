@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
@@ -1107,6 +1108,99 @@ public sealed class RegularChartViewBuildAndOrderingTests
             Assert.IsNull(library.DuplicateChartGroups, "重複検索の結果は使わない");
 
             RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.SplitPlacementFilterSelected);
+            request.Library = library;
+            request.IncludeBmsonRows = false;
+            request.TreeParameter = context;
+            request.Stopwatch = Stopwatch.StartNew();
+            RegularChartListEntryResult result = owner.ApplyRegularView(request);
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
+            string[] actual = [.. table.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Title)];
+            string[] wanted = expected.Length == 0 ? [] : expected.Split('|');
+            CollectionAssert.AreEquivalent(wanted, actual);
+        });
+    }
+
+    /// <summary>
+    /// 重複音源の一覧（<c>AudioDuplicateFilterSelected</c>）が、実際の探索の結果から、ルートは全重複音源フォルダの譜面、グループ・フォルダはそのフォルダ直下の譜面だけを表示し、
+    /// 結果にないフォルダ（同名のWAVとOGGがないフォルダ）の譜面と、結果がない場合・解決できないグループは例外なしの空の一覧になることを確認します。
+    /// フォルダの文脈は、重複・分裂配置の「そのパス配下の譜面」と違い、そのフォルダに完全一致（大文字小文字と末尾の区切りの違いを無視）する結果のフォルダの直下の譜面です。
+    /// 入れ子の重複音源フォルダ（<c>A</c> と <c>A\sub</c> が別々の結果）では、各フォルダノードは自分の直下の譜面だけで、同じフォルダのグループノードと一致します。
+    /// 捕捉したフォルダが結果になく、配下のフォルダ（<c>D\sub</c>）だけが結果にある場合は空です。
+    /// 検出する誤り：未解決の全件への拡大、重複・分裂配置の結果の読取り、結果にない譜面の混入、結果がないときの全件表示、
+    /// フォルダの文脈の前方一致による配下の別の結果のフォルダの譜面の混入（グループノードとの食い違い）、結果にないフォルダから配下の結果への拡大。
+    /// </summary>
+    [TestMethod]
+    [DataRow("root", "a|s|b|b2|ds")]
+    [DataRow("group", "a")]
+    [DataRow("folder", "b|b2")]
+    [DataRow("folderNestedParent", "a")]
+    [DataRow("folderNestedParentByCaseAndTrailingSeparator", "a")]
+    [DataRow("folderNestedChild", "s")]
+    [DataRow("groupNestedChild", "s")]
+    [DataRow("folderOutsideResult", "")]
+    [DataRow("folderOutsideResultWithSubfolderInResult", "")]
+    [DataRow("groupOutsideResult", "")]
+    [DataRow("rootWithoutResult", "")]
+    [DataRow("groupWithoutResult", "")]
+    public void RegularEntry_SelectsAudioDuplicateSubsetFromSearchResult(string selection, string expected)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(songDbPath =>
+        {
+            using var workspace = BeMusicSeeker.TestSupport.Files.TestWorkspace.Create(BeMusicSeeker.TestSupport.Files.TestRunDirectory.RootDirectory);
+            string root = System.IO.Path.Combine(workspace.RootDirectory, "BMS");
+            foreach (string folder in new[] { "A", @"A\sub", "B", "C", "D", @"D\sub" })
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, folder));
+            }
+            foreach (string folder in new[] { "A", @"A\sub", "B", @"D\sub" })
+            {
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(root, folder, "x.wav"), []);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(root, folder, "x.ogg"), []);
+            }
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            ChartFile[] bms =
+            [
+                SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "A", "a.bms"), 1, "a"), SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "B", "b.bms"), 2, "b"),
+                SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "B", "b2.bms"), 5, "b2"), SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "C", "c.bms"), 3, "c"),
+                SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "A", "sub", "s.bms"), 6, "s"), SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "D", "d.bms"), 7, "d"),
+                SplitPlacementTestSupport.Chart(System.IO.Path.Combine(root, "D", "sub", "ds.bms"), 8, "ds")
+            ];
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new BmsLibraryDuplicateServiceTestSupport.TestFileMutationService(),
+                new BmsLibraryDuplicateServiceTestSupport.RecordingDialogService(), new TestUiScheduler(() => null), optionsSnapshotProvider: null,
+                settings: TestBmsFactory.CreateRootSettings([root]), rootFileEnumerator: new FastRootFileEnumerator())
+            { BmsCharts = bms, BmsonCharts = [] };
+            if (!selection.EndsWith("WithoutResult", StringComparison.Ordinal)) { library.SearchAudioDuplicateFolders(null, CancellationToken.None); }
+            DuplicateGroup? GroupOf(string folder)
+                => library.AudioDuplicateFolders?.Select(result => result.Group).SingleOrDefault(group => group.Folders.Contains(System.IO.Path.Combine(root, folder)));
+            DuplicateGroup? first = GroupOf("A");
+            DuplicateViewContext context = selection switch
+            {
+                "root" or "rootWithoutResult" => DuplicateViewContext.ForRoot(),
+                "group" or "groupWithoutResult" => DuplicateViewContext.CaptureGroup(first ?? new DuplicateGroup([], [System.IO.Path.Combine(root, "A")])),
+                "folder" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "B")),
+                "folderNestedParent" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "A")),
+                "folderNestedParentByCaseAndTrailingSeparator" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "A").ToLowerInvariant() + System.IO.Path.DirectorySeparatorChar),
+                "folderNestedChild" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "A", "sub")),
+                "groupNestedChild" => DuplicateViewContext.CaptureGroup(GroupOf(@"A\sub")!),
+                "folderOutsideResult" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "C")),
+                "folderOutsideResultWithSubfolderInResult" => DuplicateViewContext.ForFolder(System.IO.Path.Combine(root, "D")),
+                _ => DuplicateViewContext.ForGroup(System.IO.Path.Combine(root, "C"))
+            };
+            if (!selection.EndsWith("WithoutResult", StringComparison.Ordinal))
+            {
+                CollectionAssert.AreEquivalent(
+                    new[] { "A", @"A\sub", "B", @"D\sub" }.Select(folder => System.IO.Path.Combine(root, folder)).ToArray(),
+                    library.AudioDuplicateFolders!.Select(result => result.Folder).ToArray(),
+                    "探索の結果は四フォルダ（入れ子の A と A\\sub は別々の結果、D は結果になく D\\sub だけが結果）");
+            }
+            Assert.IsNull(library.DuplicateChartGroups, "重複検索の結果は使わない");
+            Assert.IsNull(library.SplitPlacementGroups, "分裂配置の結果は使わない");
+
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.AudioDuplicateFilterSelected);
             request.Library = library;
             request.IncludeBmsonRows = false;
             request.TreeParameter = context;

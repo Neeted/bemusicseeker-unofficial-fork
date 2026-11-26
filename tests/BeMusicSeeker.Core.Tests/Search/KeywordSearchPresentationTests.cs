@@ -53,6 +53,33 @@ public sealed class KeywordSearchPresentationTests
         }
     }
 
+    /// <summary>
+    /// 整理候補一覧の検索欄は統合候補一覧と同じ5項目を持ち、<c>status:</c> の入力候補はこの一覧の語（段階・WAV/OGG非同等・リンク・解析不能）だけで、
+    /// 統合候補一覧の理由の語を出さないことを確認します。統合候補一覧の語の混入と、この一覧の語の欠落を検出します。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateCandidateAssistance_ExposesOnlyItsOwnStatusValues()
+    {
+        KeywordSearchAssistanceOwner assistance = new(null, GridKeywordSearchContext.AudioDuplicateCandidate);
+
+        CollectionAssert.AreEquivalent(new[] { "path:", "folder:", "title:", "artist:", "status:" },
+            assistance.Focus(string.Empty, 0).VisibleItems.Select(item => item.DisplayText).ToArray());
+        string[] values = assistance.Refresh("status:", "status:".Length).VisibleItems.Select(item => item.DisplayText).ToArray();
+
+        CollectionAssert.AreEqual(new[]
+        {
+            Resources.Duplicate_merge_candidate_status_unverified,
+            Resources.Duplicate_merge_candidate_status_safe,
+            Resources.Duplicate_merge_candidate_status_caution,
+            Resources.Audio_duplicate_candidate_status_unorganizable,
+            Resources.Audio_duplicate_candidate_reason_non_equivalent,
+            Resources.Audio_duplicate_candidate_reason_link,
+            Resources.Audio_duplicate_candidate_reason_unreadable,
+        }, values);
+        CollectionAssert.DoesNotContain(values, Resources.Duplicate_merge_candidate_reason_registered_root);
+        CollectionAssert.DoesNotContain(values, Resources.Duplicate_merge_candidate_status_unmergeable);
+    }
+
     /// <summary>統合候補一覧用の項目診断と共通の構文警告を確認し、他の画面で使える項目を受理済みと扱う誤りを検出します。</summary>
     [TestMethod]
     public void CandidateListAssistance_UsesCandidateFieldsForDiagnostics()

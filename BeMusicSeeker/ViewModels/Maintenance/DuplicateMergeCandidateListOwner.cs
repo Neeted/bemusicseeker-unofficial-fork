@@ -44,7 +44,7 @@ internal sealed class DuplicateMergeCandidateListPreparation
 /// 新しいインスタンスと、登録範囲のフォルダの集合が変わったグループは初期値になり、消えたグループの状態は採用時に破棄します。永続化しません。
 /// 並べ替え・検索・除外・SELECT・KEEPの操作は、構築済みの値だけを使い、TITLE・ARTISTの解決を呼びません。
 /// </remarks>
-public sealed class DuplicateMergeCandidateListOwner : ViewModel
+public sealed class DuplicateMergeCandidateListOwner : ViewModel, ICandidateListSearchSurface
 {
     private const GridKeywordSearchContext SearchContext = GridKeywordSearchContext.DuplicateMergeCandidate;
 
@@ -174,6 +174,12 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 
     /// <summary>除外欄の構文警告です。空なら警告を表示しません。</summary>
     public string ExcludeWarningText => KeywordSearchPresentationText.BuildWarningText(excludeQuery, SearchContext);
+
+    /// <inheritdoc />
+    KeywordSearchAssistanceOwner ICandidateListSearchSurface.SearchAssistance => SearchAssistance;
+
+    /// <inheritdoc />
+    KeywordSearchAssistanceOwner ICandidateListSearchSurface.ExcludeAssistance => ExcludeAssistance;
 
     /// <summary>検索欄独自の補完状態です。保存式の管理主体は接続しません。</summary>
     internal KeywordSearchAssistanceOwner SearchAssistance { get; } = new(null, SearchContext);

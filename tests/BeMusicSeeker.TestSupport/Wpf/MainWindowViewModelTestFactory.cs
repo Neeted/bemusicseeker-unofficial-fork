@@ -55,7 +55,8 @@ internal static class MainWindowViewModelTestFactory
     /// <summary>独立fixture、または既存実画面と同じcompositionのL/Pでライブラリを作成します。</summary>
     /// <param name="databaseScope">実Attach先のcomposition、または独立fixtureが共有するDB所有者。</param>
     /// <param name="owner">実Attach先の画面。省略時は独立fixtureです。</param>
-    internal static TestBmsLibrary CreateLibrary(ApplicationDatabaseScope databaseScope, string songDbPath, Settings settings, MainWindowViewModel? owner = null)
+    internal static TestBmsLibrary CreateLibrary(ApplicationDatabaseScope databaseScope, string songDbPath, Settings settings, MainWindowViewModel? owner = null,
+        BeMusicSeeker.Models.Utils.IRootFileEnumerator? rootFileEnumerator = null)
     {
         ApplicationComposition? composition = owner == null ? null : GetComposition(owner);
         return new TestBmsLibrary(
@@ -69,7 +70,8 @@ internal static class MainWindowViewModelTestFactory
             operationAdmission: composition?.OperationAdmission,
             playlistOperationAdmission: composition?.PlaylistOperationAdmission,
             settings: settings,
-            bmsRootRegistrations: composition?.BmsRootRegistrations);
+            bmsRootRegistrations: composition?.BmsRootRegistrations,
+            rootFileEnumerator: rootFileEnumerator);
     }
 
     /// <summary>実画面が既に所有する構成をfixture入力の接続にだけ使い、別ownerを作りません。</summary>

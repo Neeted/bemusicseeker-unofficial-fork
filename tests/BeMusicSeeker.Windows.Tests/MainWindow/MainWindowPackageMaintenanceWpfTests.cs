@@ -2835,7 +2835,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
         OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null,
         int fillerGroups = 0, int largeGroupFolders = 0, bool uniqueChartNames = false,
-        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
+        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null,
+        IRootFileEnumerator? rootFileEnumerator = null)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string directory = Path.Combine(migrationWorkspace.RootDirectory, "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
@@ -2919,7 +2920,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                         optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                         operationAdmission: composition.OperationAdmission,
-                        playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                        playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings, rootFileEnumerator: rootFileEnumerator)
                     { BmsCharts = charts };
                     library.SearchDuplicateChartGroups();
                     Assert.AreEqual(2 + fillerGroups + (largeGroupFolders > 0 ? 1 : 0), library.DuplicateChartGroups.Count);

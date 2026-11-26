@@ -4589,4 +4589,97 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Split_placement_research" xml:space="preserve">
     <value>再探索</value>
   </data>
+  <data name="Search_audio_duplicate" xml:space="preserve">
+    <value>重複音源チェック</value>
+  </data>
+  <data name="Audio_duplicate_candidate_list" xml:space="preserve">
+    <value>整理候補一覧</value>
+  </data>
+  <data name="Audio_duplicate_candidate_summary" xml:space="preserve">
+    <value>表示中 {0} フォルダ／選択 {1} フォルダ</value>
+  </data>
+  <data name="Audio_duplicate_candidate_status_unorganizable" xml:space="preserve">
+    <value>整理不可</value>
+  </data>
+  <data name="Audio_duplicate_candidate_reason_link" xml:space="preserve">
+    <value>リンク</value>
+  </data>
+  <data name="Audio_duplicate_candidate_reason_unreadable" xml:space="preserve">
+    <value>解析不能</value>
+  </data>
+  <data name="Audio_duplicate_candidate_reason_non_equivalent" xml:space="preserve">
+    <value>WAV/OGG非同等</value>
+  </data>
+  <data name="Audio_duplicate_candidate_non_equivalent_description" xml:space="preserve">
+    <value>同等と判定されていない同名のWAVとOGGがあります。</value>
+  </data>
+  <data name="Audio_duplicate_candidate_verify_selected" xml:space="preserve">
+    <value>選択フォルダを確認</value>
+  </data>
+  <data name="Audio_duplicate_candidate_verify_folder" xml:space="preserve">
+    <value>このフォルダを確認</value>
+  </data>
+  <data name="Audio_duplicate_organize_selected" xml:space="preserve">
+    <value>選択フォルダを整理</value>
+  </data>
+  <data name="Audio_duplicate_verify_progress_title" xml:space="preserve">
+    <value>重複音源を確認中</value>
+  </data>
+  <data name="Audio_duplicate_verify_progress_label" xml:space="preserve">
+    <value>フォルダごとに、同名のWAVとOGGを確認しています。</value>
+  </data>
+  <data name="Audio_duplicate_verify_result_format" xml:space="preserve">
+    <value>{0}フォルダを確認しました。安全 {1}／要注意 {2}／整理不可 {3}。</value>
+  </data>
+  <data name="Audio_duplicate_verify_result_cancelled_format" xml:space="preserve">
+    <value>{0}フォルダを確認しました。安全 {1}／要注意 {2}／整理不可 {3}／未確認 {4}。</value>
+  </data>
+  <data name="Audio_duplicate_search_progress_title" xml:space="preserve">
+    <value>重複音源を探索中</value>
+  </data>
+  <data name="Audio_duplicate_search_progress_label" xml:space="preserve">
+    <value>同名のWAVとOGGがあるフォルダを探しています。</value>
+  </data>
+  <data name="Audio_duplicate_search_progress_enumerate" xml:space="preserve">
+    <value>音源を列挙中</value>
+  </data>
+  <data name="Audio_duplicate_search_progress_aggregate" xml:space="preserve">
+    <value>フォルダへ集計中</value>
+  </data>
+  <data name="Audio_duplicate_organize_title" xml:space="preserve">
+    <value>重複音源の整理</value>
+  </data>
+  <data name="Audio_duplicate_organize_progress_label" xml:space="preserve">
+    <value>選択したフォルダを整理しています。</value>
+  </data>
+  <data name="Audio_duplicate_organize_unverified_notice" xml:space="preserve">
+    <value>未確認のフォルダが選択されています。先に確認を行ってください。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_pairs_format" xml:space="preserve">
+    <value>{0}フォルダにある、同名のWAVとOGG {1}組を整理します。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_keep_ogg" xml:space="preserve">
+    <value>OGGを残し、WAVをごみ箱へ送ります。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_keep_wav" xml:space="preserve">
+    <value>WAVを残し、OGGをごみ箱へ送ります。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_caution_format" xml:space="preserve">
+    <value>要注意 {0}フォルダを含みます。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_non_equivalent_format" xml:space="preserve">
+    <value>{0}フォルダは、同等と判定されていない同名のWAVとOGGも、一方だけを残します。</value>
+  </data>
+  <data name="Audio_duplicate_organize_acknowledgment" xml:space="preserve">
+    <value>要注意フォルダの整理を続行する</value>
+  </data>
+  <data name="Audio_duplicate_organize_result_format" xml:space="preserve">
+    <value>{0}フォルダを整理しました。完了 {1}／一部完了 {2}／スキップ {3}／未処理 {4}。</value>
+  </data>
+  <data name="Audio_duplicate_organize_result_trashed_format" xml:space="preserve">
+    <value>WAV・OGGの音源 {0}件をごみ箱へ送りました。</value>
+  </data>
+  <data name="Audio_duplicate_organize_result_more_format" xml:space="preserve">
+    <value>ほか{0}フォルダはログを確認してください。</value>
+  </data>
 </root>

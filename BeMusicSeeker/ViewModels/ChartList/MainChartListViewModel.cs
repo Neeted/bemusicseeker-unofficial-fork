@@ -219,6 +219,7 @@ public sealed class MainChartListViewModel : ViewModel
                 break;
             case MainViewUpdateMode.DuplicateFilterSelected:
             case MainViewUpdateMode.SplitPlacementFilterSelected:
+            case MainViewUpdateMode.AudioDuplicateFilterSelected:
                 caseLabel = "duplicate";
                 columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.DUPLICATE, isInit);
                 break;
@@ -302,7 +303,7 @@ public sealed class MainChartListViewModel : ViewModel
             MainViewUpdateMode.ZeroNoteFilterSelected => CustomTableColumnSettings.ViewKind.ZERO_NOTE,
             MainViewUpdateMode.ChartInfoParseErrorFilterSelected => CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR,
             MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected or MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.NewlyInstalledFolderSelected => CustomTableColumnSettings.ViewKind.FULLSCAN,
-            MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected => CustomTableColumnSettings.ViewKind.DUPLICATE,
+            MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected or MainViewUpdateMode.AudioDuplicateFilterSelected => CustomTableColumnSettings.ViewKind.DUPLICATE,
             MainViewUpdateMode.GarbledFilterSelected or MainViewUpdateMode.GarbleFixedFilterSelected => CustomTableColumnSettings.ViewKind.ENCODING,
             MainViewUpdateMode.PendingInstallFolderSelected => CustomTableColumnSettings.ViewKind.INSTALL,
             MainViewUpdateMode.PlayHistorySelected => CustomTableColumnSettings.ViewKind.PLAY_HISTORY,
@@ -320,6 +321,7 @@ public sealed class MainChartListViewModel : ViewModel
             or MainViewUpdateMode.NewlyInstalledFolderSelected
             or MainViewUpdateMode.DuplicateFilterSelected
             or MainViewUpdateMode.SplitPlacementFilterSelected
+            or MainViewUpdateMode.AudioDuplicateFilterSelected
             or MainViewUpdateMode.GarbledFilterSelected
             or MainViewUpdateMode.GarbleFixedFilterSelected
             or MainViewUpdateMode.PendingInstallFolderSelected

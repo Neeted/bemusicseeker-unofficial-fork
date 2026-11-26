@@ -818,6 +818,10 @@ internal sealed class MainWindowChildComposition
             LongPathFileSystem.DirectoryExists,
             path => externalShellGateway.OpenDirectory(path),
             duplicateMergeOverwriteSettingsProvider);
+        // 重複音源の整理候補一覧は、統合候補一覧とは別の型で、状態を独立に持つ。
+        AudioDuplicateCandidateList = new AudioDuplicateCandidateListOwner(
+            LongPathFileSystem.DirectoryExists,
+            path => externalShellGateway.OpenDirectory(path));
         PlayHistory = new PlayHistoryWorkflowOwner();
         // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
         Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
@@ -851,7 +855,8 @@ internal sealed class MainWindowChildComposition
             dialogService)
         {
             DuplicateCandidateList = DuplicateMergeCandidateList,
-            SplitPlacementCandidateList = SplitPlacementMergeCandidateList
+            SplitPlacementCandidateList = SplitPlacementMergeCandidateList,
+            AudioDuplicateCandidateList = AudioDuplicateCandidateList
         };
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             dialogService,
@@ -953,6 +958,32 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             dialogService,
             context => RegularChartListOwner.NavigateMaintenanceAsync(MainViewUpdateMode.SplitPlacementFilterSelected, context));
+        AudioDuplicateSearch = new AudioDuplicateSearchWorkflowOwner(
+            duplicateMaintenanceLibraryProvider,
+            chartFileOperations,
+            dialogService,
+            context => RegularChartListOwner.NavigateMaintenanceAsync(MainViewUpdateMode.AudioDuplicateFilterSelected, context));
+        // 確認の開始時に、その時点の所持集合から、配下の別の対象フォルダの判定を一回だけ捕捉する（所持集合は、所持譜面を直下に持つフォルダの集合）。
+        Func<string, bool> CaptureAudioDuplicateTargetFolderPredicate()
+        {
+            BMSLibrary library = duplicateMaintenanceLibraryProvider()
+                ?? throw new InvalidOperationException("The library is not available for audio duplicate verification.");
+            return AudioDuplicateInspectionRequest.CreateTargetFolderPredicate(
+                library.CaptureAudioDuplicateTargetFolders());
+        }
+        AudioDuplicateVerification = new AudioDuplicateVerificationWorkflowOwner(
+            AudioDuplicateCandidateList,
+            () => new AudioDuplicateFolderInspector(),
+            CaptureAudioDuplicateTargetFolderPredicate,
+            chartFileOperations,
+            dialogService);
+        AudioDuplicateOrganize = new AudioDuplicateOrganizeWorkflowOwner(
+            AudioDuplicateCandidateList,
+            duplicateMaintenanceLibraryProvider,
+            chartFileOperations,
+            ChartMutationActivity,
+            PlaybackPanel,
+            dialogService);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
@@ -1009,6 +1040,9 @@ internal sealed class MainWindowChildComposition
     /// <summary>分裂配置の統合候補一覧の状態と判断を持つ管理主体です。重複の一覧とは独立で、分裂配置ツリーの先頭のノードで選ぶ画面が表示します。</summary>
     internal DuplicateMergeCandidateListOwner SplitPlacementMergeCandidateList { get; }
 
+    /// <summary>重複音源の整理候補一覧の状態と判断を持つ管理主体です。重複音源ツリーの先頭のノードで選ぶ画面が表示します。</summary>
+    internal AudioDuplicateCandidateListOwner AudioDuplicateCandidateList { get; }
+
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 
     internal PendingPackageWorkflowOwner PendingPackageWorkflow { get; }
@@ -1041,6 +1075,15 @@ internal sealed class MainWindowChildComposition
 
     /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
     internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; }
+
+    /// <summary>重複音源のツリーを選んだときの探索の手順を管理します。</summary>
+    internal AudioDuplicateSearchWorkflowOwner AudioDuplicateSearch { get; }
+
+    /// <summary>整理候補一覧の確認の手順を管理します。</summary>
+    internal AudioDuplicateVerificationWorkflowOwner AudioDuplicateVerification { get; }
+
+    /// <summary>整理候補一覧からの整理の手順を管理します。</summary>
+    internal AudioDuplicateOrganizeWorkflowOwner AudioDuplicateOrganize { get; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 

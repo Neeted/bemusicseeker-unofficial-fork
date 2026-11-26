@@ -23,7 +23,9 @@ public enum GridKeywordSearchContext
     /// <summary>Play history scope.</summary>
     PlayHistory,
     /// <summary>重複と分裂配置が共用する統合候補一覧の検索範囲です。</summary>
-    DuplicateMergeCandidate
+    DuplicateMergeCandidate,
+    /// <summary>重複音源の整理候補一覧の検索範囲です。項目は統合候補一覧と同じで、STATUSの補完候補だけが異なります。</summary>
+    AudioDuplicateCandidate
 }
 
 internal enum GridKeywordSearchDiagnosticKind
@@ -103,7 +105,7 @@ internal sealed class GridKeywordSearchQuery
             GridKeywordSearchContext.PlaylistDetail => PlaylistDetailFields,
             GridKeywordSearchContext.PlaylistSummary => PlaylistSummaryFields,
             GridKeywordSearchContext.PlayHistory => PlayHistoryFields,
-            GridKeywordSearchContext.DuplicateMergeCandidate => DuplicateMergeCandidateFields,
+            GridKeywordSearchContext.DuplicateMergeCandidate or GridKeywordSearchContext.AudioDuplicateCandidate => DuplicateMergeCandidateFields,
             _ => ChartListFields,
         };
     }

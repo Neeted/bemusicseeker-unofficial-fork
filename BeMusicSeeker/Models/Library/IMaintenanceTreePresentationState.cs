@@ -24,6 +24,11 @@ internal interface IMaintenanceTreePresentationState : INotifyPropertyChanged
     List<DuplicateGroup> SplitPlacementGroups { get; }
 
     /// <summary>
+    /// 重複音源の現在の結果です。結果がない状態は <see langword="null"/>、0件は空の一覧です。変更は <c>AudioDuplicateFolders</c> の通知で届きます。
+    /// </summary>
+    List<AudioDuplicateFolder> AudioDuplicateFolders { get; }
+
+    /// <summary>
     /// Gets whether health-status initialization currently holds its write lock.
     /// </summary>
     bool IsWriteLockHeldInitializdBMSFilesHealthStatus { get; }

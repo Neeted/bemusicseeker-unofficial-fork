@@ -22,7 +22,7 @@ internal sealed partial class LibraryMutationOwner
     /// </remarks>
     /// <param name="request">処理するフォルダ。順序が処理順です。</param>
     /// <param name="operationId">診断識別子。</param>
-    /// <param name="notices">この操作の案内を集める入れ物。管理出力の保護を取れない案内だけを加え、呼出元が受付の解放後に表示します。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。カタログが収束していない場合の警告と、管理出力の保護を取れない案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="progress">取消の確認の後、フォルダの開始ごとに同期で呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。モデルのロックは保持しません。</param>
     /// <param name="cancellationToken">取消の合図。フォルダの開始前にだけ確認し、処理中のフォルダは最後まで進めます。</param>
     /// <param name="publishResult">

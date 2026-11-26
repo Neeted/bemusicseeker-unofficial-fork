@@ -3610,4 +3610,66 @@ public class Resources
     public static string Split_placement_criteria_basis_both => ResourceManager.GetString("Split_placement_criteria_basis_both", resourceCulture);
     /// <summary>分裂配置の探索条件の行で、入力中の探索条件で探索し直すボタンの文言です。</summary>
     public static string Split_placement_research => ResourceManager.GetString("Split_placement_research", resourceCulture);
+    /// <summary>メンテナンスのツリーで、同じフォルダ内の同名のWAVとOGGを探索するルートの見出しです。</summary>
+    public static string Search_audio_duplicate => ResourceManager.GetString("Search_audio_duplicate", resourceCulture);
+    /// <summary>重複音源チェックの整理候補一覧のノードと表の名前です。</summary>
+    public static string Audio_duplicate_candidate_list => ResourceManager.GetString("Audio_duplicate_candidate_list", resourceCulture);
+    /// <summary>整理候補一覧の件数表示の書式です。{0}は表示中のフォルダ数、{1}は選択中のフォルダ数です。</summary>
+    public static string Audio_duplicate_candidate_summary => ResourceManager.GetString("Audio_duplicate_candidate_summary", resourceCulture);
+    /// <summary>整理候補一覧のSTATUS列で、整理できないフォルダの段階名です。</summary>
+    public static string Audio_duplicate_candidate_status_unorganizable => ResourceManager.GetString("Audio_duplicate_candidate_status_unorganizable", resourceCulture);
+    /// <summary>整理候補一覧のSTATUS列で、リンクがあるため整理できない理由の語です。</summary>
+    public static string Audio_duplicate_candidate_reason_link => ResourceManager.GetString("Audio_duplicate_candidate_reason_link", resourceCulture);
+    /// <summary>整理候補一覧のSTATUS列で、確認できなかったため整理できない理由の語です。</summary>
+    public static string Audio_duplicate_candidate_reason_unreadable => ResourceManager.GetString("Audio_duplicate_candidate_reason_unreadable", resourceCulture);
+    /// <summary>整理候補一覧のSTATUS列で、同等と判定されていない同名のWAVとOGGがあることを示す語です。</summary>
+    public static string Audio_duplicate_candidate_reason_non_equivalent => ResourceManager.GetString("Audio_duplicate_candidate_reason_non_equivalent", resourceCulture);
+    /// <summary>整理候補一覧のSTATUSのツールチップで、同等と判定されていない衝突名の見出しです。</summary>
+    public static string Audio_duplicate_candidate_non_equivalent_description => ResourceManager.GetString("Audio_duplicate_candidate_non_equivalent_description", resourceCulture);
+    /// <summary>整理候補一覧のツールバーで、選択したフォルダを確認するボタンの文言です。</summary>
+    public static string Audio_duplicate_candidate_verify_selected => ResourceManager.GetString("Audio_duplicate_candidate_verify_selected", resourceCulture);
+    /// <summary>整理候補一覧の右クリックメニューで、選択行のフォルダを確認する項目の文言です。</summary>
+    public static string Audio_duplicate_candidate_verify_folder => ResourceManager.GetString("Audio_duplicate_candidate_verify_folder", resourceCulture);
+    /// <summary>整理候補一覧のツールバーで、選択したフォルダを整理するボタンの文言です。</summary>
+    public static string Audio_duplicate_organize_selected => ResourceManager.GetString("Audio_duplicate_organize_selected", resourceCulture);
+    /// <summary>整理候補一覧の確認の進捗画面の見出しです。</summary>
+    public static string Audio_duplicate_verify_progress_title => ResourceManager.GetString("Audio_duplicate_verify_progress_title", resourceCulture);
+    /// <summary>整理候補一覧の確認の進捗画面の説明です。</summary>
+    public static string Audio_duplicate_verify_progress_label => ResourceManager.GetString("Audio_duplicate_verify_progress_label", resourceCulture);
+    /// <summary>整理候補一覧の確認の結果の案内の書式です。{0}は確認したフォルダ数、{1}は安全、{2}は要注意、{3}は整理不可の数です。</summary>
+    public static string Audio_duplicate_verify_result_format => ResourceManager.GetString("Audio_duplicate_verify_result_format", resourceCulture);
+    /// <summary>整理候補一覧の確認を取り消したときの結果の案内の書式です。{4}は着手しなかったフォルダ数です。</summary>
+    public static string Audio_duplicate_verify_result_cancelled_format => ResourceManager.GetString("Audio_duplicate_verify_result_cancelled_format", resourceCulture);
+    /// <summary>重複音源の探索の進捗画面の見出しです。</summary>
+    public static string Audio_duplicate_search_progress_title => ResourceManager.GetString("Audio_duplicate_search_progress_title", resourceCulture);
+    /// <summary>重複音源の探索の進捗画面の説明です。</summary>
+    public static string Audio_duplicate_search_progress_label => ResourceManager.GetString("Audio_duplicate_search_progress_label", resourceCulture);
+    /// <summary>重複音源の探索の進捗で、音源を列挙している段階の文言です。</summary>
+    public static string Audio_duplicate_search_progress_enumerate => ResourceManager.GetString("Audio_duplicate_search_progress_enumerate", resourceCulture);
+    /// <summary>重複音源の探索の進捗で、フォルダへ集計している段階の文言です。</summary>
+    public static string Audio_duplicate_search_progress_aggregate => ResourceManager.GetString("Audio_duplicate_search_progress_aggregate", resourceCulture);
+    /// <summary>整理候補一覧からの整理の進捗画面と結果の案内の見出しです。</summary>
+    public static string Audio_duplicate_organize_title => ResourceManager.GetString("Audio_duplicate_organize_title", resourceCulture);
+    /// <summary>整理候補一覧からの整理の進捗画面の説明です。</summary>
+    public static string Audio_duplicate_organize_progress_label => ResourceManager.GetString("Audio_duplicate_organize_progress_label", resourceCulture);
+    /// <summary>整理候補一覧で、未確認のフォルダが選択されたまま整理しようとしたときの案内です。</summary>
+    public static string Audio_duplicate_organize_unverified_notice => ResourceManager.GetString("Audio_duplicate_organize_unverified_notice", resourceCulture);
+    /// <summary>整理の確認文の1行目の書式です。{0}はフォルダ数、{1}は対象の同名のWAVとOGGの組の合計です。</summary>
+    public static string Audio_duplicate_organize_confirm_pairs_format => ResourceManager.GetString("Audio_duplicate_organize_confirm_pairs_format", resourceCulture);
+    /// <summary>整理の確認文で、OGGを残してWAVをごみ箱へ送ることを示す行です。</summary>
+    public static string Audio_duplicate_organize_confirm_keep_ogg => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_ogg", resourceCulture);
+    /// <summary>整理の確認文で、WAVを残してOGGをごみ箱へ送ることを示す行です。</summary>
+    public static string Audio_duplicate_organize_confirm_keep_wav => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_wav", resourceCulture);
+    /// <summary>整理の確認文の警告用の本文で、要注意のフォルダを含むことを示す行の書式です。{0}は要注意のフォルダ数です。</summary>
+    public static string Audio_duplicate_organize_confirm_caution_format => ResourceManager.GetString("Audio_duplicate_organize_confirm_caution_format", resourceCulture);
+    /// <summary>整理の確認文の警告用の本文で、同等と判定されていない組も一方だけが残ることを示す行の書式です。{0}は要注意のフォルダ数です。</summary>
+    public static string Audio_duplicate_organize_confirm_non_equivalent_format => ResourceManager.GetString("Audio_duplicate_organize_confirm_non_equivalent_format", resourceCulture);
+    /// <summary>整理の確認ダイアログで、要注意のフォルダの整理を続行する意思を示すチェックの文言です。</summary>
+    public static string Audio_duplicate_organize_acknowledgment => ResourceManager.GetString("Audio_duplicate_organize_acknowledgment", resourceCulture);
+    /// <summary>整理候補一覧からの整理の結果の案内の1行目の書式です。{0}は対象のフォルダ数、{1}以降は完了・一部完了・スキップ・未処理の数です。</summary>
+    public static string Audio_duplicate_organize_result_format => ResourceManager.GetString("Audio_duplicate_organize_result_format", resourceCulture);
+    /// <summary>整理候補一覧からの整理の結果の案内で、ごみ箱へ送った音源の合計の書式です。{0}は件数です。</summary>
+    public static string Audio_duplicate_organize_result_trashed_format => ResourceManager.GetString("Audio_duplicate_organize_result_trashed_format", resourceCulture);
+    /// <summary>整理候補一覧からの整理の結果の案内で、詳細を省略したフォルダ数の書式です。{0}は省略した数です。</summary>
+    public static string Audio_duplicate_organize_result_more_format => ResourceManager.GetString("Audio_duplicate_organize_result_more_format", resourceCulture);
 }

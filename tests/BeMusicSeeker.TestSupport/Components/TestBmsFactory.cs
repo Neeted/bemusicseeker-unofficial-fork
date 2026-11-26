@@ -236,11 +236,11 @@ internal sealed class TestBmsLibrary : BMSLibrary, IDuplicateMergeCandidateListS
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
-        Settings settings = null, BmsRootRegistrationStore bmsRootRegistrations = null)
+        Settings settings = null, BmsRootRegistrationStore bmsRootRegistrations = null, IRootFileEnumerator rootFileEnumerator = null)
         : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, null, new UnexpectedBmsLibraryDialogService(), startupRequiredFileScanReason, optionsSnapshotProvider,
             TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge,
             bmsRootRegistrations ?? new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
-            operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
+            rootFileEnumerator: rootFileEnumerator, operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;

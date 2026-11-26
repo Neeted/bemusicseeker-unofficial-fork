@@ -29,6 +29,7 @@ public partial class MainWindow
         AutomationProperties.SetAutomationId(duplicateCandidateExcludeEditor.InputTextBoxControl, "DuplicateCandidateExclude");
         viewModel.DuplicateMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
         viewModel.SplitPlacementMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
+        ConnectAudioDuplicateCandidateList(viewModel);
     }
 
     /// <summary>共用の表は、表示中の一覧の変更だけを再描画します。</summary>
@@ -38,10 +39,10 @@ public partial class MainWindow
     }
 
     private void DuplicateCandidateSearchEditorDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-        => ((KeywordSearchEditor)sender).Configure((e.NewValue as DuplicateMergeCandidateListOwner)?.SearchAssistance);
+        => ((KeywordSearchEditor)sender).Configure((e.NewValue as ICandidateListSearchSurface)?.SearchAssistance);
 
     private void DuplicateCandidateExcludeEditorDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-        => ((KeywordSearchEditor)sender).Configure((e.NewValue as DuplicateMergeCandidateListOwner)?.ExcludeAssistance);
+        => ((KeywordSearchEditor)sender).Configure((e.NewValue as ICandidateListSearchSurface)?.ExcludeAssistance);
 
     private void DuplicateCandidateSearchClearMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {

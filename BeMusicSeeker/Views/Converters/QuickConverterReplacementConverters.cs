@@ -260,6 +260,25 @@ internal sealed class duplicateMergeCandidateSummaryConverter : IMultiValueConve
     }
 }
 
+/// <summary>整理候補一覧の件数表示を、現在の表示言語の書式で整形します。第一の値は言語変更で再評価するための現在の資源（値は使用しません）です。</summary>
+internal sealed class audioDuplicateCandidateSummaryConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length != 3 || values[1] is not int visibleFolders || values[2] is not int selectedFolders)
+        {
+            return DependencyProperty.UnsetValue;
+        }
+
+        return string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Audio_duplicate_candidate_summary, visibleFolders, selectedFolders);
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    {
+        throw new NotSupportedException();
+    }
+}
+
 internal sealed class folderPathWhenColumnsHiddenVisibilityConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)

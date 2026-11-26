@@ -12,4 +12,7 @@ public partial class BMSLibrary : IMaintenanceTreePresentationState
 
     List<DuplicateGroup> IMaintenanceTreePresentationState.SplitPlacementGroups
         => SplitPlacementGroups;
+
+    List<AudioDuplicateFolder> IMaintenanceTreePresentationState.AudioDuplicateFolders
+        => AudioDuplicateFolders;
 }

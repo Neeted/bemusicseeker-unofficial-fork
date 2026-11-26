@@ -28,12 +28,13 @@ public sealed class MainChartColumnSettingsBoundaryTests
     }
 
     /// <summary>
-    /// 分裂配置の一覧は、重複の一覧と同じ <c>DUPLICATE</c> の保存値の列設定を読む。
-    /// 検出する誤り：分裂配置が既定の列設定へ落ちる、または別の保存値を新設して重複の列の調整が引き継がれない。
+    /// 分裂配置・重複音源の一覧は、重複の一覧と同じ <c>DUPLICATE</c> の保存値の列設定を読む。
+    /// 検出する誤り：分裂配置・重複音源が既定の列設定へ落ちる、または別の保存値を新設して重複の列の調整が引き継がれない。
     /// </summary>
     [TestMethod]
     [DataRow("DuplicateFilterSelected")]
     [DataRow("SplitPlacementFilterSelected")]
+    [DataRow("AudioDuplicateFilterSelected")]
     public void MainChartListUsesDuplicateColumnSettingsForDuplicateAndSplitPlacementViews(string modeName)
     {
         MainViewUpdateMode mode = Enum.Parse<MainViewUpdateMode>(modeName);

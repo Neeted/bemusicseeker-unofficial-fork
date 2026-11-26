@@ -160,7 +160,8 @@ internal static class RegularChartNavigationTestFixture
     /// </remarks>
     internal static void RunColdDuplicateFixture(Action<DuplicateNavigationTestFixture> test,
         PropertyChangedEventHandler? beforeOwnerNotification = null, IUiScheduler? scheduler = null,
-        Action<string, Task>? report = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? dialogs = null)
+        Action<string, Task>? report = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? dialogs = null,
+        BeMusicSeeker.Models.Utils.IRootFileEnumerator? rootFileEnumerator = null)
     {
         TestUiDispatcherHost.Invoke(() => WithTemporarySongDb(songDb =>
         {
@@ -178,7 +179,7 @@ internal static class RegularChartNavigationTestFixture
             var lifetime = new MainWindowTestLifetime(vm, Task.CompletedTask);
             lifetime.Run(() =>
             {
-                var fixture = new DuplicateNavigationTestFixture(vm, songDb, settings, () => tasks.DrainPriorAsync(), beforeOwnerNotification);
+                var fixture = new DuplicateNavigationTestFixture(vm, songDb, settings, () => tasks.DrainPriorAsync(), beforeOwnerNotification, rootFileEnumerator);
                 Exception? bodyFailure = null;
                 try { test(fixture); }
                 catch (Exception exception) { bodyFailure = exception; throw; }
@@ -211,6 +212,9 @@ internal static class RegularChartNavigationTestFixture
 /// <summary>初回重複解析の確定通知を保留し、標準VMへ後発の画面入力を接続する専用の準備データです。</summary>
 internal sealed class DuplicateNavigationTestFixture : IDisposable
 {
+    /// <summary>ケースが使う設定です。登録BMSルートなどの入力を、ケースが設定するために公開します。</summary>
+    internal BeMusicSeeker.Properties.Settings Settings { get; }
+
     private readonly ManualResetEventSlim release = new(false);
     private readonly TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource groupsApplied = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -236,8 +240,10 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
 
     /// <summary>呼出元が所有するVMとDBへ、実ライブラリとプレイリストを接続します。VMの停止と一時ファイルの削除は呼出元が担当します。</summary>
     internal DuplicateNavigationTestFixture(MainWindowViewModel viewModel, string songDb, BeMusicSeeker.Properties.Settings settings,
-        Func<Task> drainPresentations, PropertyChangedEventHandler? beforeOwnerNotification = null)
+        Func<Task> drainPresentations, PropertyChangedEventHandler? beforeOwnerNotification = null,
+        BeMusicSeeker.Models.Utils.IRootFileEnumerator? rootFileEnumerator = null)
     {
+        Settings = settings;
         this.drainPresentations = drainPresentations ?? throw new ArgumentNullException(nameof(drainPresentations));
         this.beforeOwnerNotification = beforeOwnerNotification;
         ViewModel = viewModel;
@@ -255,7 +261,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         Duplicates = AllCharts[..2];
         Target = AllCharts[2];
         using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope.OpenSongWrite(songDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
-        Library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, settings, viewModel);
+        Library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, settings, viewModel, rootFileEnumerator);
         Library.BmsCharts = AllCharts;
         new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertSongs(AllCharts);
         PlaylistPersistenceRepository.EnsureSchema(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb);

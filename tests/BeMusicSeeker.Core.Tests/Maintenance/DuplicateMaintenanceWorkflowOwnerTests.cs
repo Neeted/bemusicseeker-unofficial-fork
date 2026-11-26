@@ -966,6 +966,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public List<DuplicateGroup> DuplicateChartGroups { get; set; } = [];
         public int DuplicateChartGroupsInvalidationVersion => 0;
         public List<DuplicateGroup>? SplitPlacementGroups => null;
+        public List<AudioDuplicateFolder>? AudioDuplicateFolders => null;
         public bool IsWriteLockHeldInitializdBMSFilesHealthStatus => false;
         public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo => false;
         public bool IsWriteLockHeldInitializeBMSFilesZeroNote => false;

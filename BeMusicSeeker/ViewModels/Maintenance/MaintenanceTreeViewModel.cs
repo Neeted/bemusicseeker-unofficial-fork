@@ -24,6 +24,8 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     private readonly DuplicateTreeChildCollection splitPlacementTree = new(new DuplicateMergeCandidateListNode());
 
+    private readonly DuplicateTreeChildCollection audioDuplicateTree = new(new DuplicateMergeCandidateListNode());
+
     private Task observedPreparation;
 
     /// <summary>未接続の窓口です。項目の同期はその場で行います。</summary>
@@ -41,6 +43,9 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     /// <summary>分裂配置の結果の変更・失効、接続・解除で発生します。重複の通知とは独立です。</summary>
     internal event EventHandler<MaintenanceTreeDuplicatePresentationChangedEventArgs> SplitPlacementPresentationChanged;
+
+    /// <summary>重複音源の結果の変更・失効、接続・解除で発生します。重複・分裂配置の通知とは独立です。</summary>
+    internal event EventHandler<MaintenanceTreeDuplicatePresentationChangedEventArgs> AudioDuplicatePresentationChanged;
 
     /// <summary>
     /// 接続中ライブラリで開始済みの重複データ準備を返す窓口です。未完了のTaskが返る間は、結果が失効していても直前の項目を維持します。
@@ -83,6 +88,24 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     /// <summary>分裂配置の現在の結果です。結果がない状態は <see langword="null"/> です。</summary>
     internal List<DuplicateGroup> SplitPlacementChartGroups
         => presentationState?.SplitPlacementGroups;
+
+    /// <summary>
+    /// 重複音源ツリーの子として表示する項目です。先頭に整理候補一覧のノード（結果が一件以上あるときだけ現れる、他のツリーのノードとは別の項目）を置き、
+    /// その後ろにグループ項目（重複音源フォルダごとに一つ）を結果の順に並べます。インスタンスは接続・解除・同期を通じて変えず、
+    /// 新しい結果にも含まれる同じグループの項目は除去・置換しません。変更はUIスレッドだけで行います。
+    /// </summary>
+    public System.Collections.IList AudioDuplicateTreeChildren => audioDuplicateTree;
+
+    /// <summary>重複音源ツリーの先頭に置く整理候補一覧のノードです。項目の有無とは別に、常に同じインスタンスを返します。</summary>
+    internal DuplicateMergeCandidateListNode AudioDuplicateCandidateListNodeItem => audioDuplicateTree.CandidateListNode;
+
+    /// <summary>重複音源の現在の結果です。結果がない状態は <see langword="null"/> です。</summary>
+    internal List<AudioDuplicateFolder> AudioDuplicateFolders
+        => presentationState?.AudioDuplicateFolders;
+
+    /// <summary>重複音源の現在の結果のグループです。結果の順で、結果がない状態は <see langword="null"/> です。</summary>
+    internal List<DuplicateGroup> AudioDuplicateGroups
+        => AudioDuplicateFolders?.ConvertAll(folder => folder.Group);
 
     /// <summary>
     /// Gets whether health maintenance initialization is still holding its write lock.
@@ -141,6 +164,12 @@ public sealed class MaintenanceTreeViewModel : ViewModel
                 PublishSplitPlacementPresentationChanged("split_placement_groups_changed");
             });
         presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.AudioDuplicateFolders,
+            delegate
+            {
+                PublishAudioDuplicatePresentationChanged("audio_duplicate_folders_changed");
+            });
+        presentationStatePropertyChangedListener.RegisterHandler(
             () => attachedState.IsWriteLockHeldInitializdBMSFilesHealthStatus,
             delegate
             {
@@ -167,8 +196,10 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         RaiseBusyStateProperties();
         ApplyDuplicateGroupsPresentation();
         ApplySplitPlacementPresentation();
+        ApplyAudioDuplicatePresentation();
         PublishDuplicatePresentationChanged("maintenance_tree_attached");
         PublishSplitPlacementPresentationChanged("maintenance_tree_attached");
+        PublishAudioDuplicatePresentationChanged("maintenance_tree_attached");
     }
 
     /// <summary>
@@ -197,8 +228,10 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         RaiseBusyStateProperties();
         ApplyDuplicateGroupsPresentation();
         ApplySplitPlacementPresentation();
+        ApplyAudioDuplicatePresentation();
         PublishDuplicatePresentationChanged("maintenance_tree_detached");
         PublishSplitPlacementPresentationChanged("maintenance_tree_detached");
+        PublishAudioDuplicatePresentationChanged("maintenance_tree_detached");
     }
 
     /// <summary>
@@ -286,6 +319,47 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     /// </summary>
     internal bool IsSynchronizingSplitPlacementTree { get; private set; }
 
+    /// <summary>
+    /// 更新抑制の判断後に、重複音源ツリーの項目を現在の結果へ同期します。通知はワーカースレッドから届き得るため、UIスレッドへ配送します。
+    /// </summary>
+    internal void ApplyAudioDuplicatePresentation()
+    {
+        if (uiScheduler == null || uiScheduler.CanExecuteInline || uiScheduler.CheckAccess())
+        {
+            SynchronizeAudioDuplicateTreeItems();
+            return;
+        }
+        uiScheduler.Schedule(SynchronizeAudioDuplicateTreeItems);
+    }
+
+    /// <summary>
+    /// 重複音源ツリーの項目を、その時点の現在の結果へ同期します。呼出し側がUIスレッドであることを保証します。
+    /// 結果が一件以上あるときだけ整理候補一覧のノードを先頭に置き、0件と結果がない状態（失効・未探索・ライブラリの解除）では、ノードを含めて子を空にします。
+    /// 通知の時点ではなく同期の時点の現在値を読むため、遅れて届いた失効の通知で、その後に格納された新しい結果を消しません。
+    /// </summary>
+    internal void SynchronizeAudioDuplicateTreeItems()
+    {
+        List<DuplicateGroup> groups = AudioDuplicateGroups;
+        IsSynchronizingAudioDuplicateTree = true;
+        try
+        {
+            if (groups != null)
+            {
+                audioDuplicateTree.SynchronizeItems(groups);
+                audioDuplicateTree.SynchronizeCandidateListNode(groups.Count > 0);
+                return;
+            }
+            audioDuplicateTree.Clear();
+        }
+        finally { IsSynchronizingAudioDuplicateTree = false; }
+    }
+
+    /// <summary>
+    /// 重複音源ツリーの項目を同期している区間（UIスレッド）だけ真です。選択中の子が除去されると画面が親のルートを自動で選び直すため、
+    /// 画面がその選択を利用者の選択と区別するために読みます。
+    /// </summary>
+    internal bool IsSynchronizingAudioDuplicateTree { get; private set; }
+
     private bool TryGetActivePreparation(out Task preparation)
     {
         preparation = DuplicatePreparationProvider?.Invoke();
@@ -316,6 +390,13 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     private void PublishDuplicatePresentationChanged(string reason)
     {
         DuplicatePresentationChanged?.Invoke(
+            this,
+            new MaintenanceTreeDuplicatePresentationChangedEventArgs(reason));
+    }
+
+    private void PublishAudioDuplicatePresentationChanged(string reason)
+    {
+        AudioDuplicatePresentationChanged?.Invoke(
             this,
             new MaintenanceTreeDuplicatePresentationChangedEventArgs(reason));
     }

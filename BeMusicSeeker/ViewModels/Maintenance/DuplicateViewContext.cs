@@ -6,8 +6,9 @@ using BeMusicSeeker.Models;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 現在の重複検索結果、または分裂配置の結果だけで使う表示対象です。見出しではなく所属フォルダを値で捕捉します。
-/// どちらの結果を読むかは、この値を渡す画面受付の種別（<c>DuplicateFilterSelected</c> または <c>SplitPlacementFilterSelected</c>）で決まります。
+/// 現在の重複検索結果、分裂配置の結果、または重複音源チェックの探索結果だけで使う表示対象です。見出しではなく所属フォルダを値で捕捉します。
+/// どの結果を読むかは、この値を渡す画面受付の種別（<c>DuplicateFilterSelected</c>、<c>SplitPlacementFilterSelected</c>
+/// または <c>AudioDuplicateFilterSelected</c>）で決まります。
 /// </summary>
 internal sealed class DuplicateViewContext
 {

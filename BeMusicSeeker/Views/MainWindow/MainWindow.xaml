@@ -43,6 +43,7 @@
       <v:playHistorySummaryVisibilityConverter x:Key="playHistorySummaryVisibilityConverter" />
       <v:hiddenWhenAnyTrueVisibilityConverter x:Key="hiddenWhenAnyTrueVisibilityConverter" />
       <v:duplicateMergeCandidateSummaryConverter x:Key="duplicateMergeCandidateSummaryConverter" />
+      <v:audioDuplicateCandidateSummaryConverter x:Key="audioDuplicateCandidateSummaryConverter" />
       <!-- 外枠・サイドバー区切り線1 DIPの内縁へ背景とつまみの外端を合わせる外枠補正を、Paddingで共通に渡す。 -->
       <Style x:Key="MainWindowScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource App.Canonical.ScrollBarStyle}">
         <Style.Triggers>
@@ -116,7 +117,7 @@
         <Setter Property="FlowDirection" Value="LeftToRight" />
         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.SearchBorderBrush}" />
-        <Setter Property="Visibility" Value="{Binding DisplayedCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
+        <Setter Property="Visibility" Value="{Binding DisplayedCandidatePresentation.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
         <Style.Triggers>
           <Trigger Property="IsKeyboardFocusWithin" Value="True">
             <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
@@ -355,6 +356,15 @@
             </Style>
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
+      </ContextMenu>
+      <ContextMenu x:Key="audioDuplicateCandidateContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_on, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuCheckOnClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_off, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuCheckOffClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_candidate_verify_folder, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuVerifyClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuOpenExplorerClick" />
+      </ContextMenu>
+      <ContextMenu x:Key="treeViewAudioDuplicateFolderContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewDuplicateFolderContextMenuOpenExplorerClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewSplitPlacementFolderContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewDuplicateFolderContextMenuOpenExplorerClick" />
@@ -715,7 +725,7 @@
                 <Border.Visibility>
                   <MultiBinding Converter="{StaticResource hiddenWhenAnyTrueVisibilityConverter}">
                     <Binding Path="PlaylistWorkspace.IsPlaylistSummaryMode" />
-                    <Binding Path="DisplayedCandidateList.IsViewActive" />
+                    <Binding Path="DisplayedCandidatePresentation.IsViewActive" />
                   </MultiBinding>
                 </Border.Visibility>
                 <Border.Style>
@@ -828,7 +838,7 @@
                    <MultiBinding Converter="{StaticResource mainSummaryVisibilityConverter}">
                      <Binding Path="PlaylistWorkspace.IsPlaylistSummaryMode" />
                      <Binding Path="PlayHistory.IsViewActive" />
-                     <Binding Path="DisplayedCandidateList.IsViewActive" />
+                     <Binding Path="DisplayedCandidatePresentation.IsViewActive" />
                    </MultiBinding>
                  </TextBlock.Visibility>
                </TextBlock>
@@ -840,7 +850,7 @@
                     <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="20" />
                   </Grid.ColumnDefinitions>
-                  <v:KeywordSearchEditor x:Name="duplicateCandidateExcludeEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidateList}" DataContextChanged="DuplicateCandidateExcludeEditorDataContextChanged" Text="{Binding ExcludeText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
+                  <v:KeywordSearchEditor x:Name="duplicateCandidateExcludeEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidatePresentation}" DataContextChanged="DuplicateCandidateExcludeEditorDataContextChanged" Text="{Binding ExcludeText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
                   <TextBlock x:Name="duplicateCandidateExcludePlaceholder" IsHitTestVisible="False" Margin="8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.SubtleTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_placeholder, Mode=OneWay}">
                     <TextBlock.Style>
                       <Style TargetType="{x:Type TextBlock}">
@@ -854,7 +864,7 @@
                     </TextBlock.Style>
                   </TextBlock>
                   <Grid Grid.Column="1" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
-                    <v:AppFontIcon x:Name="duplicateCandidateExcludeWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidateList.ExcludeWarningText}" Visibility="{Binding DisplayedCandidateList.ExcludeWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
+                    <v:AppFontIcon x:Name="duplicateCandidateExcludeWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidatePresentation.ExcludeWarningText}" Visibility="{Binding DisplayedCandidatePresentation.ExcludeWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
                   </Grid>
                   <Grid Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <v:AppFontIcon x:Name="duplicateCandidateExcludeClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Glyph="{StaticResource App.IconGlyph.Clear}" Visibility="{Binding Text, ElementName=duplicateCandidateExcludeEditor, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="DuplicateCandidateExcludeClearMouseLeftButtonDown" />
@@ -868,9 +878,9 @@
                     <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="20" />
                   </Grid.ColumnDefinitions>
-                  <v:KeywordSearchEditor x:Name="duplicateCandidateSearchEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidateList}" DataContextChanged="DuplicateCandidateSearchEditorDataContextChanged" Text="{Binding SearchText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
+                  <v:KeywordSearchEditor x:Name="duplicateCandidateSearchEditor" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" DataContext="{Binding DisplayedCandidatePresentation}" DataContextChanged="DuplicateCandidateSearchEditorDataContextChanged" Text="{Binding SearchText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
                   <Grid Grid.Column="1" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
-                    <v:AppFontIcon x:Name="duplicateCandidateSearchWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidateList.SearchWarningText}" Visibility="{Binding DisplayedCandidateList.SearchWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
+                    <v:AppFontIcon x:Name="duplicateCandidateSearchWarningIcon" Style="{StaticResource App.Canonical.FontIconStyle}" Glyph="{StaticResource App.IconGlyph.Warning}" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding DisplayedCandidatePresentation.SearchWarningText}" Visibility="{Binding DisplayedCandidatePresentation.SearchWarningText, Converter={StaticResource stringToVisibilityCollapsedConverter}}" />
                   </Grid>
                   <Grid Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <v:AppFontIcon x:Name="duplicateCandidateSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Glyph="{StaticResource App.IconGlyph.Clear}" Visibility="{Binding Text, ElementName=duplicateCandidateSearchEditor, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="DuplicateCandidateSearchClearMouseLeftButtonDown" />
@@ -883,6 +893,15 @@
                     <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
                     <Binding Path="DisplayedCandidateList.VisibleGroupCount" />
                     <Binding Path="DisplayedCandidateList.SelectedGroupCount" />
+                  </MultiBinding>
+                </TextBlock.Text>
+              </TextBlock>
+              <TextBlock x:Name="audioDuplicateCandidateSummaryText" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding AudioDuplicateCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+                <TextBlock.Text>
+                  <MultiBinding Converter="{StaticResource audioDuplicateCandidateSummaryConverter}">
+                    <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
+                    <Binding Path="AudioDuplicateCandidateList.VisibleGroupCount" />
+                    <Binding Path="AudioDuplicateCandidateList.SelectedGroupCount" />
                   </MultiBinding>
                 </TextBlock.Text>
               </TextBlock>
@@ -1144,6 +1163,30 @@
               </StackPanel>
             </StackPanel>
           </Border>
+          <Border x:Name="audioDuplicateCandidateOperationBar" Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" Padding="4" Visibility="{Binding AudioDuplicateCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" AutomationProperties.AutomationId="AudioDuplicateCandidateOperationRow">
+              <StackPanel.Resources>
+                <!-- 見た目（配色・テンプレート・状態）は共通の省スペースボタンのスタイルに任せ、ここでは余白だけを足す。 -->
+                <Style TargetType="{x:Type Button}" BasedOn="{StaticResource App.Canonical.CompactButtonStyle}">
+                  <Setter Property="Margin" Value="0,0,4,0" />
+                </Style>
+              </StackPanel.Resources>
+              <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="4,0,4,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup, Mode=OneWay}" />
+              <ComboBox x:Name="audioDuplicateCandidateCollisionCleanupComboBox" AutomationProperties.AutomationId="AudioDuplicateCandidateCollisionCleanup" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup, Mode=OneWay}" Style="{StaticResource App.Canonical.CompactComboBoxStyle}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0" IsEditable="False" SelectedValuePath="Tag" SelectedValue="{Binding AudioDuplicateCandidateList.CollisionCleanupMode, Mode=TwoWay}">
+                <ComboBoxItem Tag="{x:Static vm:AudioDuplicateCollisionCleanupMode.KeepOgg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup_keep_ogg, Mode=OneWay}" />
+                <ComboBoxItem Tag="{x:Static vm:AudioDuplicateCollisionCleanupMode.KeepWav}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav, Mode=OneWay}" />
+              </ComboBox>
+              <Button x:Name="audioDuplicateCandidateSelectVisibleButton" AutomationProperties.AutomationId="AudioDuplicateCandidateSelectVisible" Click="audioDuplicateCandidateSelectVisibleClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_select_visible, Mode=OneWay}" />
+              <Button x:Name="audioDuplicateCandidateClearVisibleButton" AutomationProperties.AutomationId="AudioDuplicateCandidateClearVisible" Click="audioDuplicateCandidateClearVisibleClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_clear_visible, Mode=OneWay}" />
+              <Button x:Name="audioDuplicateCandidateVerifyButton" AutomationProperties.AutomationId="AudioDuplicateCandidateVerify" Click="audioDuplicateCandidateVerifyClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_candidate_verify_selected, Mode=OneWay}" />
+              <Button x:Name="audioDuplicateCandidateOrganizeButton" AutomationProperties.AutomationId="AudioDuplicateCandidateOrganize" Click="audioDuplicateCandidateOrganizeClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_organize_selected, Mode=OneWay}" />
+            </StackPanel>
+          </Border>
+          <v:CustomTableView x:Name="customTableAudioDuplicateCandidates" AutomationProperties.AutomationId="AudioDuplicateCandidateTable" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_candidate_list, Mode=OneWay}" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding AudioDuplicateCandidateList}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontFamily="{DynamicResource App.TableFontFamily}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" ItemsSource="{Binding Rows, Mode=OneWay}" AudioDuplicateCandidateColumnsSettings="{Binding ColumnsSettings, Mode=OneWay}" SortColumnName="{Binding SortColumnName, Mode=OneWay}" SortDirection="{Binding SortDirection, Mode=OneWay}" SortRequested="customTableAudioDuplicateCandidates_SortRequested" RowActivated="customTableAudioDuplicateCandidates_RowActivated" RowContextMenuRequested="customTableAudioDuplicateCandidates_RowContextMenuRequested" CellActionRequested="customTableAudioDuplicateCandidates_CellActionRequested" KeyDown="customTableAudioDuplicateCandidates_KeyDown" Visibility="{Binding IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+            <v:CustomTableView.Resources>
+              <Style x:Key="App.Canonical.ListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowListScrollBarStyle}" />
+            </v:CustomTableView.Resources>
+          </v:CustomTableView>
           <v:CustomTableView x:Name="customTableDuplicateCandidates" AutomationProperties.AutomationId="DuplicateCandidateTable" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_list, Mode=OneWay}" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding DisplayedCandidateList}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontFamily="{DynamicResource App.TableFontFamily}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" ItemsSource="{Binding Rows, Mode=OneWay}" DuplicateCandidateColumnsSettings="{Binding ColumnsSettings, Mode=OneWay}" SortColumnName="{Binding SortColumnName, Mode=OneWay}" SortDirection="{Binding SortDirection, Mode=OneWay}" SortRequested="customTableDuplicateCandidates_SortRequested" RowActivated="customTableDuplicateCandidates_RowActivated" RowContextMenuRequested="customTableDuplicateCandidates_RowContextMenuRequested" CellActionRequested="customTableDuplicateCandidates_CellActionRequested" KeyDown="customTableDuplicateCandidates_KeyDown" Visibility="{Binding IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
             <v:CustomTableView.Resources>
               <Style x:Key="App.Canonical.ListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowListScrollBarStyle}" />
@@ -1153,7 +1196,7 @@
             <v:CustomTableView.Visibility>
               <MultiBinding Converter="{StaticResource hiddenWhenAnyTrueVisibilityConverter}">
                 <Binding Path="DataContext.PlaylistWorkspace.IsPlaylistSummaryMode" ElementName="window" />
-                <Binding Path="DataContext.DisplayedCandidateList.IsViewActive" ElementName="window" />
+                <Binding Path="DataContext.DisplayedCandidatePresentation.IsViewActive" ElementName="window" />
               </MultiBinding>
             </v:CustomTableView.Visibility>
             <v:CustomTableView.Style>
@@ -1733,6 +1776,46 @@
                       <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
                     </Style>
                     <v:duplicateTreeItemContainerStyleSelector x:Key="splitPlacementTreeItemContainerStyleSelector" GroupStyle="{StaticResource styleSplitPlacementGroupTreeItem}" CandidateListStyle="{StaticResource styleSplitPlacementCandidateListTreeItem}" />
+                  </ResourceDictionary>
+                </FrameworkElement.Resources>
+              </TreeViewItem>
+              <TreeViewItem Name="treeViewItemSearchAudioDuplicate" AutomationProperties.AutomationId="AudioDuplicateTreeRoot" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_audio_duplicate, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.AudioDuplicateTreeChildren}" ItemContainerStyleSelector="{DynamicResource audioDuplicateTreeItemContainerStyleSelector}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenance}" Selected="audioDuplicateCheckFolderSelect" PreviewMouseLeftButtonDown="audioDuplicateRootPreviewMouseLeftButtonDown" KeyDown="audioDuplicateRootKeyDown" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
+                <FrameworkElement.Resources>
+                  <ResourceDictionary>
+                    <DataTemplate x:Key="templateTreeViewItemHeaderAudioDuplicateGroup">
+                      <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
+                        <v:AppFontIcon Style="{StaticResource styleTreeViewItemIconFolder}" />
+                        <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{Binding Header}" />
+                      </StackPanel>
+                    </DataTemplate>
+                    <Style x:Key="styleAudioDuplicateGroupTreeItem" TargetType="{x:Type TreeViewItem}">
+                      <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                      <Setter Property="Header" Value="{Binding Header}" />
+                      <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderAudioDuplicateGroup}" />
+                      <Setter Property="ItemsSource" Value="{Binding Folders}" />
+                      <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                      <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
+                      <Setter Property="ItemContainerStyle">
+                        <Setter.Value>
+                          <Style TargetType="{x:Type TreeViewItem}">
+                            <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                            <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder2}" />
+                            <Setter Property="Header" Value="{Binding Mode=OneWay, Converter={StaticResource fileNameConverter}}" />
+                            <Setter Property="FrameworkElement.ToolTip" Value="{Binding Mode=OneWay}" />
+                            <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewAudioDuplicateFolderContextMenu}" />
+                            <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                          </Style>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
+                    <Style x:Key="styleAudioDuplicateCandidateListTreeItem" TargetType="{x:Type TreeViewItem}">
+                      <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                      <Setter Property="Header" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_candidate_list, Mode=OneWay}" />
+                      <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" />
+                      <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                      <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
+                    </Style>
+                    <v:duplicateTreeItemContainerStyleSelector x:Key="audioDuplicateTreeItemContainerStyleSelector" GroupStyle="{StaticResource styleAudioDuplicateGroupTreeItem}" CandidateListStyle="{StaticResource styleAudioDuplicateCandidateListTreeItem}" />
                   </ResourceDictionary>
                 </FrameworkElement.Resources>
               </TreeViewItem>

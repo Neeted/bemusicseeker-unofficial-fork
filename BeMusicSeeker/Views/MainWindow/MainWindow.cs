@@ -670,6 +670,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
         viewModel.DuplicateMergeCandidateList.AttachKeywordSearchPresentation();
         viewModel.SplitPlacementMergeCandidateList.AttachKeywordSearchPresentation();
+        viewModel.AudioDuplicateCandidateList.AttachKeywordSearchPresentation();
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
@@ -696,6 +697,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
         subscribedViewModel.DuplicateMergeCandidateList.DetachKeywordSearchPresentation();
         subscribedViewModel.SplitPlacementMergeCandidateList.DetachKeywordSearchPresentation();
+        subscribedViewModel.AudioDuplicateCandidateList.DetachKeywordSearchPresentation();
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource

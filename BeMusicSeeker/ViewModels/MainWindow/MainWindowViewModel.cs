@@ -83,6 +83,15 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>分裂配置のツリーを選んだときの探索と、探索条件の調整・再探索の手順を管理します。探索条件の行の入力と「再探索」ボタンが接続します。</summary>
     public SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; private set; }
 
+    /// <summary>重複音源のツリーを選んだときの探索の手順を管理します。</summary>
+    public AudioDuplicateSearchWorkflowOwner AudioDuplicateSearch { get; private set; }
+
+    /// <summary>整理候補一覧の確認の手順です。ボタンとメニューの操作を受けます。</summary>
+    internal AudioDuplicateVerificationWorkflowOwner AudioDuplicateVerification { get; private set; }
+
+    /// <summary>整理候補一覧からの整理の手順です。ボタンの操作を受けます。</summary>
+    internal AudioDuplicateOrganizeWorkflowOwner AudioDuplicateOrganize { get; private set; }
+
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
     internal SelectedChartExternalActionWorkflowOwner SelectedChartExternalActions { get; private set; }
@@ -181,6 +190,31 @@ public partial class MainWindowViewModel : ViewModel,
 
     /// <summary>分裂配置の統合候補一覧の安全性確認の手順です。</summary>
     internal DuplicateMergeVerificationWorkflowOwner SplitPlacementMergeVerification { get; private set; }
+
+    /// <summary>
+    /// 重複音源の整理候補一覧の管理主体を取得します。重複音源ツリーの先頭のノードで選んだ画面が、この一覧を表示します。
+    /// 状態は統合候補一覧とは独立で、型も別です。
+    /// </summary>
+    public AudioDuplicateCandidateListOwner AudioDuplicateCandidateList { get; }
+
+    /// <summary>
+    /// 現在の画面種別が重複音源かです。共用の検索欄・件数と、専用の表・操作の行を、整理候補一覧の管理主体へ接続するかを決めます。
+    /// 新しい独立した状態は持たず、画面種別から導きます。
+    /// </summary>
+    public bool DisplaysAudioDuplicateCandidateList
+    {
+        get
+        {
+            lock (playHistoryViewRequestLock) { return treeViewFilterTypeSelected == MainViewUpdateMode.AudioDuplicateFilterSelected; }
+        }
+    }
+
+    /// <summary>
+    /// 共用の検索欄・除外欄・表示切替えが束縛される、表示中の一覧の管理主体です。重複音源の画面種別では整理候補一覧、それ以外では統合候補一覧（<see cref="DisplayedCandidateList"/>）です。
+    /// 画面種別が変わると変更を通知します。
+    /// </summary>
+    public ViewModel DisplayedCandidatePresentation
+        => DisplaysAudioDuplicateCandidateList ? AudioDuplicateCandidateList : DisplayedCandidateList;
 
     /// <summary>
     /// 現在の画面種別が分裂配置かです。統合候補一覧の共用の表と操作の行き先を、重複と分裂配置のどちらの管理主体にするかを決めます。
@@ -1523,6 +1557,25 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
+    /// <summary>
+    /// 重複音源の結果の変更・失効を、ツリー（重複と同じ更新抑制のチャネル）と、整理候補一覧を表示中なら一覧へ反映します。
+    /// 一覧は構築時点の現在値を読むため、失効では空になり、自動で探索し直しません。
+    /// </summary>
+    private void MaintenanceTreeAudioDuplicatePresentationChanged(
+        object sender,
+        MaintenanceTreeDuplicatePresentationChangedEventArgs e)
+    {
+        if (!TrySuppress(UiRefreshChannel.DuplicateTree))
+        {
+            MaintenanceTree.ApplyAudioDuplicatePresentation();
+        }
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.AudioDuplicateFilterSelected
+            && !TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshLibraryMainViewForCurrentFilter().ObserveFault("audioDuplicatePresentation");
+        }
+    }
+
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
     {
         FlushPendingUiRefresh(mask, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
@@ -1574,6 +1627,7 @@ public partial class MainWindowViewModel : ViewModel,
             var stopwatch4 = Stopwatch.StartNew();
             MaintenanceTree.ApplyDuplicateGroupsPresentation();
             MaintenanceTree.ApplySplitPlacementPresentation();
+            MaintenanceTree.ApplyAudioDuplicatePresentation();
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -2345,6 +2399,8 @@ public partial class MainWindowViewModel : ViewModel,
         MaintenanceTree.DuplicatePreparationProvider = () => regularChartListOwner?.PrepareDuplicateDataAsync("duplicate_tree");
         DuplicateMergeCandidateList = childComposition.DuplicateMergeCandidateList;
         SplitPlacementMergeCandidateList = childComposition.SplitPlacementMergeCandidateList;
+        AudioDuplicateCandidateList = childComposition.AudioDuplicateCandidateList;
+        MaintenanceTree.AudioDuplicatePresentationChanged += MaintenanceTreeAudioDuplicatePresentationChanged;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -2371,6 +2427,9 @@ public partial class MainWindowViewModel : ViewModel,
         DuplicateMergeVerification = childComposition.DuplicateMergeVerification;
         SplitPlacementMergeVerification = childComposition.SplitPlacementMergeVerification;
         SplitPlacementSearch = childComposition.SplitPlacementSearch;
+        AudioDuplicateSearch = childComposition.AudioDuplicateSearch;
+        AudioDuplicateVerification = childComposition.AudioDuplicateVerification;
+        AudioDuplicateOrganize = childComposition.AudioDuplicateOrganize;
         DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;
@@ -2829,6 +2888,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         DuplicateMergeCandidateList.SetTreeSelected(false);
         SplitPlacementMergeCandidateList.SetTreeSelected(false);
+        AudioDuplicateCandidateList.SetTreeSelected(false);
         RaiseDisplayedCandidateListChanged();
 
         var refresh = Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation));
@@ -3278,6 +3338,7 @@ public partial class MainWindowViewModel : ViewModel,
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             DuplicateMergeCandidateList.AttachLibrary(files);
             SplitPlacementMergeCandidateList.AttachLibrary(files);
+            AudioDuplicateCandidateList.AttachLibrary(files);
             PlaybackPanel.AttachLibrary(files, attachmentCapability);
         }
     }
@@ -3769,6 +3830,7 @@ public partial class MainWindowViewModel : ViewModel,
             MaintenanceTree.AttachLibrary(files);
             DuplicateMergeCandidateList.AttachLibrary(files);
             SplitPlacementMergeCandidateList.AttachLibrary(files);
+            AudioDuplicateCandidateList.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4204,7 +4266,8 @@ public partial class MainWindowViewModel : ViewModel,
         }
         else if (mode < MainViewUpdateMode.KeywordFilterUpdated && mode != MainViewUpdateMode.PlayHistorySelected)
         {
-            if (mode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected)
+            if (mode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected
+                or MainViewUpdateMode.AudioDuplicateFilterSelected)
             {
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }
@@ -4404,6 +4467,7 @@ public partial class MainWindowViewModel : ViewModel,
         bool candidateListSelected = parameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList };
         DuplicateMergeCandidateList.SetTreeSelected(mode == MainViewUpdateMode.DuplicateFilterSelected && candidateListSelected);
         SplitPlacementMergeCandidateList.SetTreeSelected(mode == MainViewUpdateMode.SplitPlacementFilterSelected && candidateListSelected);
+        AudioDuplicateCandidateList.SetTreeSelected(mode == MainViewUpdateMode.AudioDuplicateFilterSelected && candidateListSelected);
         RaiseDisplayedCandidateListChanged();
         playHistoryWorkflowOwner.ClearSummaryFilters();
     }
@@ -4413,6 +4477,8 @@ public partial class MainWindowViewModel : ViewModel,
     {
         RaisePropertyChanged(nameof(DisplayedCandidateList));
         RaisePropertyChanged(nameof(DisplaysSplitPlacementCandidateList));
+        RaisePropertyChanged(nameof(DisplaysAudioDuplicateCandidateList));
+        RaisePropertyChanged(nameof(DisplayedCandidatePresentation));
     }
 
     /// <summary>公開済み成績と同じ取得組を捕捉します。表示時に設定・ファイル状態で取得元を変更しません。</summary>

@@ -116,6 +116,22 @@ public sealed class BmsLibraryAudioDuplicateTests
         internal int Count { get { lock (Entries) { return Entries.Count; } } }
     }
 
+    /// <summary>
+    /// 保証：確認が使う対象フォルダの集合は、探索と同じ所持集合の行から、所持譜面を直下に持つフォルダだけを大文字小文字を無視して集める（譜面のないフォルダ・親フォルダは含めない）。
+    /// 検出する誤り：所持集合と異なる集合（親フォルダの混入、譜面のないフォルダの混入）、重複の取りこぼし。
+    /// </summary>
+    [TestMethod]
+    public void CaptureAudioDuplicateTargetFolders_CollectsFoldersHoldingOwnedChartsDirectly()
+    {
+        Run(["A/a.bms", "A/Sub/s.bms", "Empty/x.wav"], root => [Chart(Path.Combine(root, "A", "a.bms"), 1), Chart(Path.Combine(root, "A", "a2.bms"), 2), Chart(Path.Combine(root, "A", "Sub", "s.bms"), 3)], (library, root) =>
+        {
+            HashSet<string> folders = library.CaptureAudioDuplicateTargetFolders();
+
+            CollectionAssert.AreEquivalent(new[] { Path.Combine(root, "A"), Path.Combine(root, "A", "Sub") }, folders.ToArray());
+            Assert.IsTrue(folders.Contains(Path.Combine(root, "A").ToUpperInvariant()), "大文字小文字を無視する");
+        });
+    }
+
     /// <summary>探索前は結果なし（null）で、有効な結果がない状態を空の一覧と取り違えないことを確認します。</summary>
     [TestMethod]
     public void AudioDuplicateFolders_IsNullBeforeAnySearch()

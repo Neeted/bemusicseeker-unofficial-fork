@@ -627,6 +627,59 @@ internal static class CustomTableColumnFactory
         ];
     }
 
+    /// <summary>重複音源の整理候補一覧の表示列を作成します。列の並びは、表示位置の指定がなければ既定の順です。</summary>
+    internal static IReadOnlyList<CustomTableColumn> CreateAudioDuplicateCandidateColumns(AudioDuplicateCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            return [];
+        }
+        return [.. CreateAllAudioDuplicateCandidateColumns(settings)
+            .Where(column => column.IsVisible)
+            .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
+            .ThenBy(column => column.FallbackOrder)];
+    }
+
+    internal static IEnumerable<PlaylistSummaryColumnSettings.ColumnLayout> EnumerateAudioDuplicateCandidateColumnLayouts(AudioDuplicateCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            yield break;
+        }
+        foreach (CustomTableColumn column in CreateAllAudioDuplicateCandidateColumns(settings))
+        {
+            if (column.Layout is PlaylistSummaryColumnSettings.ColumnLayout layout)
+            {
+                yield return layout;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 一行が一つのフォルダなので、結合列は使いません。SELECTはチェックボックスで、整理不可のフォルダは無効表示で操作できません。
+    /// CONFLICTSは衝突名の数（右寄せ）で、KEEPの列はありません。値は行（不変）が指す状態から読みます。
+    /// </summary>
+    private static CustomTableColumn[] CreateAllAudioDuplicateCandidateColumns(AudioDuplicateCandidateColumnSettings settings)
+    {
+        return
+        [
+            new CustomTableColumn("Select", "SELECT", settings.Select, 0, "Select", TextAlignment.Center, row => string.Empty,
+                checkedSelector: row => (row as AudioDuplicateCandidateRow)?.State.IsSelected,
+                cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false,
+                enabledSelector: row => (row as AudioDuplicateCandidateRow)?.State.CanSelect == true),
+            new CustomTableColumn("Status", "STATUS", settings.Status, 1, "Status", TextAlignment.Left,
+                row => (row as AudioDuplicateCandidateRow)?.StatusText ?? string.Empty,
+                tooltipSelector: row => (row as AudioDuplicateCandidateRow)?.StatusTooltipText,
+                tooltipTextWidth: WrappedTooltipTextWidth),
+            new CustomTableColumn("Conflicts", "CONFLICTS", settings.Conflicts, 2, "Conflicts", TextAlignment.Right,
+                row => (row as AudioDuplicateCandidateRow)?.ConflictsText ?? string.Empty, autoTrimTooltip: false),
+            new CustomTableColumn("Path", "PATH", settings.Path, 3, "Path", TextAlignment.Left, row => (row as AudioDuplicateCandidateRow)?.Path ?? string.Empty),
+            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 4, "Folder", TextAlignment.Left, row => (row as AudioDuplicateCandidateRow)?.FolderName ?? string.Empty),
+            new CustomTableColumn("Title", "TITLE", settings.Title, 5, "Title", TextAlignment.Left, row => (row as AudioDuplicateCandidateRow)?.Title ?? string.Empty),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 6, "Artist", TextAlignment.Left, row => (row as AudioDuplicateCandidateRow)?.Artist ?? string.Empty)
+        ];
+    }
+
     private static string GetString(object row, string propertyName)
     {
         if (row == null)

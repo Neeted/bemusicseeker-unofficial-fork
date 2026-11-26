@@ -230,7 +230,8 @@ public sealed class AudioDuplicateOrganizeTests
             CollectionAssert.AreEqual(new[] { "bad\0name", "y" }, first.UnsentNames.ToArray());
             Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
             Assert.IsTrue(File.Exists(rig.At("K1\\y.wav")), "削除に失敗したファイルは残します。");
-            Assert.IsFalse(rig.Mutations.ShellDeletedFiles.Any(path => path.Contains("bad", StringComparison.Ordinal)), "観測できなかった名前の削除を試みてはいけません。");
+            // 作業領域のパスは無作為な名前を含むため、作業領域からの相対パス（対象フォルダ K1 の下の名前）で判定する。
+            Assert.IsFalse(rig.ShellDeletedAudio().Any(relative => relative.StartsWith("k1\\bad", StringComparison.Ordinal)), "観測できなかった名前の削除を試みてはいけません。");
             Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, second.Status);
             Assert.AreEqual(2, second.TrashedCount);
             Assert.IsFalse(File.Exists(rig.At("K2\\x.wav")) || File.Exists(rig.At("K2\\y.wav")));
@@ -467,7 +468,7 @@ public sealed class AudioDuplicateOrganizeTests
 
             AudioDuplicateOrganizeResult result = rig.Organize(rig.Request(("K1", ".wav", ["x"]), ("K2", ".wav", ["x"])), _ =>
             {
-                locksFree &= AreModelLocksFree(rig.Library);
+                locksFree &= BmsLibraryLockProbe.AreModelLocksFree(rig.Library);
                 throw new InvalidOperationException("receiver");
             });
 
@@ -477,23 +478,59 @@ public sealed class AudioDuplicateOrganizeTests
         });
     }
 
-    /// <summary>別のスレッドから、モデルの短期ロックの排他取得が待たずにできることで、呼出元スレッドが保持していないことを確かめます。</summary>
-    private static bool AreModelLocksFree(BMSLibrary library)
+    /// <summary>
+    /// 保証：起動後に実差分読込みでパスが収束していない（カタログ未収束）操作全体は、物理変更の前に未適用で返す。受理されず、全フォルダが未処理で、
+    /// 既存の案内が一件だけ収集先に入り、進捗は呼ばれず、ファイルは変わらない（重複グループの一括整理と同じ形）。
+    /// 検出する誤り：未収束のカタログへ物理変更を行う、拒否の案内を出さない・重ねて出す、未適用でも進捗を通知する。
+    /// </summary>
+    [TestMethod]
+    public void Organize_CatalogNotConverged_RejectsTheWholeOperationWithOneNotice()
     {
-        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-        ReaderWriterLockSlimWrapper[] locks =
-        [
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetProperty("rwlockBMSFiles", flags)!.GetValue(library)!,
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockPendingInstallCharts", flags)!.GetValue(library)!,
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockBMSFilesInitializedMin", flags)!.GetValue(library)!
-        ];
-        return Task.Run(() =>
+        WithTemporarySongDb(databaseScope, songDbPath =>
         {
-            foreach (ReaderWriterLockSlimWrapper gate in locks)
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string folder = Path.Combine(root, "Source");
+            Directory.CreateDirectory(folder);
+            string plain = Path.Combine(folder, "chart.bms"), dot = Path.Combine(folder, ".", "chart.bms");
+            File.WriteAllText(plain, "#PLAYER 1\r\n#TITLE audio\r\n#ARTIST audio\r\n#BPM 120\r\n#COMMENT source\r\n#00111:01\r\n");
+            string wav = Path.Combine(folder, "x.wav"), ogg = Path.Combine(folder, "x.ogg");
+            File.WriteAllText(wav, "wav");
+            File.WriteAllText(ogg, "ogg");
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
-                using (gate.GetWriterGuard()) { }
+                ChartFile row = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(plain)) with { Path = dot };
+                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(row), typeof(LR2SongDB.song));
             }
-        }).Wait(TimeSpan.FromSeconds(10));
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = false, PendingInstallEstimateMaxParallelPackages = 1 };
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
+                [plain],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [folder] = [] },
+                [root]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => options, scanner, settings: TestBmsFactory.CreateRootSettings([root]))
+            { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
+            try
+            {
+                library.InitializeStartup(null);
+                var notices = new LibraryOperationNotices();
+                var progress = new List<AudioDuplicateOrganizeProgress>();
+
+                AudioDuplicateOrganizeResult result = library.OrganizeAudioDuplicateFolders(
+                    new AudioDuplicateOrganizeRequest([new AudioDuplicateOrganizeFolder(folder, ".wav", ["x"])]), 1, notices, progress.Add, CancellationToken.None);
+
+                Assert.IsFalse(result.Admitted);
+                Assert.IsFalse(result.Canceled);
+                Assert.IsTrue(result.Folders.All(item => item.Status == AudioDuplicateOrganizeStatus.Unprocessed && item.TrashedCount == 0));
+                Assert.AreEqual(0, progress.Count);
+                Assert.AreEqual(1, notices.Snapshot().Count, "既存の案内の件数が一致しません。");
+                Assert.AreEqual("wav", File.ReadAllText(wav));
+                Assert.AreEqual("ogg", File.ReadAllText(ogg));
+            }
+            finally
+            {
+                library.RequestShutdown("audio-duplicate-not-converged");
+            }
+        });
     }
 
     private static void ArrangeFourFolders(Rig rig)

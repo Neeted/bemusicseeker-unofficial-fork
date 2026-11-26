@@ -826,7 +826,7 @@ public sealed class DuplicateBatchOrganizeTests
                     value =>
                     {
                         progress.Add(value);
-                        locksFreeInReceiver &= AreModelLocksFree(rig.Library);
+                        locksFreeInReceiver &= BmsLibraryLockProbe.AreModelLocksFree(rig.Library);
                         if (value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted && value.Number == 2)
                         {
                             cancellation.Cancel();
@@ -1572,25 +1572,6 @@ public sealed class DuplicateBatchOrganizeTests
                 rig.Library.RequestShutdown("batch-audio-cleanup-cancel");
             }
         });
-    }
-
-    /// <summary>別のスレッドから、モデルの短期ロック（譜面・保留・初期化）の排他取得が待たずにできることで、呼出元スレッドが保持していないことを確かめます。</summary>
-    private static bool AreModelLocksFree(BMSLibrary library)
-    {
-        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-        ReaderWriterLockSlimWrapper[] locks =
-        [
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetProperty("rwlockBMSFiles", flags)!.GetValue(library)!,
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockPendingInstallCharts", flags)!.GetValue(library)!,
-            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockBMSFilesInitializedMin", flags)!.GetValue(library)!
-        ];
-        return Task.Run(() =>
-        {
-            foreach (ReaderWriterLockSlimWrapper gate in locks)
-            {
-                using (gate.GetWriterGuard()) { }
-            }
-        }).Wait(TimeSpan.FromSeconds(10));
     }
 
     /// <summary>実ファイルとSQLiteを持つ、一回の一括整理の入力一式です。</summary>

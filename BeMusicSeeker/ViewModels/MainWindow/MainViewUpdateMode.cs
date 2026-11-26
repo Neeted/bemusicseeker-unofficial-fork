@@ -20,6 +20,7 @@ internal enum MainViewUpdateMode
     ChartInfoParseErrorFilterSelected = 40,
     PlayHistorySelected = 41,
     SplitPlacementFilterSelected = 42,
+    AudioDuplicateFilterSelected = 43,
     NewlyInstalledFolderSelected = 49,
     PendingInstallFolderSelected = 50,
     KeywordFilterUpdated = 65,

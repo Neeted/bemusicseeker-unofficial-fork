@@ -108,6 +108,10 @@ internal static class KeywordSearchCatalog
         {
             return canonicalField == "status" ? DuplicateMergeVerificationPresentation.GetSearchStatusValues() : [];
         }
+        if (context == GridKeywordSearchContext.AudioDuplicateCandidate)
+        {
+            return canonicalField == "status" ? AudioDuplicateStatusPresentation.GetSearchStatusValues() : [];
+        }
         if (canonicalField.Length == 0)
         {
             return [];
@@ -146,7 +150,7 @@ internal static class KeywordSearchCatalog
     internal static bool IsValueField(GridKeywordSearchContext context, string field)
     {
         string canonicalField = (field ?? string.Empty).Trim().ToLowerInvariant();
-        if (context == GridKeywordSearchContext.DuplicateMergeCandidate)
+        if (context is GridKeywordSearchContext.DuplicateMergeCandidate or GridKeywordSearchContext.AudioDuplicateCandidate)
         {
             return canonicalField == "status";
         }

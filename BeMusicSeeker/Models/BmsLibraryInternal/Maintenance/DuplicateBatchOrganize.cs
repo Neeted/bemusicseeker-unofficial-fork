@@ -87,7 +87,10 @@ internal sealed class DuplicateBatchAudioCollisionCleanup
     /// <summary>対象の名前です。重複を除いた、与えられた順です。</summary>
     internal IReadOnlyList<string> Names { get; }
 
-    private static bool IsValidRelativeName(string name)
+    /// <summary>
+    /// 名前が、整理の要求の名前として扱える相対パスかを判定します。確認の検査器が衝突名を確定するときにも同じ判定を使います。
+    /// </summary>
+    internal static bool IsValidRelativeName(string name)
     {
         if (string.IsNullOrWhiteSpace(name) || System.IO.Path.IsPathRooted(name) || name.StartsWith('\\') || name.StartsWith('/'))
         {

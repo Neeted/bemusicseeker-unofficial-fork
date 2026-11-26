@@ -108,6 +108,13 @@ public sealed partial class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, OnDuplicateCandidateColumnsSettingsChanged));
 
+    /// <summary>重複音源の整理候補一覧の列設定です。起動中だけの設定で、設定へ保存しません。指定すると、この表は整理候補一覧の列を持ちます。</summary>
+    public static readonly DependencyProperty AudioDuplicateCandidateColumnsSettingsProperty = DependencyProperty.Register(
+        nameof(AudioDuplicateCandidateColumnsSettings),
+        typeof(AudioDuplicateCandidateColumnSettings),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(null, OnDuplicateCandidateColumnsSettingsChanged));
+
     public static readonly DependencyProperty RowHeightProperty = DependencyProperty.Register(
         nameof(RowHeight),
         typeof(double),
@@ -631,6 +638,12 @@ public sealed partial class CustomTableView : Grid
         set => SetValue(DuplicateCandidateColumnsSettingsProperty, value);
     }
 
+    public AudioDuplicateCandidateColumnSettings AudioDuplicateCandidateColumnsSettings
+    {
+        get => (AudioDuplicateCandidateColumnSettings)GetValue(AudioDuplicateCandidateColumnsSettingsProperty);
+        set => SetValue(AudioDuplicateCandidateColumnsSettingsProperty, value);
+    }
+
     public double RowHeight
     {
         get => (double)GetValue(RowHeightProperty);
@@ -1064,7 +1077,9 @@ public sealed partial class CustomTableView : Grid
 
     private void AttachColumnLayoutHandlers()
     {
-        IEnumerable<ICustomTableColumnLayout> layouts = DuplicateCandidateColumnsSettings != null
+        IEnumerable<ICustomTableColumnLayout> layouts = AudioDuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.EnumerateAudioDuplicateCandidateColumnLayouts(AudioDuplicateCandidateColumnsSettings).Cast<ICustomTableColumnLayout>()
+            : DuplicateCandidateColumnsSettings != null
             ? CustomTableColumnFactory.EnumerateDuplicateCandidateColumnLayouts(DuplicateCandidateColumnsSettings).Cast<ICustomTableColumnLayout>()
             : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnsSettings).Cast<ICustomTableColumnLayout>()
@@ -1125,7 +1140,9 @@ public sealed partial class CustomTableView : Grid
 
     private void RebuildColumns()
     {
-        Columns = DuplicateCandidateColumnsSettings != null
+        Columns = AudioDuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.CreateAudioDuplicateCandidateColumns(AudioDuplicateCandidateColumnsSettings).ToArray()
+            : DuplicateCandidateColumnsSettings != null
             ? CustomTableColumnFactory.CreateDuplicateCandidateColumns(DuplicateCandidateColumnsSettings).ToArray()
             : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()

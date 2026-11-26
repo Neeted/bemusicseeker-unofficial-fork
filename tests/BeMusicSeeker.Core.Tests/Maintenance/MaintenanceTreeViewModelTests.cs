@@ -623,6 +623,240 @@ public sealed class MaintenanceTreeViewModelTests
         preparation.TrySetResult();
     }
 
+    /// <summary>
+    /// 保証：重複音源ツリーの子は、結果が一件以上あるときだけ整理候補一覧のノードを先頭に置き、その後ろに結果の順でグループ項目を並べる。
+    /// 0件・結果なし（null）・解除ではノードも含めて子が空になる。ノードは重複・分裂配置のツリーのノードとは別のインスタンスである。
+    /// 検出する誤り：0件でのノードの残存、結果がないときのノードの残存、ノードの欠落、結果の順とずれた並び、他のツリーのノードの流用。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_HaveCandidateListNodeFirstWhileResultIsNotNull()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B");
+        var state = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        object node = owner.AudioDuplicateCandidateListNodeItem;
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "結果なし（null）は空");
+        Assert.AreNotSame(owner.DuplicateMergeCandidateListNodeItem, node, "重複のノードとは別の項目");
+
+        state.ReplaceAudioDuplicateGroups([b, a]);
+        owner.ApplyAudioDuplicatePresentation();
+        CollectionAssert.AreEqual(new object[] { node, b, a }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+
+        state.ReplaceAudioDuplicateGroups([]);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "0件はノードも含めて空");
+
+        state.ReplaceAudioDuplicateGroups(null);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "null はノードも含めて空");
+
+        state.ReplaceAudioDuplicateGroups([a]);
+        owner.ApplyAudioDuplicatePresentation();
+        CollectionAssert.AreEqual(new object[] { node, a }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+        owner.DetachLibrary();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "解除ではノードも含めて空");
+    }
+
+    /// <summary>
+    /// 保証：結果が一件以上ある間の同期ではノードを同じインスタンスのまま維持してResetを使わず、グループ項目の変更の位置はノードの分だけ補正される。
+    /// 0件と null でノードを除去し、結果が再び現れると先頭へ挿入する。
+    /// 検出する誤り：同期のたびのノードの除去・再挿入、位置の補正漏れ（ノードの位置への変更の混入）、Resetによる展開状態の消失。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_KeepCandidateListNodeInstanceAndCorrectPositions()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceAudioDuplicateGroups([a, b]);
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        object node = owner.AudioDuplicateCandidateListNodeItem;
+        var changes = new List<NotifyCollectionChangedEventArgs>();
+        ((INotifyCollectionChanged)owner.AudioDuplicateTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
+
+        state.ReplaceAudioDuplicateGroups([c, a, b]);
+        owner.ApplyAudioDuplicatePresentation();
+
+        Assert.IsFalse(changes.Any(change => change.Action == NotifyCollectionChangedAction.Reset), "Resetは使いません。");
+        Assert.IsTrue(changes.All(change => change.NewStartingIndex != 0 && change.OldStartingIndex != 0),
+            "グループ項目の変更はノードの分だけ位置を補正し、先頭（ノードの位置）へ届けません。");
+        Assert.AreSame(node, owner.AudioDuplicateTreeChildren[0], "ノードは同じインスタンスを保ちます。");
+        CollectionAssert.AreEqual(new object[] { node, c, a, b }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+
+        changes.Clear();
+        state.ReplaceAudioDuplicateGroups([]);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "0件ではノードも消えます。");
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Remove && change.OldItems!.Contains(node)),
+            "0件ではノードを個別の除去として届けます。");
+        state.ReplaceAudioDuplicateGroups([a]);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreSame(node, owner.AudioDuplicateTreeChildren[0], "0件の後も同じインスタンスを挿入し直す。");
+
+        changes.Clear();
+        state.ReplaceAudioDuplicateGroups(null);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "null ではノードも消えます。");
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Remove && change.OldItems!.Contains(node)),
+            "ノードは個別の除去として届きます。");
+
+        changes.Clear();
+        state.ReplaceAudioDuplicateGroups([a]);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Add && change.NewItems!.Contains(node) && change.NewStartingIndex == 0),
+            "結果が現れるとノードを先頭へ挿入します。");
+        CollectionAssert.AreEqual(new object[] { node, a }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+        Assert.AreSame(node, owner.AudioDuplicateTreeChildren[0], "null の後も同じインスタンスを挿入し直す。");
+    }
+
+    /// <summary>
+    /// 保証：同じ結果への再同期や、結果にも含まれるグループを保つ同期では、そのグループの項目を除去・置換せず、Resetを使わない。
+    /// 検出する誤り：同期のたびの全置換によるツリーの展開状態の消失。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_SyncKeepsSameInstancesWithoutReset()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceAudioDuplicateGroups([a, b]);
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        object node = owner.AudioDuplicateCandidateListNodeItem;
+        var changes = new List<NotifyCollectionChangedEventArgs>();
+        ((INotifyCollectionChanged)owner.AudioDuplicateTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
+
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, changes.Count, "同じ結果への再同期は何も変えません。");
+
+        state.ReplaceAudioDuplicateGroups([a, c]);
+        owner.ApplyAudioDuplicatePresentation();
+
+        Assert.IsFalse(changes.Any(change => change.Action == NotifyCollectionChangedAction.Reset), "Resetは使いません。");
+        foreach (NotifyCollectionChangedEventArgs change in changes.Where(change => change.Action is NotifyCollectionChangedAction.Remove or NotifyCollectionChangedAction.Replace))
+        {
+            CollectionAssert.DoesNotContain(change.OldItems!.Cast<object>().ToArray(), a, "維持するグループの項目を除去・置換しました。");
+        }
+        Assert.AreSame(node, owner.AudioDuplicateTreeChildren[0]);
+        Assert.AreSame(a, owner.AudioDuplicateTreeChildren[1]);
+        CollectionAssert.AreEqual(new object[] { node, a, c }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+    }
+
+    /// <summary>
+    /// 保証：重複音源の結果の失効で、重複のデータ準備が走っていても、子をすぐ空にする（準備中に直前の項目を保つ動作は重複だけのもの）。
+    /// 検出する誤り：重複の準備の動作を重複音源へ持ち込み、失効した古い項目を表示し続ける。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_InvalidationEmptiesChildrenImmediately()
+    {
+        DuplicateGroup a = SplitGroup("A");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceAudioDuplicateGroups([a]);
+        var preparation = new TaskCompletionSource();
+        var owner = new MaintenanceTreeViewModel { DuplicatePreparationProvider = () => preparation.Task };
+        owner.AttachPresentationState(state);
+        CollectionAssert.AreEqual(new object[] { owner.AudioDuplicateCandidateListNodeItem, a }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+
+        state.ReplaceAudioDuplicateGroups(null);
+        owner.ApplyAudioDuplicatePresentation();
+
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "ノードも含めてすぐ空になる");
+        preparation.TrySetResult();
+    }
+
+    /// <summary>
+    /// 保証：失効の通知が、新しい結果の格納より後に（UIスレッドの配送が遅れて）届いても、通知を受けた時点ではなく同期の時点の現在の結果を読むため、
+    /// 新しい結果を表示したままにする。検出する誤り：通知の理由（失効）で子を空にし、直後に格納された新しい結果を消す。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_LateInvalidationNotificationKeepsNewResult()
+    {
+        DuplicateGroup a = SplitGroup("A"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceAudioDuplicateGroups([a]);
+        var scheduler = new QueueingUiScheduler();
+        var owner = new MaintenanceTreeViewModel(scheduler);
+        owner.AttachPresentationState(state);
+        scheduler.RunPending();
+        int notifications = 0;
+        owner.AudioDuplicatePresentationChanged += (_, _) => notifications++;
+
+        state.ReplaceAudioDuplicateGroupsWithoutNotification(null);
+        state.ReplaceAudioDuplicateGroupsWithoutNotification([c]);
+        state.NotifyAudioDuplicateFoldersChanged();
+        owner.ApplyAudioDuplicatePresentation();
+        scheduler.RunPending();
+
+        Assert.AreEqual(1, notifications);
+        CollectionAssert.AreEqual(new object[] { owner.AudioDuplicateCandidateListNodeItem, c }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+    }
+
+    /// <summary>
+    /// 保証：ワーカースレッドからの反映要求は項目を変更せずUIスレッドへ配送して待たずに戻り、項目の変更はUIスレッド（配送先）でだけ行う。
+    /// 検出する誤り：ワーカースレッドでの項目の変更、UIの完了の同期的な待機。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateTreeChildren_MutatesOnlyOnUiThreadAndDoesNotWaitForIt()
+    {
+        DuplicateGroup a = SplitGroup("A");
+        var state = new MaintenanceTreePresentationStateFake();
+        var scheduler = new QueueingUiScheduler();
+        var owner = new MaintenanceTreeViewModel(scheduler);
+        owner.AttachPresentationState(state);
+        scheduler.RunPending();
+        var mutationThreads = new List<int>();
+        ((INotifyCollectionChanged)owner.AudioDuplicateTreeChildren).CollectionChanged += (_, _) => mutationThreads.Add(Environment.CurrentManagedThreadId);
+        state.ReplaceAudioDuplicateGroups([a]);
+
+        Task.Run(owner.ApplyAudioDuplicatePresentation).Wait();
+
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count, "ワーカースレッドでは項目を変更しません。");
+        Assert.AreEqual(1, scheduler.PendingCount, "UIスレッドへ配送します。");
+        scheduler.RunPending();
+        CollectionAssert.AreEqual(new object[] { owner.AudioDuplicateCandidateListNodeItem, a }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray());
+        Assert.IsTrue(mutationThreads.Count > 0 && mutationThreads.All(thread => thread == Environment.CurrentManagedThreadId));
+    }
+
+    /// <summary>
+    /// 保証：重複と重複音源の結果の変化・失効・（重複の）準備中は互いの子・通知へ影響しない。
+    /// 検出する誤り：二つのツリーが項目や通知を共有し、一方の操作でもう一方の表示が変わる。
+    /// </summary>
+    [TestMethod]
+    public void AudioDuplicateAndDuplicateTrees_AreIndependent()
+    {
+        DuplicateGroup d = SplitGroup("D"), s = SplitGroup("S");
+        var state = new MaintenanceTreePresentationStateFake([d]);
+        state.ReplaceAudioDuplicateGroups([s]);
+        var preparation = new TaskCompletionSource();
+        var owner = new MaintenanceTreeViewModel { DuplicatePreparationProvider = () => preparation.Task };
+        owner.AttachPresentationState(state);
+        var duplicateReasons = new List<string>();
+        var splitReasons = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => duplicateReasons.Add(args.Reason);
+        owner.AudioDuplicatePresentationChanged += (_, args) => splitReasons.Add(args.Reason);
+
+        state.InvalidateDuplicateChartGroups();
+        owner.ApplyDuplicateGroupsPresentation();
+        state.ReplaceDuplicateChartGroups([]);
+        owner.ApplyDuplicateGroupsPresentation();
+        CollectionAssert.AreEqual(new object[] { owner.AudioDuplicateCandidateListNodeItem, s }, owner.AudioDuplicateTreeChildren.Cast<object>().ToArray(),
+            "重複の変化・失効・準備中で重複音源の子（ノードを含む）は変わらない");
+        Assert.AreEqual(0, owner.DuplicateTreeChildren.Count, "重複側は0件でノードも空（重複音源のノードの有無に影響されない）");
+        Assert.AreEqual(0, splitReasons.Count, "重複の変化は重複音源の通知を出さない");
+
+        state.ReplaceDuplicateChartGroups([d]);
+        owner.ApplyDuplicateGroupsPresentation();
+        duplicateReasons.Clear();
+        state.ReplaceAudioDuplicateGroups(null);
+        owner.ApplyAudioDuplicatePresentation();
+        Assert.AreEqual(0, owner.AudioDuplicateTreeChildren.Count);
+        CollectionAssert.AreEqual(new object[] { owner.DuplicateMergeCandidateListNodeItem, d }, owner.DuplicateTreeChildren.Cast<object>().ToArray(),
+            "重複音源の失効で重複の項目とノードは変わらない");
+        CollectionAssert.AreEqual(new[] { "audio_duplicate_folders_changed" }, splitReasons);
+        Assert.AreEqual(0, duplicateReasons.Count, "重複音源の変化は重複の通知を出さない");
+        preparation.TrySetResult();
+    }
+
     /// <summary>配送を溜めて、テストスレッドを「UIスレッド」として実行する代替です。溜めた間は呼出しを待たずに戻ります。</summary>
     private sealed class QueueingUiScheduler : IUiScheduler
     {
@@ -680,6 +914,8 @@ public sealed class MaintenanceTreeViewModelTests
 
         private List<DuplicateGroup>? splitPlacementGroups;
 
+        private List<AudioDuplicateFolder>? audioDuplicateFolders;
+
         internal MaintenanceTreePresentationStateFake(
             List<DuplicateGroup>? duplicateChartGroups = null,
             bool healthStatusWriteLockHeld = true,
@@ -702,6 +938,8 @@ public sealed class MaintenanceTreeViewModelTests
 
         public List<DuplicateGroup>? SplitPlacementGroups => splitPlacementGroups;
 
+        public List<AudioDuplicateFolder>? AudioDuplicateFolders => audioDuplicateFolders;
+
         public bool IsWriteLockHeldInitializdBMSFilesHealthStatus { get; private set; }
 
         public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo { get; private set; }
@@ -722,6 +960,20 @@ public sealed class MaintenanceTreeViewModelTests
             splitPlacementGroups = replacement;
             RaisePropertyChanged(nameof(SplitPlacementGroups));
         }
+
+        /// <summary>重複音源の結果を、グループごとに一フォルダの結果として差し替え、変更を通知します。</summary>
+        internal void ReplaceAudioDuplicateGroups(List<DuplicateGroup>? replacement)
+        {
+            ReplaceAudioDuplicateGroupsWithoutNotification(replacement);
+            RaisePropertyChanged(nameof(AudioDuplicateFolders));
+        }
+
+        /// <summary>重複音源の結果を、通知を送らずに差し替えます。通知が格納より遅れて届く状況を作ります。</summary>
+        internal void ReplaceAudioDuplicateGroupsWithoutNotification(List<DuplicateGroup>? replacement)
+            => audioDuplicateFolders = replacement?.ConvertAll(group => new AudioDuplicateFolder(group, ["x"]));
+
+        /// <summary>重複音源の変更の通知だけを送ります。</summary>
+        internal void NotifyAudioDuplicateFoldersChanged() => RaisePropertyChanged(nameof(AudioDuplicateFolders));
 
         /// <summary>分裂配置の結果を、通知を送らずに差し替えます。通知が格納より遅れて届く状況を作ります。</summary>
         internal void ReplaceSplitPlacementGroupsWithoutNotification(List<DuplicateGroup>? replacement) => splitPlacementGroups = replacement;
