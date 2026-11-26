@@ -444,6 +444,7 @@ internal static class RootFileEnumerationService
             || reason.StartsWith("bridge_fixed_scan_export_missing", StringComparison.OrdinalIgnoreCase)
             || reason.StartsWith("bridge_source_root_scan_export_missing", StringComparison.OrdinalIgnoreCase)
             || reason.StartsWith("bridge_grouped_enumeration_export_missing", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith(EverythingNative.WavOggCollisionExportMissingReason, StringComparison.OrdinalIgnoreCase)
             || reason.StartsWith("bridge_dll_not_found:", StringComparison.OrdinalIgnoreCase)
             || reason.StartsWith("bridge_dll_load_failed:", StringComparison.OrdinalIgnoreCase);
     }

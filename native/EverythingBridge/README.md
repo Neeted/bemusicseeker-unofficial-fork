@@ -124,6 +124,11 @@ query内buffer再利用、取得失敗の伝播、packed結果のパス・mtime�
 getterの正常分岐は実SDK、失敗条件だけは関数ポインターで制御し、queryとpackは製品処理を使います。
 SDK結果・search state・clientの回収は全workerのjoin後に確認します。
 
+`EBridge_FindWavOggCollisions` は同じ試験cppで、組の集計の条件表（大文字小文字を無視した名前、大文字の拡張子、`foo.v2` のような複数ピリオドの名前、`.mp3`・`.flac` が並ぶ名前、
+拡張子なしの名前が空のファイル、片方の形式だけ、別のディレクトリ、`x.wav` という名前のディレクトリ、`.wav` の表記と並び順）と、
+パスの取得に失敗した問い合わせが全体の失敗になり成功の結果を返さないことを確認します。
+管理側の集計（`WavOggCollisionAggregator`）の条件表と同じ行をそろえ、経路の同等性を二つの試験で分担します（Compatibilityのfixtureは拡張しません）。
+
 親名の条件表は公開packの六面・三逆引きを通し、音声・画像の末尾aliasと物理directory名を区別します。
 通常対照群と、別親の正しいキーが増える群についてquery hit件数、実Search回数、実getterのindex/kind/capacity、
 資源directory数、owner/prefix cache hit/miss、assigned、hash・reverseの件数、packed bytesを確認します。
@@ -187,15 +192,21 @@ int  __cdecl EBridge_EnumerateGroupedFiles(
     const EBridgeGroupedQuery* queries,
     unsigned int queryCount,
     EBridgeGroupedFilesResult** outResult);
+int  __cdecl EBridge_FindWavOggCollisions(
+    const wchar_t* query,
+    EBridgeWavOggCollisionsResult** outResult);
 void __cdecl EBridge_FreeResult(EBridgeResult* result);
 void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result);
 void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
+void __cdecl EBridge_FreeWavOggCollisionsResult(EBridgeWavOggCollisionsResult* result);
 ```
 
 `EBridge_FreeResult` must be called for every successful scan call.  
 `EBridge_ScanChartAndResources` is the canonical fixed-scan contract for library build and includes self-only ownership fields in the returned payload.
 `EBridge_ScanSourceRoots` is the canonical source-side contract for package/source surfaces and returns per-root chart paths plus root-level hash/count summaries without an `__all__` full-path query.
 `EBridge_EnumerateGroupedFiles` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer for fallback / diagnostics / utility use.
+
+`EBridge_FindWavOggCollisions` runs one query (managed code builds it with `EverythingNative.BuildFilesQuery`, extensions `wav;ogg`) and aggregates the hits natively by directory and extension-less name (case-insensitive). Only names that have both a `.wav` and an `.ogg` file in the same directory are returned, as pairs of directory path and name (the `.wav` file's spelling, without extension), sorted by directory then name, in one packed buffer (`directory_offsets` / `name_offsets` are byte offsets into `blob`). Files whose extension-less name is empty (`.wav`) are not counted, and the full audio path list is never materialized in managed code. A query whose paths could not be read completely fails as a whole (`status` 13, null result); a partial subset is never returned as success. The result carries `contract_version` (`EBRIDGE_WAV_OGG_COLLISIONS_CONTRACT_VERSION`) and `header_size`, which managed code verifies. Release the buffer with `EBridge_FreeWavOggCollisionsResult`.
 
 ## Repository layout and operation
 

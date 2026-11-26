@@ -1241,6 +1241,7 @@ public partial class BMSLibrary : ObservableObject
     {
         // 分裂配置の結果は、重複検索の結果の有無と通知の抑止に関係なく、同じ契機で失効させる。
         InvalidateSplitPlacementGroups();
+        InvalidateAudioDuplicateFolders();
         if (_DuplicateChartGroups == null)
         {
             return false;
@@ -2687,6 +2688,7 @@ public partial class BMSLibrary : ObservableObject
         this.irClient = irClient ?? new BmsLibraryIrClient();
         OperationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
+        audioDuplicateRootFileEnumerator = rootFileEnumerator;
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService;
         dbGateway = new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, lr2SongDBPath, lr2ScoreDBPath);

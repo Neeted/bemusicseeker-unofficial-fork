@@ -173,6 +173,26 @@ struct EBridgeGroupedFilesResult {
 	unsigned long long raw_buffer_size;
 };
 
+static constexpr unsigned int EBRIDGE_WAV_OGG_COLLISIONS_CONTRACT_VERSION = 2026112601u;
+
+/// 同じディレクトリに拡張子なしの名前が一致する.wavと.oggが両方ある名前の組を、一つのバッファで返す。
+/// directory_offsets[i]とname_offsets[i]は、blobの先頭からのバイト単位の位置で、組は
+/// ディレクトリ、名前の順（大文字小文字を区別する序数順）に並ぶ。名前は.wavのファイルの表記で、拡張子を含まない。
+struct EBridgeWavOggCollisionsResult {
+	unsigned int contract_version;
+	unsigned int header_size;
+	int status;
+	int error_code;
+	unsigned long long collision_count;
+	unsigned int* directory_offsets;
+	unsigned int* name_offsets;
+	wchar_t* blob;
+	unsigned long long hit_count;
+	long long query_ms;
+	long long aggregate_ms;
+	unsigned long long raw_buffer_size;
+};
+
 struct EBridgeSourceRootRequest {
 	unsigned int root_id;
 	const wchar_t* root_path;
@@ -221,6 +241,8 @@ struct EBridgeSourceRootsResult {
 __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, const wchar_t* textQuery, EBridgeResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_ScanSourceRoots(const EBridgeSourceRootRequest* roots, unsigned int rootCount, const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeSourceRootsResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
+__declspec(dllexport) int __cdecl EBridge_FindWavOggCollisions(const wchar_t* query, EBridgeWavOggCollisionsResult** outResult);
+__declspec(dllexport) void __cdecl EBridge_FreeWavOggCollisionsResult(EBridgeWavOggCollisionsResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
@@ -250,7 +272,8 @@ enum BridgeError {
 	BRIDGE_INTERNAL_ERROR = 9,
 	BRIDGE_GROUPED_QUERY_FAILED = 10,
 	BRIDGE_SOURCE_ROOT_QUERY_FAILED = 11,
-	BRIDGE_TEXT_QUERY_FAILED = 12
+	BRIDGE_TEXT_QUERY_FAILED = 12,
+	BRIDGE_WAV_OGG_QUERY_FAILED = 13
 };
 
 using Everything3_ConnectWFn = void*(__stdcall*)(const wchar_t* instance_name);
@@ -1498,6 +1521,124 @@ int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& grouped
 	return BRIDGE_OK;
 }
 
+/// 同じディレクトリ・拡張子なしの名前（大文字小文字を無視）ごとに、.wavと.oggの有無を集める。
+/// 音源の全パスは保持せず、組の候補（名前の種類数）だけを持つ。
+struct WavOggCollisionSlot {
+	std::wstring wavDirectory;
+	std::wstring wavStem;
+	bool hasWav = false;
+	bool hasOgg = false;
+};
+
+struct WavOggCollisionAggregate {
+	std::unordered_map<std::wstring, size_t> index;
+	std::vector<WavOggCollisionSlot> slots;
+};
+
+/// 一件のファイルを集計へ加える。拡張子なしの名前が空のファイル（.wav）と、.wav/.ogg以外は数えない。
+void AddWavOggHit(WavOggCollisionAggregate& aggregate, const std::wstring& directory, const std::wstring& name) {
+	size_t dot = name.find_last_of(L'.');
+	if (dot == std::wstring::npos || dot == 0u) {
+		return;
+	}
+	const wchar_t* extension = name.c_str() + dot + 1;
+	bool isWav = _wcsicmp(extension, L"wav") == 0;
+	bool isOgg = !isWav && _wcsicmp(extension, L"ogg") == 0;
+	if (!isWav && !isOgg) {
+		return;
+	}
+	std::wstring stem = name.substr(0, dot);
+	std::wstring key = directory;
+	key.push_back(L'\0');
+	key += stem;
+	key = ToUpperInvariant(key);
+	auto found = aggregate.index.find(key);
+	size_t slotIndex;
+	if (found == aggregate.index.end()) {
+		slotIndex = aggregate.slots.size();
+		aggregate.index.emplace(std::move(key), slotIndex);
+		aggregate.slots.emplace_back();
+	} else {
+		slotIndex = found->second;
+	}
+	WavOggCollisionSlot& slot = aggregate.slots[slotIndex];
+	if (isWav) {
+		if (!slot.hasWav) {
+			slot.hasWav = true;
+			slot.wavDirectory = directory;
+			slot.wavStem = std::move(stem);
+		}
+	} else {
+		slot.hasOgg = true;
+	}
+}
+
+int BuildWavOggCollisionsResultBuffer(const WavOggCollisionAggregate& aggregate, unsigned long long hitCount, long long queryMs, long long aggregateMs, EBridgeWavOggCollisionsResult** outResult) {
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	std::vector<const WavOggCollisionSlot*> pairs;
+	for (const WavOggCollisionSlot& slot : aggregate.slots) {
+		if (slot.hasWav && slot.hasOgg) {
+			pairs.push_back(&slot);
+		}
+	}
+	std::sort(pairs.begin(), pairs.end(), [](const WavOggCollisionSlot* left, const WavOggCollisionSlot* right) {
+		int byDirectory = left->wavDirectory.compare(right->wavDirectory);
+		return byDirectory != 0 ? byDirectory < 0 : left->wavStem < right->wavStem;
+	});
+
+	size_t blobBytes = 0;
+	for (const WavOggCollisionSlot* pair : pairs) {
+		blobBytes += (pair->wavDirectory.size() + 1 + pair->wavStem.size() + 1) * sizeof(wchar_t);
+	}
+	size_t totalBytes = sizeof(EBridgeWavOggCollisionsResult)
+		+ sizeof(unsigned int) * pairs.size() * 2
+		+ blobBytes;
+	unsigned char* buffer = static_cast<unsigned char*>(std::malloc(totalBytes));
+	if (!buffer) {
+		return BRIDGE_OUT_OF_MEMORY;
+	}
+	std::memset(buffer, 0, totalBytes);
+
+	unsigned char* cursor = buffer + sizeof(EBridgeWavOggCollisionsResult);
+	unsigned int* directoryOffsets = reinterpret_cast<unsigned int*>(cursor);
+	cursor += sizeof(unsigned int) * pairs.size();
+	unsigned int* nameOffsets = reinterpret_cast<unsigned int*>(cursor);
+	cursor += sizeof(unsigned int) * pairs.size();
+	wchar_t* blob = reinterpret_cast<wchar_t*>(cursor);
+
+	EBridgeWavOggCollisionsResult* result = reinterpret_cast<EBridgeWavOggCollisionsResult*>(buffer);
+	result->contract_version = EBRIDGE_WAV_OGG_COLLISIONS_CONTRACT_VERSION;
+	result->header_size = sizeof(EBridgeWavOggCollisionsResult);
+	result->status = BRIDGE_OK;
+	result->error_code = 0;
+	result->collision_count = static_cast<unsigned long long>(pairs.size());
+	result->directory_offsets = directoryOffsets;
+	result->name_offsets = nameOffsets;
+	result->blob = blob;
+	result->hit_count = hitCount;
+	result->query_ms = queryMs;
+	result->aggregate_ms = aggregateMs;
+	result->raw_buffer_size = static_cast<unsigned long long>(totalBytes);
+
+	unsigned char* blobCursor = reinterpret_cast<unsigned char*>(blob);
+	for (size_t i = 0; i < pairs.size(); i++) {
+		const WavOggCollisionSlot& pair = *pairs[i];
+		size_t directoryChars = pair.wavDirectory.size() + 1;
+		directoryOffsets[i] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(blob));
+		std::memcpy(blobCursor, pair.wavDirectory.c_str(), directoryChars * sizeof(wchar_t));
+		blobCursor += directoryChars * sizeof(wchar_t);
+		size_t nameChars = pair.wavStem.size() + 1;
+		nameOffsets[i] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(blob));
+		std::memcpy(blobCursor, pair.wavStem.c_str(), nameChars * sizeof(wchar_t));
+		blobCursor += nameChars * sizeof(wchar_t);
+	}
+
+	*outResult = result;
+	return BRIDGE_OK;
+}
+
 uint32_t EnsureChartDirectory(ScanAggregate& aggregate, const std::wstring& chartDirectory) {
 	auto it = aggregate.chartDirIndex.find(chartDirectory);
 	if (it != aggregate.chartDirIndex.end()) {
@@ -2499,6 +2640,50 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const
 
 	long long enumerationMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
 	return BuildGroupedFilesResultBuffer(groupedResults, enumerationMs, outResult);
+}
+
+extern "C" __declspec(dllexport) int __cdecl EBridge_FindWavOggCollisions(const wchar_t* query, EBridgeWavOggCollisionsResult** outResult) {
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	*outResult = nullptr;
+	if (!query || query[0] == L'\0') {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	if (!EnsureEverythingApiLoaded()) {
+		return BRIDGE_LOAD_API_FAILED;
+	}
+
+	unsigned int connectError = EVERYTHING3_OK;
+	void* client = TryConnectClient(&connectError);
+	if (!client) {
+		return BRIDGE_CONNECT_FAILED;
+	}
+
+	// パスの取得を確認できなかった問い合わせは全体の失敗にする。部分集合を成功の結果として返さない。
+	WavOggCollisionAggregate aggregate;
+	QueryExecutionStats stats;
+	auto startedAt = std::chrono::steady_clock::now();
+	bool ok = ExecuteQuery(client, query, [&aggregate](const std::wstring& path, const std::wstring& name) {
+		if (path.empty() || name.empty()) {
+			return;
+		}
+		AddWavOggHit(aggregate, path, name);
+	}, &stats, NoopHitCountCallback{}, true);
+	g_api.DestroyClient(client);
+	if (!ok) {
+		return BRIDGE_WAV_OGG_QUERY_FAILED;
+	}
+	long long totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+	long long aggregateMs = totalMs > stats.elapsedMs ? totalMs - stats.elapsedMs : 0;
+	return BuildWavOggCollisionsResultBuffer(aggregate, stats.hitCount, stats.elapsedMs, aggregateMs, outResult);
+}
+
+extern "C" __declspec(dllexport) void __cdecl EBridge_FreeWavOggCollisionsResult(EBridgeWavOggCollisionsResult* result) {
+	if (!result) {
+		return;
+	}
+	std::free(result);
 }
 
 extern "C" __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result) {

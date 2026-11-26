@@ -567,6 +567,66 @@ void RootIdentity(Fixture& f, const std::wstring& sdkParent, const std::wstring&
 	f.CheckReleased();
 }
 
+using CollisionList = std::vector<std::pair<std::wstring, std::wstring>>;
+
+// EBridge_FindWavOggCollisionsを公開exportのまま通し、返された組（ディレクトリ、.wavの表記の名前）を読み出す。
+CollisionList FindCollisions(Fixture& f, const std::vector<Row>& rows) {
+	f.queries[L"wavogg"] = Query{rows};
+	EBridgeWavOggCollisionsResult* raw = nullptr;
+	int status = EBridge_FindWavOggCollisions(L"wavogg", &raw);
+	std::unique_ptr<EBridgeWavOggCollisionsResult, decltype(&EBridge_FreeWavOggCollisionsResult)> result(raw, EBridge_FreeWavOggCollisionsResult);
+	f.CheckReleased();
+	Require(status == BRIDGE_OK && result, "collision query failed");
+	Require(result->contract_version == EBRIDGE_WAV_OGG_COLLISIONS_CONTRACT_VERSION && result->header_size == sizeof(EBridgeWavOggCollisionsResult), "collision contract header lost");
+	Require(result->hit_count == rows.size(), "collision hit count lost");
+	CollisionList pairs;
+	for (size_t i = 0; i < result->collision_count; ++i) {
+		pairs.emplace_back(PackedString(result->blob, result->directory_offsets[i]), PackedString(result->blob, result->name_offsets[i]));
+	}
+	return pairs;
+}
+
+// 管理側の集計（WavOggCollisionAggregator）と同じ条件表。組になる条件・ならない条件を、行の入力から固定した期待値と照合する。
+void WavOggCollisionTable(Fixture& f) {
+	struct Case { const char* label; std::vector<Row> rows; CollisionList expected; };
+	const std::vector<Case> table{
+		{"case-insensitive name", {{L"C:\\a", L"Foo.wav"}, {L"C:\\a", L"foo.ogg"}}, {{L"C:\\a", L"Foo"}}},
+		{"upper extension", {{L"C:\\a", L"bar.WAV"}, {L"C:\\a", L"bar.OGG"}}, {{L"C:\\a", L"bar"}}},
+		{"dotted name", {{L"C:\\a", L"foo.v2.wav"}, {L"C:\\a", L"foo.v2.ogg"}}, {{L"C:\\a", L"foo.v2"}}},
+		{"mp3 and flac alongside", {{L"C:\\a", L"baz.wav"}, {L"C:\\a", L"baz.mp3"}, {L"C:\\a", L"baz.flac"}, {L"C:\\a", L"baz.ogg"}}, {{L"C:\\a", L"baz"}}},
+		{"ogg listed first uses wav spelling", {{L"C:\\a", L"q.ogg"}, {L"C:\\a", L"Q.wav"}}, {{L"C:\\a", L"Q"}}},
+		{"directory case differs uses wav spelling", {{L"C:\\A", L"k.wav"}, {L"C:\\a", L"K.OGG"}}, {{L"C:\\A", L"k"}}},
+		{"non-ascii", {{L"C:\\日本語", L"音.wav"}, {L"C:\\日本語", L"音.ogg"}}, {{L"C:\\日本語", L"音"}}},
+		{"drive root", {{L"C:", L"r.wav"}, {L"C:", L"r.ogg"}}, {{L"C:\\", L"r"}}},
+		{"period only in directory", {{L"C:\\a.b", L"wav"}, {L"C:\\a.b", L"ogg"}}, {}},
+		{"empty stem", {{L"C:\\a", L".wav"}, {L"C:\\a", L".ogg"}}, {}},
+		{"wav only", {{L"C:\\a", L"w.wav"}, {L"C:\\a", L"o.ogg"}}, {}},
+		{"different directories", {{L"C:\\a", L"x.wav"}, {L"C:\\b", L"x.ogg"}}, {}},
+		{"directory named like a wav", {{L"C:\\a\\x.wav", L"z.wav"}, {L"C:\\a", L"x.ogg"}}, {}},
+		{"other extensions only", {{L"C:\\a", L"m.mp3"}, {L"C:\\a", L"m.flac"}}, {}},
+		{"ordered by directory then name", {{L"C:\\b", L"z.wav"}, {L"C:\\b", L"z.ogg"}, {L"C:\\a", L"y.wav"}, {L"C:\\a", L"y.ogg"}, {L"C:\\a", L"b.wav"}, {L"C:\\a", L"b.ogg"}},
+			{{L"C:\\a", L"b"}, {L"C:\\a", L"y"}, {L"C:\\b", L"z"}}},
+		{"no hits", {}, {}},
+	};
+	for (const Case& c : table) {
+		Require(FindCollisions(f, c.rows) == c.expected, c.label);
+	}
+}
+
+// パスの取得を確認できなかった問い合わせは、先行する組があっても全体の失敗にし、成功の結果（部分集合）を返さない。
+void WavOggCollisionFailures(Fixture& f) {
+	for (Failure failure : {Failure::Initial, Failure::Capacity, Failure::Refetch}) {
+		f.queries[L"wavogg"] = Query{{{L"C:\\a", L"a.wav"}, {L"C:\\a", L"a.ogg"}, FullPathOfLength(1200)}, Getter::FullPath, failure, 2};
+		EBridgeWavOggCollisionsResult* failed = nullptr;
+		int status = EBridge_FindWavOggCollisions(L"wavogg", &failed);
+		std::unique_ptr<EBridgeWavOggCollisionsResult, decltype(&EBridge_FreeWavOggCollisionsResult)> cleanup(failed, EBridge_FreeWavOggCollisionsResult);
+		Require(status == BRIDGE_WAV_OGG_QUERY_FAILED && failed == nullptr, "collision partial success");
+		f.CheckReleased();
+	}
+	EBridgeWavOggCollisionsResult* invalid = nullptr;
+	Require(EBridge_FindWavOggCollisions(L"", &invalid) == BRIDGE_INVALID_ARGUMENT && invalid == nullptr, "empty collision query accepted");
+}
+
 } // namespace
 
 #ifndef BMS_PATH_IDENTITY_FIXTURE
@@ -582,6 +642,8 @@ int wmain(int argc, wchar_t** argv) {
 		RootIdentity(fixture, L"C:\\root-identity", L"C:\\root-identity", "normal-control");
 		RootIdentity(fixture, L"\\\\server\\share", L"\\\\server\\share", "unc-control");
 		RootIdentity(fixture, L"C:", L"C:\\", "drive-root");
+		WavOggCollisionTable(fixture);
+		WavOggCollisionFailures(fixture);
 		fixture.CheckReleased();
 		std::cout << "PASS: SDK getter boundaries, query reuse/failure, packed API results, resource cleanup\n";
 		return 0;

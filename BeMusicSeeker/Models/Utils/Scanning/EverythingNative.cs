@@ -24,6 +24,10 @@ internal sealed class EverythingNative
 
     internal const string GroupedEnumerationBackendName = "everything_bridge";
 
+    internal const string WavOggCollisionExportMissingReason = "bridge_wav_ogg_collision_export_missing";
+
+    private const uint WavOggCollisionsContractVersion = 2026112601u;
+
     internal const string FixedScanNativeBridgeReason = "everything_bridge_fixed_scan";
 
     internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
@@ -63,6 +67,10 @@ internal sealed class EverythingNative
 
     private FreeGroupedFilesResultDelegate freeGroupedFilesResult;
 
+    private FindWavOggCollisionsDelegate findWavOggCollisions;
+
+    private FreeWavOggCollisionsResultDelegate freeWavOggCollisionsResult;
+
     private ShutdownBridgeDelegate shutdownBridge;
 
     private bool bridgeExportsProbed;
@@ -78,6 +86,10 @@ internal sealed class EverythingNative
     private bool bridgeGroupedEnumerationQueryAvailable;
 
     private bool bridgeFreeGroupedEnumerationResultAvailable;
+
+    private bool bridgeWavOggCollisionsAvailable;
+
+    private bool bridgeFreeWavOggCollisionsResultAvailable;
 
     private bool bridgeShutdownAvailable;
 
@@ -126,6 +138,8 @@ internal sealed class EverythingNative
             freeSourceRootsResult = null;
             enumerateGroupedFiles = null;
             freeGroupedFilesResult = null;
+            findWavOggCollisions = null;
+            freeWavOggCollisionsResult = null;
             ShutdownBridgeDelegate shutdown = shutdownBridge;
             shutdownBridge = null;
             bridgeExportsProbed = false;
@@ -281,6 +295,8 @@ internal sealed class EverythingNative
         freeSourceRootsResult = GetDelegate<FreeSourceRootsResultDelegate>("EBridge_FreeSourceRootsResult");
         enumerateGroupedFiles = GetDelegate<EnumerateGroupedFilesDelegate>("EBridge_EnumerateGroupedFiles");
         freeGroupedFilesResult = GetDelegate<FreeGroupedFilesResultDelegate>("EBridge_FreeGroupedFilesResult");
+        findWavOggCollisions = GetDelegate<FindWavOggCollisionsDelegate>("EBridge_FindWavOggCollisions");
+        freeWavOggCollisionsResult = GetDelegate<FreeWavOggCollisionsResultDelegate>("EBridge_FreeWavOggCollisionsResult");
         shutdownBridge = GetDelegate<ShutdownBridgeDelegate>("EBridge_Shutdown");
         bridgeFixedScanAvailable = scanChartAndResources != null;
         bridgeFreeResultAvailable = freeResult != null;
@@ -288,6 +304,8 @@ internal sealed class EverythingNative
         bridgeFreeSourceRootResultAvailable = freeSourceRootsResult != null;
         bridgeGroupedEnumerationQueryAvailable = enumerateGroupedFiles != null;
         bridgeFreeGroupedEnumerationResultAvailable = freeGroupedFilesResult != null;
+        bridgeWavOggCollisionsAvailable = findWavOggCollisions != null;
+        bridgeFreeWavOggCollisionsResultAvailable = freeWavOggCollisionsResult != null;
         bridgeShutdownAvailable = shutdownBridge != null;
         bridgeExportsProbed = true;
     }
@@ -340,6 +358,21 @@ internal sealed class EverythingNative
         if (!bridgeGroupedEnumerationQueryAvailable || !bridgeFreeGroupedEnumerationResultAvailable)
         {
             reason = "bridge_grouped_enumeration_export_missing";
+            return false;
+        }
+        reason = null;
+        return true;
+    }
+
+    private bool EnsureWavOggCollisionsAvailable(out string reason)
+    {
+        if (!EnsureBridgeLoaded(out reason))
+        {
+            return false;
+        }
+        if (!bridgeWavOggCollisionsAvailable || !bridgeFreeWavOggCollisionsResultAvailable)
+        {
+            reason = WavOggCollisionExportMissingReason;
             return false;
         }
         reason = null;
@@ -500,6 +533,110 @@ internal sealed class EverythingNative
             if (nativeRoots != IntPtr.Zero)
             {
                 Marshal.FreeHGlobal(nativeRoots);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 一つの問い合わせの結果を、ネイティブ側でディレクトリと拡張子なしの名前ごとにまとめ、
+    /// 同じディレクトリに <c>.wav</c> と <c>.ogg</c> が両方ある名前の組だけを取得します。
+    /// </summary>
+    /// <remarks>
+    /// 音源の全パスは管理側へ具体化しません。パスの取得を確認できなかった問い合わせはネイティブ側で全体の失敗になり、
+    /// 部分集合は成功の結果として返りません。失敗の理由が <see cref="RootFileEnumerationService.IsBridgeContractFailure"/> に当たる場合は
+    /// 配置・契約の異常で、呼出し側は管理側の列挙へ切り替えません。
+    /// </remarks>
+    /// <param name="query">管理側が <see cref="BuildFilesQuery(string[], string[])"/> で作る、拡張子が wav;ogg の問い合わせ。</param>
+    /// <param name="result">成功時の組。0組でも成功です。</param>
+    /// <param name="reason">失敗の理由。成功時は <c>ok</c>。</param>
+    internal bool TryFindWavOggCollisions(string query, out BridgeWavOggCollisionResult result, out string reason)
+    {
+        result = null;
+        reason = null;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            reason = "bridge_wav_ogg_invalid_query";
+            return false;
+        }
+        using IDisposable nativeCallLease = EnterNativeCall();
+        if (!EnsureWavOggCollisionsAvailable(out reason))
+        {
+            return false;
+        }
+
+        IntPtr resultPtr = IntPtr.Zero;
+        try
+        {
+            int status = findWavOggCollisions(query, out resultPtr);
+            if (status != 0)
+            {
+                reason = "bridge_wav_ogg_query_failed:" + status;
+                return false;
+            }
+            if (resultPtr == IntPtr.Zero)
+            {
+                reason = "bridge_wav_ogg_empty_result";
+                return false;
+            }
+
+            EBridgeWavOggCollisionsResultHeader header = Marshal.PtrToStructure<EBridgeWavOggCollisionsResultHeader>(resultPtr);
+            if (header.contract_version != WavOggCollisionsContractVersion)
+            {
+                reason = "bridge_contract_mismatch:expected=" + WavOggCollisionsContractVersion + ":actual=" + header.contract_version;
+                return false;
+            }
+            int expectedHeaderSize = Marshal.SizeOf<EBridgeWavOggCollisionsResultHeader>();
+            if (header.header_size != expectedHeaderSize)
+            {
+                reason = "bridge_header_size_mismatch:expected=" + expectedHeaderSize + ":actual=" + header.header_size;
+                return false;
+            }
+            if (header.status != 0)
+            {
+                reason = "bridge_wav_ogg_status_failed:" + header.error_code;
+                return false;
+            }
+
+            var collisions = new List<WavOggCollision>(checked((int)header.collision_count));
+            for (ulong i = 0; i < header.collision_count; i += 1)
+            {
+                uint directoryOffset = (uint)Marshal.ReadInt32(header.directory_offsets, checked((int)(i * 4)));
+                uint nameOffset = (uint)Marshal.ReadInt32(header.name_offsets, checked((int)(i * 4)));
+                string directory = ReadUtf16FromBlob(header.blob, directoryOffset);
+                string name = ReadUtf16FromBlob(header.blob, nameOffset);
+                if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(name))
+                {
+                    reason = "bridge_wav_ogg_invalid_entry:" + i;
+                    return false;
+                }
+                collisions.Add(new WavOggCollision(directory, name));
+            }
+            result = new BridgeWavOggCollisionResult
+            {
+                Collisions = collisions,
+                HitCount = header.hit_count,
+                QueryMs = header.query_ms,
+                AggregateMs = header.aggregate_ms
+            };
+            reason = "ok";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            reason = "bridge_wav_ogg_exception:" + ex.Message;
+            return false;
+        }
+        finally
+        {
+            if (resultPtr != IntPtr.Zero)
+            {
+                try
+                {
+                    freeWavOggCollisionsResult(resultPtr);
+                }
+                catch
+                {
+                }
             }
         }
     }
@@ -1303,6 +1440,14 @@ internal sealed class EverythingNative
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void FreeGroupedFilesResultDelegate(IntPtr result);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private delegate int FindWavOggCollisionsDelegate(
+        [MarshalAs(UnmanagedType.LPWStr)] string query,
+        out IntPtr outResult);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeWavOggCollisionsResultDelegate(IntPtr result);
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void ShutdownBridgeDelegate();
 
@@ -1346,6 +1491,18 @@ internal sealed class EverythingNative
         internal ulong HitCount { get; set; }
 
         internal long QueryMs { get; set; }
+    }
+
+    /// <summary>ブリッジが返した、同じディレクトリに <c>.wav</c> と <c>.ogg</c> が両方ある名前の組です。</summary>
+    internal sealed class BridgeWavOggCollisionResult
+    {
+        internal List<WavOggCollision> Collisions { get; set; } = [];
+
+        internal ulong HitCount { get; set; }
+
+        internal long QueryMs { get; set; }
+
+        internal long AggregateMs { get; set; }
     }
 
     internal sealed class BridgeGroupedEnumerationResult
@@ -1487,6 +1644,23 @@ internal sealed class EverythingNative
     {
         public uint group_id;
         public IntPtr query_text;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct EBridgeWavOggCollisionsResultHeader
+    {
+        public uint contract_version;
+        public uint header_size;
+        public int status;
+        public int error_code;
+        public ulong collision_count;
+        public IntPtr directory_offsets;
+        public IntPtr name_offsets;
+        public IntPtr blob;
+        public ulong hit_count;
+        public long query_ms;
+        public long aggregate_ms;
+        public ulong raw_buffer_size;
     }
 
     [StructLayout(LayoutKind.Sequential)]
