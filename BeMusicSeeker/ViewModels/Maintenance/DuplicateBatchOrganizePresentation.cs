@@ -36,14 +36,15 @@ internal static class DuplicateBatchOrganizePresentation
     }
 
     /// <summary>
-    /// 捕捉した対象から、同等なWAV・OGGの衝突整理の指定を作ります。指定するのは、捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、
-    /// 捕捉時点の確認結果が全衝突の同等を示すグループだけです（段階は問いません）。それ以外はnullで、両方を残します。
+    /// 捕捉した対象から、WAV・OGGの衝突整理の指定を作ります。指定するのは、捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、
+    /// 捕捉時点の確認結果がWAV・OGGの衝突名を一つ以上持つグループです（段階と、同等性検査のオン・オフは問いません）。
+    /// 名前は衝突名のすべてで、同等と判定していない名前も含みます。それ以外はnullで、両方を残します。
     /// </summary>
     private static DuplicateBatchAudioCollisionCleanup CreateAudioCollisionCleanup(DuplicateMergeCandidateGroupTarget target)
     {
         if (target.CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepBoth
             || !target.Folders.Any(folder => !string.Equals(folder, target.KeepFolder, StringComparison.OrdinalIgnoreCase))
-            || target.Verification is not { AllAudioCollisionsEquivalent: true, EquivalentAudioNames: { Count: > 0 } names })
+            || target.Verification is not { WavOggCollisionNames: { Count: > 0 } names })
         {
             return null;
         }
@@ -71,7 +72,7 @@ internal static class DuplicateBatchOrganizePresentation
     /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行、
     /// 衝突整理を指定するグループがあるときだけ残す形式ごとの衝突整理の行の順です。
     /// 警告用の本文（警告色で表示する部分）は、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
-    /// 一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があるときだけ上書きの行、
+    /// 衝突整理の指定の名前に同等と判定していない名前を含むグループがあるときだけその件数の行、一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があるときだけ上書きの行、
     /// 連番名で保持される.bmx/.txtの衝突があるときだけ連番名の行を、この順に並べ、該当がなければnullです。
     /// </summary>
     /// <param name="overwrite">確認文を作る時点の上書きの設定です。衝突の行の文言を決めます。</param>
@@ -116,7 +117,16 @@ internal static class DuplicateBatchOrganizePresentation
         }
         lines.Add(Resources.Duplicate_batch_organize_confirm_trash);
         // 衝突整理の値は全対象で捕捉時点の同じ値です。指定を作る条件はCreateRequestと同じ規則で数えます。
-        int audioCleanupGroups = targets.Count(target => CreateAudioCollisionCleanup(target) != null);
+        DuplicateBatchAudioCollisionCleanup[] audioCleanups = [.. targets.Select(CreateAudioCollisionCleanup)];
+        int audioCleanupGroups = audioCleanups.Count(cleanup => cleanup != null);
+        // 同等と判定していない名前も一方だけが残るため、そのような名前を含むグループの数を警告用の本文で示します。
+        int unequalCleanupGroups = 0;
+        for (int index = 0; index < targets.Count; index++)
+        {
+            if (audioCleanups[index] == null) { continue; }
+            IReadOnlyList<string> equivalent = targets[index].Verification?.EquivalentAudioNames ?? [];
+            if (audioCleanups[index].Names.Any(name => !equivalent.Contains(name, StringComparer.OrdinalIgnoreCase))) { unequalCleanupGroups++; }
+        }
         if (audioCleanupGroups > 0)
         {
             lines.Add(string.Format(
@@ -139,6 +149,10 @@ internal static class DuplicateBatchOrganizePresentation
         {
             warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_caution_format, caution));
         }
+        if (unequalCleanupGroups > 0)
+        {
+            warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_audio_unequal_format, unequalCleanupGroups));
+        }
         if (contentConflict || (protectedCollision && !overwrite.KeepsBothProtectedFiles))
         {
             warnings.Add(overwrite.SmartOverwrite
@@ -154,7 +168,7 @@ internal static class DuplicateBatchOrganizePresentation
     }
 
     /// <summary>
-    /// 結果の案内を作ります。見出しは五区分（0件の区分も含む）の件数、ごみ箱へ送った譜面があれば合計、同等な音源をごみ箱へ送っていればその件数、取消されていれば取消の行を続け、
+    /// 結果の案内を作ります。見出しは五区分（0件の区分も含む）の件数、ごみ箱へ送った譜面があれば合計、衝突整理で音源をごみ箱へ送っていればその件数、取消されていれば取消の行を続け、
     /// 完了以外のグループを要求順に最大 <see cref="MaxDetailGroups"/> 件まで「KEEP：状態（理由）」と残った移動元ごとの「移動元：理由」で並べます。
     /// </summary>
     /// <param name="allCompleted">全グループが完了で、取消も削除の失敗もない場合はtrueです。案内のアイコンの選択に使います。</param>

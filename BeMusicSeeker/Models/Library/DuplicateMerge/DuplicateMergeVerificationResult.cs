@@ -89,13 +89,18 @@ internal sealed record DuplicateMergeComparisonSummary(int SizeAndTime, int Full
 /// <param name="Comparisons">同一内容と判定した同名の資源の組の数です。安全の説明に使います。</param>
 /// <param name="EquivalentAudioNames">同等性検査で、同名のWAVとOGGが同等と判定された名前（相対ディレクトリと拡張子なしの名前）です。検査を行わなければ空です。KEEPによりません。</param>
 /// <param name="AllAudioCollisionsEquivalent">同等性検査を行わない場合に「同名音源の拡張子違い」へ該当する名前が一つ以上あり、そのすべてを同等と判定したかです。KEEPによりません。</param>
+/// <param name="WavOggCollisionNames">
+/// WAV・OGGの衝突名です。同等性検査を行わない場合に「同名音源の拡張子違い」へ該当する名前のうち、グループ内の拡張子が <c>.wav</c> と <c>.ogg</c> のちょうど二種類のものです。
+/// 同等性検査のオン・オフとKEEPによらず求め、<paramref name="EquivalentAudioNames"/> はその部分集合です。一括整理の衝突整理が対象とする名前です。
+/// </param>
 internal sealed record DuplicateMergeVerificationResult(
     DuplicateMergeVerificationStage Stage,
     IReadOnlyList<DuplicateMergeVerificationReason> Reasons,
     IReadOnlyList<string> ProtectedNameCollisions = null,
     DuplicateMergeComparisonSummary Comparisons = null,
     IReadOnlyList<string> EquivalentAudioNames = null,
-    bool AllAudioCollisionsEquivalent = false)
+    bool AllAudioCollisionsEquivalent = false,
+    IReadOnlyList<string> WavOggCollisionNames = null)
 {
     /// <summary>未確認の結果です。新しいグループの初期値です。</summary>
     internal static DuplicateMergeVerificationResult Unverified { get; } = new(DuplicateMergeVerificationStage.Unverified, []);

@@ -97,11 +97,12 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
         DuplicateMergeComparisonSummary comparisons = DuplicateMergeComparisonSummary.None;
         IReadOnlyList<string> equivalentAudioNames = [];
         bool allAudioCollisionsEquivalent = false;
+        IReadOnlyList<string> wavOggCollisionNames = [];
         var keepDependent = new Dictionary<string, DuplicateMergeKeepDependentFacts>(StringComparer.OrdinalIgnoreCase);
         if (multiple)
         {
             InspectFolderRelations(request, folders, Reason);
-            (protectedCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent) = InspectContents(request, folders, scans, Reason);
+            (protectedCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent, wavOggCollisionNames) = InspectContents(request, folders, scans, Reason);
             for (int index = 0; index < folders.Count; index++)
             {
                 keepDependent[folders[index]] = InspectOwnedCharts(folders[index], Reason);
@@ -116,7 +117,8 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
             comparisons,
             keepDependent,
             equivalentAudioNames,
-            allAudioCollisionsEquivalent);
+            allAudioCollisionsEquivalent,
+            wavOggCollisionNames);
     }
 
     /// <summary>グループ内の親子関係と、別のグループとの重なりを調べます。</summary>
@@ -151,7 +153,7 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
     /// 各ファイルの内容は、比較が必要な場合に一度だけ読みます。保護対象は資源と同じ手順で比べますが、連結と比較の組の数には数えません。
     /// </summary>
     private static (IReadOnlyList<string> ProtectedCollisions, DuplicateMergeComparisonSummary Comparisons,
-        IReadOnlyList<string> EquivalentAudioNames, bool AllAudioCollisionsEquivalent) InspectContents(
+        IReadOnlyList<string> EquivalentAudioNames, bool AllAudioCollisionsEquivalent, IReadOnlyList<string> WavOggCollisionNames) InspectContents(
         DuplicateMergeInspectionRequest request, IReadOnlyList<string> folders, DuplicateMergeFolderScan[] scans,
         Func<DuplicateMergeVerificationReasonKind, List<DuplicateMergeFinding>> reason)
     {
@@ -251,7 +253,9 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
                 collisions.Add((name, entries));
             }
         }
-        HashSet<string> equivalent = request.AudioEquivalence ? JudgeAudioEquivalence(collisions, folders, reason) : [];
+        // WAV・OGGの衝突名は、同等性検査のオン・オフによらず求め、一括整理の衝突整理の対象にする。同等性検査の対象も同じ名前。
+        List<(string Name, List<Entry> Entries)> wavOggCollisions = [.. collisions.Where(collision => HasOnlyWavAndOgg(collision.Entries))];
+        HashSet<string> equivalent = request.AudioEquivalence ? JudgeAudioEquivalence(wavOggCollisions, folders, reason) : [];
         foreach ((string name, List<Entry> entries) in collisions)
         {
             if (equivalent.Contains(name)) { continue; }
@@ -269,21 +273,21 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
             [.. protectedCollisions.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)],
             new DuplicateMergeComparisonSummary(sizeAndTime, full, partial),
             [.. equivalent.Order(StringComparer.OrdinalIgnoreCase)],
-            collisions.Count > 0 && equivalent.Count == collisions.Count);
+            collisions.Count > 0 && equivalent.Count == collisions.Count,
+            [.. wavOggCollisions.Select(collision => collision.Name).Order(StringComparer.OrdinalIgnoreCase)]);
     }
 
     /// <summary>一つの名前の判定の結果です。<paramref name="Unreadable"/> は、読取りの入出力に失敗したファイルです。</summary>
     private sealed record AudioNameJudgement(bool Equivalent, IReadOnlyList<Entry> Unreadable);
 
     /// <summary>
-    /// 同名音源の拡張子違いに該当する名前のうち、拡張子が <c>.wav</c> と <c>.ogg</c> のちょうど二種類のものについて、波形が同等かを調べ、同等な名前の集合を返します。
+    /// WAV・OGGの衝突名（同名音源の拡張子違いに該当する名前のうち、拡張子が <c>.wav</c> と <c>.ogg</c> のちょうど二種類のもの）について、波形が同等かを調べ、同等な名前の集合を返します。
     /// 名前ごとに、論理プロセッサ数を上限に並列で処理します。読取りの入出力に失敗したファイルは解析不能の理由へ加え、その名前は同等にしません。
     /// </summary>
     private static HashSet<string> JudgeAudioEquivalence(
-        List<(string Name, List<Entry> Entries)> collisions, IReadOnlyList<string> folders,
+        List<(string Name, List<Entry> Entries)> targets, IReadOnlyList<string> folders,
         Func<DuplicateMergeVerificationReasonKind, List<DuplicateMergeFinding>> reason)
     {
-        List<(string Name, List<Entry> Entries)> targets = [.. collisions.Where(collision => HasOnlyWavAndOgg(collision.Entries))];
         var equivalent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (targets.Count == 0) { return equivalent; }
 

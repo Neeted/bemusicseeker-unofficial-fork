@@ -1006,18 +1006,16 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：STATUSの文言は、未確認「未確認」、安全「安全」（.bmx/.txtの衝突があれば付記つき）、要注意・統合不可「（段階）：（理由, 理由…）」で、
-    /// 成立した理由をすべて結果の順に、表示言語によらない「, 」で並べる（理由が一つなら一つだけ）。.bmx/.txtの衝突は要注意・統合不可の文言へ出さない。
-    /// 統合不可と要注意の理由が混在する結果は、段階は統合不可のまま両方の理由を並べる。
-    /// 検出する誤り：最初の理由だけの表示・「ほか{n}件」への省略、理由の順の入れ替え、区切りの取り違え、段階と書式の取り違え、.bmx/.txtの衝突の混入。
+    /// 保証：補助情報のないSTATUSの段階の文言は、未確認「未確認」、安全「安全」、要注意・統合不可「（段階）：（理由, 理由…）」で、
+    /// 成立した理由をすべて結果の順に、表示言語によらない「, 」で並べる（理由が一つなら一つだけ）。
+    /// 統合不可と要注意の理由が混在する結果は、段階は統合不可のまま両方の理由を並べる。補助情報の付記は <see cref="StatusText_AppendsAuxiliaryNotesInOneBracketOnEveryStage"/> が分担する。
+    /// 検出する誤り：最初の理由だけの表示・「ほか{n}件」への省略、理由の順の入れ替え、区切りの取り違え、段階と書式の取り違え。
     /// </summary>
     [TestMethod]
     public void StatusText_ListsAllReasonsInResultOrder()
     {
-        var withNote = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [], ["readme.txt"]);
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, DuplicateMergeVerificationResult.Unverified.FormatStatus());
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, Result(DuplicateMergeVerificationStage.Safe).FormatStatus());
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe_protected_collision, withNote.FormatStatus());
 
         static string Caution(params string[] names)
             => string.Format(Resources.Duplicate_merge_candidate_status_reasons_format, Resources.Duplicate_merge_candidate_status_caution, string.Join(", ", names));
@@ -1028,8 +1026,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(Caution(Resources.Duplicate_merge_candidate_reason_audio_extension), one.FormatStatus(), "理由が一つなら従来と同じ表示です。");
         DuplicateMergeVerificationResult many = Result(
             DuplicateMergeVerificationStage.Caution,
-            (DuplicateMergeVerificationReasonKind.ParentReference, 1), (DuplicateMergeVerificationReasonKind.ContentConflict, 2), (DuplicateMergeVerificationReasonKind.NestedChartFolder, 1)) with
-        { ProtectedNameCollisions = ["readme.txt"] };
+            (DuplicateMergeVerificationReasonKind.ParentReference, 1), (DuplicateMergeVerificationReasonKind.ContentConflict, 2), (DuplicateMergeVerificationReasonKind.NestedChartFolder, 1));
         Assert.AreEqual(
             Caution(
                 Resources.Duplicate_merge_candidate_reason_parent_reference,
@@ -1103,7 +1100,12 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         })
         {
             fixture.Owner.WriteVerifications([new(group, result)]);
-            Assert.AreEqual(WithMismatch(result.FormatStatus(), note), fixture.Row(b).StatusText);
+            // 代表値の付記と.bmx/.txtの衝突は、段階の文言の後ろの一つの括弧へこの順に並ぶ。
+            string stage = (result with { ProtectedNameCollisions = null }).FormatStatus();
+            string expected = result.HasProtectedNameCollision
+                ? WithMismatch(stage, note, Resources.Duplicate_merge_candidate_status_protected_collision)
+                : WithMismatch(stage, note);
+            Assert.AreEqual(expected, fixture.Row(b).StatusText);
             Assert.AreEqual(result.Stage != DuplicateMergeVerificationStage.Unmergeable, fixture.Row(b).State.CanSelect);
         }
 
@@ -1114,7 +1116,9 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Source.Pairs[b] = fixture.Source.Pairs[a];
         fixture.Adopt(group, single);
         CollectionAssert.AreEqual(new[] { a, b, single.Folders[0] }, fixture.Paths);
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe_protected_collision, fixture.Row(b).StatusText);
+        Assert.AreEqual(
+            WithMismatch(Resources.Duplicate_merge_candidate_status_safe, Resources.Duplicate_merge_candidate_status_protected_collision),
+            fixture.Row(b).StatusText);
         Assert.IsTrue(fixture.Row(b).IsKeep);
         Assert.IsTrue(fixture.Row(b).State.IsSelected);
     }
@@ -1156,43 +1160,57 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         };
 
     /// <summary>
-    /// 保証：「全衝突が同等」の結果のSTATUSは、安全のときだけ「安全（WAV/OGG同等）」になり、.bmx/.txtの衝突があれば既存の付記の後ろへ別の括弧で続ける。
-    /// 要注意・統合不可には付記せず、全衝突が同等でない安全は従来のままで、代表TITLE不一致の付記は「WAV/OGG同等」の後ろに付く。
-    /// 検出する誤り：付記の括弧の形・順序の誤り、要注意・統合不可への付記、全同等でない結果への付記、代表値の付記との順序の入れ替え。
+    /// 保証：STATUSは、段階の文言の後ろに、補助情報（WAV/OGG同等、代表TITLE不一致、代表ARTIST不一致、.bmx/.txtの衝突）のうち成立したものを
+    /// この順に「, 」でつないだ一つの括弧で付記し、段階（安全・要注意・統合不可）によらず同じ規則で付ける。「WAV/OGG同等」は全衝突が同等のときだけ成立し、
+    /// 何も成立しなければ括弧を付けない。
+    /// 検出する誤り：付記ごとの別の括弧、付記の順序の誤り、要注意・統合不可での付記の欠落、全同等でない結果への「WAV/OGG同等」、成立なしでの空の括弧。
     /// </summary>
     [TestMethod]
-    public void StatusText_AnnotatesAllEquivalentAudioOnlyOnSafeBeforeRepresentativeNote()
+    public void StatusText_AppendsAuxiliaryNotesInOneBracketOnEveryStage()
     {
-        DuplicateMergeVerificationResult safe = Result(DuplicateMergeVerificationStage.Safe);
-        Assert.AreEqual("安全（WAV/OGG同等）", WithEquivalence(safe, 1, true).FormatStatus());
-        Assert.AreEqual("安全（.bmx/.txtの衝突）（WAV/OGG同等）", WithEquivalence(safe, 1, true, protectedCollision: true).FormatStatus());
-
-        string equivalent = Resources.Duplicate_merge_candidate_status_audio_equivalent;
-        Assert.AreEqual(WithMismatch(Resources.Duplicate_merge_candidate_status_safe, equivalent), WithEquivalence(safe, 2, true).FormatStatus());
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, WithEquivalence(safe, 1, false).FormatStatus(), "全衝突が同等でない安全には付記しません。");
-        Assert.AreEqual(
-            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
-            WithEquivalence(safe, 0, false, protectedCollision: true).FormatStatus(),
-            ".bmx/.txtの衝突だけなら従来どおりです。");
-        foreach (DuplicateMergeVerificationResult other in new[]
-        {
-            Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1)),
-            Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Link, 1))
-        })
-        {
-            Assert.AreEqual(other.FormatStatus(), WithEquivalence(other, 1, true).FormatStatus(), "要注意・統合不可のSTATUSには付記しません。");
-        }
-
         var fixture = new Fixture();
-        DuplicateGroup group = Group(@"C:\S\a", @"C:\S\b");
-        fixture.Source.Pairs[group.Folders[0]] = ("Song", "Artist");
-        fixture.Source.Pairs[group.Folders[1]] = ("Other", "Artist");
-        fixture.Adopt(group);
-        fixture.Owner.WriteVerifications([new(group, WithEquivalence(safe, 1, true))]);
+        DuplicateGroup cautionTitle = Group(@"C:\S\a1", @"C:\S\a2"), safeArtist = Group(@"C:\S\b1", @"C:\S\b2"),
+            blockedAll = Group(@"C:\S\c1", @"C:\S\c2"), safeTwo = Group(@"C:\S\d1", @"C:\S\d2"),
+            conflictEquivalent = Group(@"C:\S\e1", @"C:\S\e2"), partial = Group(@"C:\S\f1", @"C:\S\f2"), plain = Group(@"C:\S\g1", @"C:\S\g2");
+        fixture.Source.Pairs[@"C:\S\a1"] = ("Song", "Artist");
+        fixture.Source.Pairs[@"C:\S\a2"] = ("Other", "Artist");
+        fixture.Source.Pairs[@"C:\S\b1"] = ("Song", "Artist");
+        fixture.Source.Pairs[@"C:\S\b2"] = ("Song", "Other");
+        fixture.Source.Pairs[@"C:\S\c1"] = ("Song", "Artist");
+        fixture.Source.Pairs[@"C:\S\c2"] = ("Other", "Other");
+        fixture.Adopt(cautionTitle, safeArtist, blockedAll, safeTwo, conflictEquivalent, partial, plain);
+        DuplicateMergeVerificationResult safe = Result(DuplicateMergeVerificationStage.Safe);
+        DuplicateMergeVerificationResult blocked = Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Link, 1));
+        DuplicateMergeVerificationResult conflict = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ContentConflict, 1));
+        fixture.Owner.WriteVerifications(
+        [
+            new(cautionTitle, WithEquivalence(Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.AudioExtension, 1)), 0, false, protectedCollision: true)),
+            new(safeArtist, WithEquivalence(safe, 1, true)),
+            new(blockedAll, WithEquivalence(blocked, 1, true, protectedCollision: true)),
+            new(safeTwo, WithEquivalence(safe, 2, true, protectedCollision: true)),
+            new(conflictEquivalent, WithEquivalence(conflict, 1, true)),
+            new(partial, WithEquivalence(safe, 1, false)),
+            new(plain, safe)
+        ]);
+
+        Assert.AreEqual("要注意：同名音源の拡張子違い（代表TITLE不一致, .bmx/.txtの衝突）", fixture.Row(@"C:\S\a1").StatusText);
+        Assert.AreEqual("安全（WAV/OGG同等, 代表ARTIST不一致）", fixture.Row(@"C:\S\b1").StatusText);
         Assert.AreEqual(
-            WithMismatch(WithMismatch(Resources.Duplicate_merge_candidate_status_safe, equivalent), Resources.Duplicate_merge_candidate_title_mismatch),
-            fixture.Row(group.Folders[0]).StatusText,
-            "代表TITLE不一致の付記は「WAV/OGG同等」の後ろです。");
+            WithMismatch(
+                blocked.FormatStatus(),
+                Resources.Duplicate_merge_candidate_status_audio_equivalent,
+                Resources.Duplicate_merge_candidate_title_mismatch,
+                Resources.Duplicate_merge_candidate_artist_mismatch,
+                Resources.Duplicate_merge_candidate_status_protected_collision),
+            fixture.Row(@"C:\S\c1").StatusText,
+            "統合不可でも四つの補助情報をすべて、この順に一つの括弧で付記します。");
+        Assert.AreEqual("安全（WAV/OGG同等, .bmx/.txtの衝突）", fixture.Row(@"C:\S\d1").StatusText, "付記ごとに別の括弧を付けません。");
+        Assert.AreEqual(
+            WithMismatch(conflict.FormatStatus(), Resources.Duplicate_merge_candidate_status_audio_equivalent),
+            fixture.Row(@"C:\S\e1").StatusText,
+            "要注意でも全衝突が同等なら「WAV/OGG同等」を付記します。");
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.Row(@"C:\S\f1").StatusText, "全衝突が同等でなければ付記しません。");
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.Row(@"C:\S\g1").StatusText, "成立した補助情報がなければ括弧を付けません。");
     }
 
     /// <summary>
@@ -1224,33 +1242,48 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：STATUSの語「WAV/OGG同等」の検索と除外は、付記のある安全なグループだけに一致する。「安全」の検索は付記のあるグループにも一致する。
-    /// 検出する誤り：付記を検索・除外へ使わない、要注意の全同等グループへの一致、「安全」の検索からの脱落。
+    /// 保証：STATUSの補助情報の語「WAV/OGG同等」「.bmx/.txtの衝突」の検索と除外は、段階によらず、その付記を持つグループに一致する（他の付記と同じ括弧の中でも一致する）。
+    /// 「安全」の検索は、付記を持つ安全なグループにも一致する。
+    /// 検出する誤り：付記を検索・除外へ使わない、安全なグループだけへの一致、他の付記と並んだときの不一致、「安全」の検索からの脱落。
     /// </summary>
     [TestMethod]
-    public void StatusSearchAndExclude_MatchEquivalentAudioAnnotation()
+    public void StatusSearchAndExclude_MatchAuxiliaryNotesOnEveryStage()
     {
         var fixture = new Fixture();
-        DuplicateGroup annotated = Group(@"C:\S\a1", @"C:\S\a2"), plain = Group(@"C:\S\b1", @"C:\S\b2"), caution = Group(@"C:\S\c1", @"C:\S\c2");
-        fixture.Adopt(annotated, plain, caution);
+        DuplicateGroup safeEquivalent = Group(@"C:\S\a1", @"C:\S\a2"), cautionEquivalent = Group(@"C:\S\b1", @"C:\S\b2"),
+            cautionProtected = Group(@"C:\S\c1", @"C:\S\c2"), safeProtectedTitle = Group(@"C:\S\d1", @"C:\S\d2"), plain = Group(@"C:\S\e1", @"C:\S\e2");
+        fixture.Source.Pairs[@"C:\S\d1"] = ("Song", "Artist");
+        fixture.Source.Pairs[@"C:\S\d2"] = ("Other", "Artist");
+        fixture.Adopt(safeEquivalent, cautionEquivalent, cautionProtected, safeProtectedTitle, plain);
+        DuplicateMergeVerificationResult caution = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1));
         fixture.Owner.WriteVerifications(
         [
-            new(annotated, WithEquivalence(Result(DuplicateMergeVerificationStage.Safe), 1, true)),
-            new(plain, Result(DuplicateMergeVerificationStage.Safe)),
-            new(caution, WithEquivalence(Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1)), 1, true))
+            new(safeEquivalent, WithEquivalence(Result(DuplicateMergeVerificationStage.Safe), 1, true)),
+            new(cautionEquivalent, WithEquivalence(caution, 1, true)),
+            new(cautionProtected, WithEquivalence(caution, 0, false, protectedCollision: true)),
+            new(safeProtectedTitle, WithEquivalence(Result(DuplicateMergeVerificationStage.Safe), 0, false, protectedCollision: true)),
+            new(plain, Result(DuplicateMergeVerificationStage.Safe))
         ]);
-        string note = "status:\"" + Resources.Duplicate_merge_candidate_status_audio_equivalent + "\"";
+        DuplicateGroup[] Visible() => [.. fixture.Rows.Select(row => row.State.Group).Distinct()];
 
-        fixture.Owner.SearchText = note;
-        CollectionAssert.AreEqual(new[] { annotated }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
-
+        string equivalent = "status:\"" + Resources.Duplicate_merge_candidate_status_audio_equivalent + "\"";
+        fixture.Owner.SearchText = equivalent;
+        CollectionAssert.AreEquivalent(new[] { safeEquivalent, cautionEquivalent }, Visible());
         fixture.Owner.SearchText = string.Empty;
-        fixture.Owner.ExcludeText = note;
-        CollectionAssert.AreEquivalent(new[] { plain, caution }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
+        fixture.Owner.ExcludeText = equivalent;
+        CollectionAssert.AreEquivalent(new[] { cautionProtected, safeProtectedTitle, plain }, Visible());
+
+        string protectedCollision = "status:\"" + Resources.Duplicate_merge_candidate_status_protected_collision + "\"";
+        fixture.Owner.ExcludeText = string.Empty;
+        fixture.Owner.SearchText = protectedCollision;
+        CollectionAssert.AreEquivalent(new[] { cautionProtected, safeProtectedTitle }, Visible(), "代表値の付記と同じ括弧の中でも一致します。");
+        fixture.Owner.SearchText = string.Empty;
+        fixture.Owner.ExcludeText = protectedCollision;
+        CollectionAssert.AreEquivalent(new[] { safeEquivalent, cautionEquivalent, plain }, Visible());
 
         fixture.Owner.ExcludeText = string.Empty;
         fixture.Owner.SearchText = "status:" + Resources.Duplicate_merge_candidate_status_safe;
-        CollectionAssert.AreEquivalent(new[] { annotated, plain }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray());
+        CollectionAssert.AreEquivalent(new[] { safeEquivalent, safeProtectedTitle, plain }, Visible());
     }
 
     /// <summary>

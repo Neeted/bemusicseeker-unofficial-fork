@@ -1319,7 +1319,16 @@ Selecting `Merge candidates` at the top of the duplicate-file-check tree shows d
 | `PATH` / `FOLDER` | Folder path and folder name. |
 | `TITLE` / `ARTIST` | Representative title and artist of the folder. |
 
-In both the duplicate file check and the split placement check, `Representative TITLE mismatch` appears in `STATUS` when folders in the same group show different values in the `TITLE` column. The same applies to `ARTIST`, shown as `Representative ARTIST mismatch`. The comparison distinguishes case, full-width and half-width characters, and whitespace. Two empty values match. An empty value and a nonempty value differ. These notes appear before verification and do not affect the safety rating or whether the group can be organized. Enter `status:"Representative TITLE mismatch"` in the search box to show matching groups or in the exclusion box to hide them.
+After the stage and reasons, `STATUS` shows supplementary notes that do not affect the safety rating or whether the group can be organized, all in one pair of parentheses. When there are several, they are separated by commas in the following order, as in `Caution: same audio name, different extension (Representative TITLE mismatch, .bmx/.txt collision)`. Notes appear whether the stage is `Safe`, `Caution`, or `Cannot merge`.
+
+| Note | Meaning |
+| --- | --- |
+| `WAV/OGG equivalent` | Every colliding same-name WAV and OGG pair was judged equivalent by `Check WAV/OGG collisions for equivalence`. |
+| `Representative TITLE mismatch` | Folders in the same group show different values in the `TITLE` column. |
+| `Representative ARTIST mismatch` | Folders in the same group show different values in the `ARTIST` column. |
+| `.bmx/.txt collision` | Same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. |
+
+`Representative TITLE mismatch` and `Representative ARTIST mismatch` appear before verification in both the duplicate file check and the split placement check. The comparison distinguishes case, full-width and half-width characters, and whitespace. Two empty values match. An empty value and a nonempty value differ. You can also filter by notes. Enter `status:"Representative TITLE mismatch"` in the search box to show matching groups or in the exclusion box to hide them.
 
 The basic steps are as follows.
 
@@ -1334,7 +1343,7 @@ The basic steps are as follows.
 | `STATUS` | Meaning |
 | --- | --- |
 | `Unchecked` | Not verified yet. |
-| `Safe` | Nothing was found that gets in the way of merging. `Safe (.bmx/.txt collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. `Safe (WAV/OGG equivalent)` means every colliding same-name WAV and OGG pair was judged equivalent. |
+| `Safe` | Nothing was found that gets in the way of merging. |
 | `Caution` | The group can be merged, but there is something you may want to review. |
 | `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
 
@@ -1355,14 +1364,14 @@ The reasons are as follows. `STATUS` lists every applicable reason separated by 
 
 When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. `.bmx`, `.pmx`, and `.txt` files are compared in the same way.
 
-`Quick check for speed (treat files with the same size and modified time as identical without reading them)` is disabled by default. When you check it, files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster.
+`Quick check for speed` is disabled by default. When you check it, files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster. The check box tooltip also gives this explanation.
 
 > [!CAUTION]
 > Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While `Quick check for speed` is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.
 
 `Check WAV/OGG collisions for equivalence` is a check below the search box row. It is disabled by default. When it is enabled and you press `Verify selected groups`, a same-name WAV and OGG that collide are both read and compared by waveform to judge whether the OGG was converted from the WAV. The files are decoded for the comparison, so verification takes longer. Only names that have just WAV and OGG are judged; a name that includes mp3 or flac is not judged.
 
-A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent and nothing else gets in the way, `STATUS` becomes `Safe (WAV/OGG equivalent)`. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`. The `STATUS` tooltip shows how many names were judged equivalent.
+A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent, `STATUS` gets the `WAV/OGG equivalent` note, and becomes `Safe (WAV/OGG equivalent)` if nothing else gets in the way. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`. The `STATUS` tooltip shows how many names were judged equivalent.
 
 The tolerance of the judgment is based on the change in sound caused by converting to Ogg Vorbis at about 128 kbps. The following differences are treated as part of the conversion and can be judged equivalent.
 
@@ -1372,16 +1381,16 @@ The tolerance of the judgment is based on the change in sound caused by converti
 | Sampling rate | A 44.1 kHz OGG paired with a 48 kHz WAV. |
 | Length | A difference only in the length of the silence at the end, where the OGG is up to 1152 samples longer or up to 128 samples shorter. |
 
-`Collision cleanup` is the combo box on the same row. It sets what `Organize selected groups` does with a WAV and OGG judged equivalent.
+`Collision cleanup` is the combo box on the same row. It sets which of a colliding same-name WAV and OGG `Organize selected groups` keeps. It applies to every colliding WAV and OGG name in verified groups, whether or not the pair was judged equivalent. Only pairs of WAV and OGG are covered. Names that include mp3 or flac are not cleaned up.
 
 | Choice | Description |
 | --- | --- |
 | `Keep both` | The default. Neither the WAV nor the OGG is cleaned up, and merging follows the usual rules. |
-| `Keep OGG` | For each name judged equivalent, the WAV in the `KEEP` folder is moved to the Recycle Bin. |
-| `Keep WAV` | For each name judged equivalent, the OGG in the `KEEP` folder is moved to the Recycle Bin. |
+| `Keep OGG` | For each colliding name, the WAV in the `KEEP` folder is moved to the Recycle Bin. |
+| `Keep WAV` | For each colliding name, the OGG in the `KEEP` folder is moved to the Recycle Bin. |
 
 > [!CAUTION]
-> When `Collision cleanup` is `Keep OGG` or `Keep WAV`, `Organize selected groups` moves the files of the other format to the Recycle Bin for groups confirmed as equivalent. Check equivalence with `Verify selected groups` before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified, and groups whose colliding WAV and OGG were not judged equivalent, keep both. The confirmation dialog shows how many groups keep one format.
+> When `Collision cleanup` is `Keep OGG` or `Keep WAV`, `Organize selected groups` moves the file of the other format to the Recycle Bin for each colliding name found by verification where the `KEEP` folder has both the WAV and the OGG. Pairs that were not judged equivalent also keep only one file, so a different sound may be lost. Verify with `Check WAV/OGG collisions for equivalence` enabled, and check the contents of groups whose `STATUS` still shows `same audio name, different extension` before organizing them. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified keep both. The confirmation dialog shows how many groups keep one format and how many include pairs not judged equivalent.
 
 The values of `Check WAV/OGG collisions for equivalence` and `Collision cleanup` are kept per list until you close the application.
 

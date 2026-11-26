@@ -3368,15 +3368,15 @@ public class Resources
     public static string Duplicate_merge_candidate_exclude_placeholder => ResourceManager.GetString("Duplicate_merge_candidate_exclude_placeholder", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、安全と判断したグループに表示する文言です。</summary>
     public static string Duplicate_merge_candidate_status_safe => ResourceManager.GetString("Duplicate_merge_candidate_status_safe", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、安全だが保護対象のファイル名が複数のフォルダで衝突しているグループに表示する文言です。</summary>
-    public static string Duplicate_merge_candidate_status_safe_protected_collision => ResourceManager.GetString("Duplicate_merge_candidate_status_safe_protected_collision", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列の補助情報で、保護対象（.bmx・.pmx・.txt）の同じ相対パスが別内容で衝突していることを示す語です。段階によらず付記します。</summary>
+    public static string Duplicate_merge_candidate_status_protected_collision => ResourceManager.GetString("Duplicate_merge_candidate_status_protected_collision", resourceCulture);
     /// <summary>代表TITLEがフォルダ間で異なる場合の付記です。</summary>
     public static string Duplicate_merge_candidate_title_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_title_mismatch", resourceCulture);
     /// <summary>代表ARTISTがフォルダ間で異なる場合の付記です。</summary>
     public static string Duplicate_merge_candidate_artist_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_artist_mismatch", resourceCulture);
-    /// <summary>確認状況に代表値の不一致を添える書式です。</summary>
+    /// <summary>STATUSの段階の文言に、補助情報をまとめた一つの括弧を添える書式です。{0}は段階の文言、{1}は「, 」でつないだ補助情報です。</summary>
     public static string Duplicate_merge_candidate_status_note_format => ResourceManager.GetString("Duplicate_merge_candidate_status_note_format", resourceCulture);
-    /// <summary>STATUSで、同名のWAVとOGGがすべて同等と判定された安全なグループに添える付記です。</summary>
+    /// <summary>STATUSの補助情報で、衝突した同名のWAVとOGGがすべて同等と判定されたことを示す語です。段階によらず付記します。</summary>
     public static string Duplicate_merge_candidate_status_audio_equivalent => ResourceManager.GetString("Duplicate_merge_candidate_status_audio_equivalent", resourceCulture);
     /// <summary>STATUSのツールチップの末尾に、同等と判定した同名のWAVとOGGの組数を示す書式です。</summary>
     public static string Duplicate_merge_candidate_tooltip_audio_equivalent_format => ResourceManager.GetString("Duplicate_merge_candidate_tooltip_audio_equivalent_format", resourceCulture);
@@ -3472,8 +3472,10 @@ public class Resources
     public static string Duplicate_merge_candidate_verify_selected => ResourceManager.GetString("Duplicate_merge_candidate_verify_selected", resourceCulture);
     /// <summary>統合候補一覧の右クリックメニューで、選択行のグループの安全性を確認する項目の文言です。</summary>
     public static string Duplicate_merge_candidate_verify_group => ResourceManager.GetString("Duplicate_merge_candidate_verify_group", resourceCulture);
-    /// <summary>統合候補一覧のツールバーで、高速化のための簡易チェック（サイズと更新日時が同じファイルを読まずに同一とみなす）のチェックボックスの文言です。</summary>
+    /// <summary>統合候補一覧のツールバーで、高速化のための簡易チェックのチェックボックスの文言です。説明はツールチップに置きます。</summary>
     public static string Duplicate_merge_candidate_quick_compare => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare", resourceCulture);
+    /// <summary>高速化のための簡易チェックのツールチップです。サイズと更新日時が同じファイルを、内容を読まずに同一とみなすことを説明します。</summary>
+    public static string Duplicate_merge_candidate_quick_compare_tooltip => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare_tooltip", resourceCulture);
     /// <summary>高速化のための簡易チェックをオンにしたときに案内する警告です。内容が異なるファイルを同一と判定しうること、破損による不一致を見逃すこと、オフのままを推奨することを伝えます。</summary>
     public static string Duplicate_merge_candidate_quick_compare_notice => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare_notice", resourceCulture);
     /// <summary>統合候補一覧の安全性確認の進捗画面の題名です。</summary>
@@ -3504,10 +3506,12 @@ public class Resources
     public static string Duplicate_batch_organize_confirm_merge_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_merge_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、同じフォルダにある重複した譜面をごみ箱へ送る旨の行です。</summary>
     public static string Duplicate_batch_organize_confirm_trash => ResourceManager.GetString("Duplicate_batch_organize_confirm_trash", resourceCulture);
-    /// <summary>重複グループの一括整理の確認文で、同等なWAVとOGGの衝突整理でOGGを残しWAVをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
+    /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でOGGを残しWAVをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_audio_keep_ogg_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_ogg_format", resourceCulture);
-    /// <summary>重複グループの一括整理の確認文で、同等なWAVとOGGの衝突整理でWAVを残しOGGをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
+    /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でWAVを残しOGGをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_audio_keep_wav_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_wav_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文の警告用の本文で、衝突整理の指定に同等と判定されていない同名のWAVとOGGを含み、それも一方だけが残る旨の行です。{0}はそのグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_audio_unequal_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_unequal_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認と要注意のグループを含む旨の行です。{0}は未確認、{1}は要注意のグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_unverified_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_caution_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認のグループだけを含む旨の行です。{0}は未確認のグループ数です。</summary>
@@ -3526,7 +3530,7 @@ public class Resources
     public static string Duplicate_batch_organize_result_format => ResourceManager.GetString("Duplicate_batch_organize_result_format", resourceCulture);
     /// <summary>重複グループの一括整理の結果で、ごみ箱へ送った重複した譜面の数を示す行です。{0}は譜面の数です。</summary>
     public static string Duplicate_batch_organize_result_trashed_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_format", resourceCulture);
-    /// <summary>重複グループの一括整理の結果へ加える、衝突整理でごみ箱へ送った同等な音源の合計の行です。{0}は件数です。</summary>
+    /// <summary>重複グループの一括整理の結果へ加える、衝突整理でごみ箱へ送った音源の合計の行です。{0}は件数です。</summary>
     public static string Duplicate_batch_organize_result_trashed_audio_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_audio_format", resourceCulture);
     /// <summary>重複グループの一括整理を取り消した旨を、結果へ加える文言です。</summary>
     public static string Duplicate_batch_organize_result_canceled => ResourceManager.GetString("Duplicate_batch_organize_result_canceled", resourceCulture);

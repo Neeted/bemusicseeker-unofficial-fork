@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
@@ -60,23 +59,7 @@ internal sealed class DuplicateMergeCandidateGroupState
     internal (bool Title, bool Artist) RepresentativeMismatch { get; set; }
 
     /// <summary>表示・検索・除外・並べ替えが共用する、現在の表示言語のSTATUSです。</summary>
-    internal string StatusText
-    {
-        get
-        {
-            string status = Verification.FormatStatus();
-            if (RepresentativeMismatch == default) { return status; }
-            string title = Resources.Duplicate_merge_candidate_title_mismatch;
-            string artist = Resources.Duplicate_merge_candidate_artist_mismatch;
-            string note = RepresentativeMismatch switch
-            {
-                (true, true) => title + DuplicateMergeVerificationPresentation.ReasonSeparator + artist,
-                (true, false) => title,
-                _ => artist
-            };
-            return string.Format(Resources.Duplicate_merge_candidate_status_note_format, status, note);
-        }
-    }
+    internal string StatusText => Verification.FormatStatus(RepresentativeMismatch);
 
     /// <summary>SELECTを操作できるかです。統合不可のグループはオンにできません。</summary>
     internal bool CanSelect => Verification.Stage != DuplicateMergeVerificationStage.Unmergeable;
@@ -98,13 +81,13 @@ internal sealed record DuplicateMergeCandidateGroupInitial(
 /// <param name="KeepFixed">KEEPが固定かどうか。</param>
 /// <param name="RegisteredFolders">グループ内の登録範囲のフォルダ。一覧の構築時に捕捉した値です。</param>
 /// <param name="Verification">捕捉した時点の確認結果。一括整理の確認文が、未確認・要注意・衝突の有無を数える入力です。</param>
-/// <param name="CollisionCleanup">捕捉した時点の「衝突整理」の値。一括整理が、同等なWAV・OGGの衝突整理を指定するかと残す形式を決める入力です。</param>
+/// <param name="CollisionCleanup">捕捉した時点の「衝突整理」の値。一括整理が、WAV・OGGの衝突整理を指定するかと残す形式を決める入力です。</param>
 internal sealed record DuplicateMergeCandidateGroupTarget(
     DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed,
     IReadOnlyList<string> RegisteredFolders, DuplicateMergeVerificationResult Verification = null,
     DuplicateMergeCollisionCleanupMode CollisionCleanup = DuplicateMergeCollisionCleanupMode.KeepBoth);
 
-/// <summary>統合候補一覧の「衝突整理」の値です。同等と確認した同名のWAVとOGGの、一括整理での扱いを決めます。</summary>
+/// <summary>統合候補一覧の「衝突整理」の値です。同名で衝突したWAVとOGGの、一括整理での扱いを決めます。同等性の判定によりません。</summary>
 public enum DuplicateMergeCollisionCleanupMode
 {
     /// <summary>両方残します（既定）。</summary>

@@ -31,24 +31,34 @@ internal static class DuplicateMergeVerificationPresentation
     internal const string ReasonSeparator = ", ";
 
     /// <summary>
-    /// STATUSの表示文言です。未確認は「未確認」、安全は「安全」（.bmx/.txtの衝突があれば付記つき）、
-    /// 要注意と統合不可は「要注意：（理由, 理由…）」「統合不可：（理由, 理由…）」で、成立した理由をすべて結果の順に並べます。
-    /// 区切りは表示言語によらない「, 」で、譜面一覧のWARNING列と同じです。理由の順は <see cref="DuplicateMergeVerificationReasonKind"/> の宣言順（結果が保つ順）です。
-    /// .bmx/.txtの衝突は、要注意と統合不可の文言には含めません。同名のWAVとOGGの衝突がすべて同等と判定された結果は、安全のときだけ「WAV/OGG同等」を付記します。
+    /// STATUSの表示文言です。段階の文言の後ろに、段階・整理の可否に関係しない補助情報を一つの括弧で付記します。
+    /// 段階の文言は、未確認が「未確認」、安全が「安全」、要注意と統合不可が「要注意：理由, 理由…」「統合不可：理由, 理由…」で、成立した理由をすべて結果の順
+    /// （<see cref="DuplicateMergeVerificationReasonKind"/> の宣言順）に並べます。
+    /// 補助情報は「WAV/OGG同等」（全衝突が同等）、「代表TITLE不一致」「代表ARTIST不一致」、「.bmx/.txtの衝突」の順で、成立したものを段階によらず付記し、
+    /// 成立したものがなければ括弧を付けません。区切りはどちらも表示言語によらない「, 」で、譜面一覧のWARNING列と同じです。
     /// </summary>
-    internal static string FormatStatus(this DuplicateMergeVerificationResult result)
+    /// <param name="representativeMismatch">今回の一覧の表示値で、グループ内のフォルダのTITLE・ARTISTが異なるかです。確認結果と独立に決まります。</param>
+    internal static string FormatStatus(this DuplicateMergeVerificationResult result, (bool Title, bool Artist) representativeMismatch = default)
     {
         ArgumentNullException.ThrowIfNull(result);
+        string stage = FormatStage(result);
+        var notes = new List<string>(4);
+        if (result.AllAudioCollisionsEquivalent) { notes.Add(Resources.Duplicate_merge_candidate_status_audio_equivalent); }
+        if (representativeMismatch.Title) { notes.Add(Resources.Duplicate_merge_candidate_title_mismatch); }
+        if (representativeMismatch.Artist) { notes.Add(Resources.Duplicate_merge_candidate_artist_mismatch); }
+        if (result.HasProtectedNameCollision) { notes.Add(Resources.Duplicate_merge_candidate_status_protected_collision); }
+        return notes.Count == 0
+            ? stage
+            : string.Format(Resources.Duplicate_merge_candidate_status_note_format, stage, string.Join(ReasonSeparator, notes));
+    }
+
+    /// <summary>補助情報を除いた、段階と理由の文言です。</summary>
+    private static string FormatStage(DuplicateMergeVerificationResult result)
+    {
         switch (result.Stage)
         {
             case DuplicateMergeVerificationStage.Safe:
-                string safe = result.HasProtectedNameCollision
-                    ? Resources.Duplicate_merge_candidate_status_safe_protected_collision
-                    : StageName(result.Stage);
-                // 同名のWAVとOGGの衝突がすべて同等と判定された安全な結果だけ、既存の付記の後ろへ別の括弧で付記します。
-                return result.AllAudioCollisionsEquivalent
-                    ? string.Format(Resources.Duplicate_merge_candidate_status_note_format, safe, Resources.Duplicate_merge_candidate_status_audio_equivalent)
-                    : safe;
+                return StageName(result.Stage);
             case DuplicateMergeVerificationStage.Caution:
             case DuplicateMergeVerificationStage.Unmergeable:
                 if (result.Reasons.Count == 0) { break; }
@@ -70,7 +80,7 @@ internal static class DuplicateMergeVerificationPresentation
             StageName(DuplicateMergeVerificationStage.Caution),
             StageName(DuplicateMergeVerificationStage.Unmergeable),
             .. Enum.GetValues<DuplicateMergeVerificationReasonKind>().Select(ReasonName),
-            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            Resources.Duplicate_merge_candidate_status_protected_collision,
             Resources.Duplicate_merge_candidate_status_audio_equivalent,
             Resources.Duplicate_merge_candidate_title_mismatch,
             Resources.Duplicate_merge_candidate_artist_mismatch,

@@ -26,6 +26,7 @@ internal sealed class DuplicateMergeGroupInspection
     private readonly IReadOnlyDictionary<string, DuplicateMergeKeepDependentFacts> keepDependentFacts;
     private readonly IReadOnlyList<string> equivalentAudioNames;
     private readonly bool allAudioCollisionsEquivalent;
+    private readonly IReadOnlyList<string> wavOggCollisionNames;
 
     internal DuplicateMergeGroupInspection(
         IReadOnlyDictionary<DuplicateMergeVerificationReasonKind, IReadOnlyList<DuplicateMergeFinding>> independentReasons,
@@ -33,7 +34,8 @@ internal sealed class DuplicateMergeGroupInspection
         DuplicateMergeComparisonSummary comparisons,
         IReadOnlyDictionary<string, DuplicateMergeKeepDependentFacts> keepDependentFacts,
         IReadOnlyList<string> equivalentAudioNames = null,
-        bool allAudioCollisionsEquivalent = false)
+        bool allAudioCollisionsEquivalent = false,
+        IReadOnlyList<string> wavOggCollisionNames = null)
     {
         this.independentReasons = independentReasons ?? throw new ArgumentNullException(nameof(independentReasons));
         this.protectedNameCollisions = protectedNameCollisions ?? [];
@@ -41,6 +43,7 @@ internal sealed class DuplicateMergeGroupInspection
         this.keepDependentFacts = keepDependentFacts ?? new Dictionary<string, DuplicateMergeKeepDependentFacts>();
         this.equivalentAudioNames = equivalentAudioNames ?? [];
         this.allAudioCollisionsEquivalent = allAudioCollisionsEquivalent;
+        this.wavOggCollisionNames = wavOggCollisionNames ?? [];
     }
 
     /// <summary>
@@ -73,7 +76,7 @@ internal sealed class DuplicateMergeGroupInspection
             ? DuplicateMergeVerificationStage.Unmergeable
             : reasons.Length > 0 ? DuplicateMergeVerificationStage.Caution : DuplicateMergeVerificationStage.Safe;
         return new DuplicateMergeVerificationResult(
-            stage, reasons, protectedNameCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent);
+            stage, reasons, protectedNameCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent, wavOggCollisionNames);
     }
 
     /// <summary>該当の並びを、フォルダのPATH昇順、次に相対パスの昇順（どちらも大文字小文字を無視）にします。</summary>

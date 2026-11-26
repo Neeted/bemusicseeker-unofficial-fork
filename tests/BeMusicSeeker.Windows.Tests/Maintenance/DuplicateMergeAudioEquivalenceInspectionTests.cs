@@ -84,13 +84,18 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
     private static string[] Names(DuplicateMergeVerificationResult result)
         => [.. result.EquivalentAudioNames!.Select(name => name.ToLowerInvariant()).Order()];
 
+    private static string[] CollisionNames(DuplicateMergeVerificationResult result)
+        => [.. result.WavOggCollisionNames!.Select(name => name.ToLowerInvariant()).Order()];
+
     private static DuplicateMergeFinding[] AudioFindings(DuplicateMergeVerificationResult result)
         => Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)?.Findings.ToArray() ?? [];
 
     /// <summary>
     /// 保証：WAVから変換されたOGGを持つ名前（拡張子が大文字の行、別内容のファイル衝突が同居する行を含む）は、拡張子違いの理由から外れ、
     /// 同等と判定した名前の一覧と「全衝突が同等」が、KEEPをどちらにしても同じ値で得られる。他の理由（別内容ファイル衝突）はそのまま残る。
-    /// 検出する誤り：同等な名前の理由残り、KEEPによる結果の変化、大文字の拡張子の見落とし、他の理由の巻き添え、起動直後で音声ランタイムが未初期化のときの失敗。
+    /// 理由から外れても、WAV・OGGの衝突名には残る。
+    /// 検出する誤り：同等な名前の理由残り、KEEPによる結果の変化、大文字の拡張子の見落とし、他の理由の巻き添え、起動直後で音声ランタイムが未初期化のときの失敗、
+    /// 理由から外れた名前の衝突名からの欠落。
     /// </summary>
     [TestMethod]
     public void Inspect_ConvertedPairs_ExcludeTheNameAndMarkAllCollisionsEquivalentForAnyKeep()
@@ -111,6 +116,7 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
             Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension), "同等な名前は拡張子違いに該当しません。");
             CollectionAssert.AreEqual(new[] { DuplicateMergeVerificationReasonKind.ContentConflict }, Kinds(result), "他の理由は残ります。");
             CollectionAssert.AreEqual(new[] { @"bgm\y", "x" }, Names(result));
+            CollectionAssert.AreEqual(new[] { @"bgm\y", "x" }, CollisionNames(result), "同等で理由から外れた名前も衝突名に残ります。");
             Assert.IsTrue(result.AllAudioCollisionsEquivalent);
         }
     }
@@ -164,7 +170,8 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
     /// <summary>
     /// 保証：同等な名前だけが拡張子違いから外れ、同等でない名前と、WAV・OGG以外の形式（mp3）を含む名前は従来どおり全パスが該当し、後者の音源は読まない
     /// （排他ロックしても解析不能が出ない）。名前を多数（同等10件）にしても並列処理で取りこぼさず、一覧は同等な名前だけで、「全衝突が同等」は偽になる。
-    /// 検出する誤り：並列処理での結果の取りこぼし・取り違え、mp3を含む名前の検査、同等でない名前の巻き添え除外。
+    /// WAV・OGGの衝突名は、同等な名前と同等でない名前（y）の両方で、mp3を含む名前（z）を含まず、同等な名前はその部分集合になる。
+    /// 検出する誤り：並列処理での結果の取りこぼし・取り違え、mp3を含む名前の検査、同等でない名前の巻き添え除外、衝突名への mp3 を含む名前の混入・同等でない名前の欠落。
     /// </summary>
     [TestMethod]
     public void Inspect_MixedNames_ExcludeOnlyEquivalentNamesAndSkipNamesWithOtherFormats()
@@ -197,6 +204,8 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
             },
             AudioFindings(result));
         CollectionAssert.AreEqual(equivalentNames.Order().ToArray(), Names(result));
+        CollectionAssert.AreEqual(equivalentNames.Append("y").Order().ToArray(), CollisionNames(result), "衝突名は同等でない y を含み、mp3を含む z を含みません。");
+        CollectionAssert.IsSubsetOf(Names(result), CollisionNames(result));
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
         Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable), "mp3を含む名前の音源は読みません。");
     }

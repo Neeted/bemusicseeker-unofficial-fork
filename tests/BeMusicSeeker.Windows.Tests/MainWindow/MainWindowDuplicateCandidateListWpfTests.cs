@@ -587,6 +587,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_check_on, menu.Items.OfType<MenuItem>().First().Header);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_selected, verify.Content);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare, quickCompare.Content);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_tooltip, quickCompare.ToolTip, "簡易チェックのツールチップは現在の言語です。");
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_search, AutomationProperties.GetName(excludeEditor.InputTextBoxControl), "除外欄のアクセシブル名は現在の言語です。");
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_placeholder, excludePlaceholder.Text, "除外欄のプレースホルダーは現在の言語です。");
                 Assert.IsTrue(menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group)));
@@ -636,6 +637,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreNotEqual(otherEquivalentTooltipLast, restoredEquivalentTooltipLast, "前提：ツールチップの最後の文は二つの言語で異なる文言です。");
             Assert.AreEqual(restoredEquivalentStatus, candidates.RowSet[2].StatusText, "書込み後に言語を戻すと、同等の付記は戻した言語です。");
             Assert.AreEqual(restoredEquivalentTooltipLast, ResolveStatusTooltip(table, 2).Split(Environment.NewLine)[^1], "書込み後に言語を戻すと、ツールチップの最後の文は戻した言語です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_tooltip, quickCompare.ToolTip, "簡易チェックのツールチップは戻した言語です。");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence, audioEquivalence.Content, "同等性検査のチェックは戻した言語です。");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_audio_equivalence_tooltip, audioEquivalence.ToolTip);
             Assert.AreEqual(Resources.Duplicate_merge_candidate_collision_cleanup, AutomationProperties.GetName(collisionCleanup), "衝突整理のアクセシブル名は戻した言語です。");

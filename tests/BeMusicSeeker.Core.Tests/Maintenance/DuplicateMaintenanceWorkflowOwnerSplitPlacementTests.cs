@@ -384,7 +384,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
         {
             DuplicateGroup safe = fixture.Groups[0];
             fixture.Write(safe, new DuplicateMergeVerificationResult(
-                DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true));
+                DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true, WavOggCollisionNames: ["x"]));
             fixture.SplitList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepWav;
             fixture.DuplicateList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepOgg;
             fixture.SplitList.SelectVisible();

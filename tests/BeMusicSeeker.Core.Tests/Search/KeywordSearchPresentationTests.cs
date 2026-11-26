@@ -41,7 +41,7 @@ public sealed class KeywordSearchPresentationTests
             Resources.Duplicate_merge_candidate_reason_content_conflict,
             Resources.Duplicate_merge_candidate_reason_no_shared_content,
             Resources.Duplicate_merge_candidate_reason_nested_chart_folder,
-            Resources.Duplicate_merge_candidate_status_safe_protected_collision,
+            Resources.Duplicate_merge_candidate_status_protected_collision,
             Resources.Duplicate_merge_candidate_status_audio_equivalent,
             Resources.Duplicate_merge_candidate_title_mismatch,
             Resources.Duplicate_merge_candidate_artist_mismatch,

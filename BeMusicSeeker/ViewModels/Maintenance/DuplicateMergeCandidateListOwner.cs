@@ -243,7 +243,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     }
 
     /// <summary>
-    /// 一括整理で、同等と確認した同名のWAVとOGGをどう扱うか（衝突整理）です。既定は両方残すで、<see cref="QuickCompareEnabled"/> と同じく、
+    /// 一括整理で、同名で衝突したWAVとOGGのどちらを残すか（衝突整理）です。同等と判定されていない名前にも適用します。既定は両方残すで、<see cref="QuickCompareEnabled"/> と同じく、
     /// アプリの起動中だけ保持し、ライブラリの交換後も残ります。対象の捕捉と同じ時点で一度だけ読み、整理の途中の変更は進行中の整理へ影響しません。切替えで案内は出しません。
     /// </summary>
     public DuplicateMergeCollisionCleanupMode CollisionCleanupMode

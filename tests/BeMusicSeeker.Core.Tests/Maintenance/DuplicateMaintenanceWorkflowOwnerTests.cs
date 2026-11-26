@@ -2464,31 +2464,42 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 衝突整理の指定は、対象の捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、捕捉時点の確認結果が全衝突の同等を示すグループにだけ作る（段階は問わない）。
-    /// 名前は確認結果の同等な名前の全件、捨てる形式は「OGGを残す」なら .wav、「WAVを残す」なら .ogg。確認文の通常の本文へ、ごみ箱の行の後に、指定するグループ数の行を残す形式ごとの文言で足し、
-    /// 警告用の本文・アイコン・続行のチェック欄には影響させない。両方残すでは指定も行も作らない。
-    /// 検出する誤り：条件に合わないグループ（一部だけ同等・検査オフ・未確認・衝突なし・一フォルダ）への指定、段階での絞込み、名前の欠落、形式の取り違え、行の位置・文言・件数の誤り、警告用の本文への混入。
+    /// 衝突整理の指定は、対象の捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、捕捉時点の確認結果がWAV・OGGの衝突名を一つ以上持つグループに作る
+    /// （段階と、同等性検査のオン・オフ、全衝突が同等かは問わない）。名前は衝突名のすべて（同等と判定していない名前を含む）、捨てる形式は「OGGを残す」なら .wav、「WAVを残す」なら .ogg。
+    /// 確認文の通常の本文へ、ごみ箱の行の後に指定するグループ数の行を足し、警告用の本文へ、指定の名前に同等と判定していない名前を含むグループ数の行を、
+    /// 未確認・要注意の件数の行の直後・上書きの行の前に足す。両方残すでは指定も二つの行も作らない。
+    /// 検出する誤り：全衝突の同等を条件にする、同等と判定した名前だけの指定、理由の該当一覧から名前を作る（mp3を含む名前の混入、同等で理由から外れた名前の欠落）、
+    /// 未確認・衝突名なし・一フォルダへの指定、指定しないグループや同等だけのグループを警告の件数へ数える、行の位置・文言・件数の誤り、形式の取り違え。
     /// </summary>
     [TestMethod]
     [DataRow(DuplicateMergeCollisionCleanupMode.KeepBoth, DisplayName = "両方残す")]
     [DataRow(DuplicateMergeCollisionCleanupMode.KeepOgg, DisplayName = "OGGを残す")]
     [DataRow(DuplicateMergeCollisionCleanupMode.KeepWav, DisplayName = "WAVを残す")]
-    public async Task OrganizeSelectedGroups_AudioCollisionSpecFollowsCapturedModeAndAllEquivalentVerification(DuplicateMergeCollisionCleanupMode mode)
+    public async Task OrganizeSelectedGroups_AudioCollisionSpecFollowsCapturedModeAndCollisionNames(DuplicateMergeCollisionCleanupMode mode)
     {
-        DuplicateGroup safe = Lists.Group(@"C:\S\e0\a", @"C:\S\e0\b"), caution = Lists.Group(@"C:\S\e1\a", @"C:\S\e1\b"),
-            partial = Lists.Group(@"C:\S\e2\a", @"C:\S\e2\b"), off = Lists.Group(@"C:\S\e3\a", @"C:\S\e3\b"),
+        DuplicateGroup safe = Lists.Group(@"C:\S\e0\a", @"C:\S\e0\b"), partial = Lists.Group(@"C:\S\e1\a", @"C:\S\e1\b"),
+            off = Lists.Group(@"C:\S\e2\a", @"C:\S\e2\b"), conflict = Lists.Group(@"C:\S\e3\a", @"C:\S\e3\b"),
             unverified = Lists.Group(@"C:\S\e4\a", @"C:\S\e4\b"), none = Lists.Group(@"C:\S\e5\a", @"C:\S\e5\b"),
             single = Lists.Group(@"C:\S\e6");
-        using var fixture = new BatchFixture([safe, caution, partial, off, unverified, none, single]);
-        var cautionReason = new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\e1", "a.wav")]);
+        using var fixture = new BatchFixture([safe, partial, off, conflict, unverified, none, single]) { Overwrite = new(false, false) };
+        static DuplicateMergeVerificationReason Extension(string folder, params string[] paths)
+            => new(DuplicateMergeVerificationReasonKind.AudioExtension, [.. paths.Select(path => new DuplicateMergeFinding(folder, path))]);
+        var conflictReason = new DuplicateMergeVerificationReason(
+            DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\e3\a", "a.wav")]);
         fixture.List.WriteVerifications(
         [
-            new DuplicateMergeVerificationWrite(safe, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true)),
-            new DuplicateMergeVerificationWrite(caution, new(DuplicateMergeVerificationStage.Caution, [cautionReason], EquivalentAudioNames: ["y", @"sub\z"], AllAudioCollisionsEquivalent: true)),
-            new DuplicateMergeVerificationWrite(partial, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["w"], AllAudioCollisionsEquivalent: false)),
-            new DuplicateMergeVerificationWrite(off, new(DuplicateMergeVerificationStage.Safe, [])),
+            new DuplicateMergeVerificationWrite(safe, new(DuplicateMergeVerificationStage.Safe, [],
+                EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true, WavOggCollisionNames: ["x"])),
+            new DuplicateMergeVerificationWrite(partial, new(DuplicateMergeVerificationStage.Caution,
+                [Extension(@"C:\S\e1\a", @"sub\z.wav", @"sub\z.ogg")],
+                EquivalentAudioNames: ["y"], AllAudioCollisionsEquivalent: false, WavOggCollisionNames: ["y", @"sub\z"])),
+            new DuplicateMergeVerificationWrite(off, new(DuplicateMergeVerificationStage.Caution,
+                [Extension(@"C:\S\e2\a", "w.wav", "w.ogg", "z.wav", "z.mp3")], WavOggCollisionNames: ["w"])),
+            new DuplicateMergeVerificationWrite(conflict, new(DuplicateMergeVerificationStage.Caution, [conflictReason],
+                EquivalentAudioNames: ["v"], AllAudioCollisionsEquivalent: true, WavOggCollisionNames: ["v"])),
             new DuplicateMergeVerificationWrite(none, new(DuplicateMergeVerificationStage.Safe, [])),
-            new DuplicateMergeVerificationWrite(single, new(DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["q"], AllAudioCollisionsEquivalent: true))
+            new DuplicateMergeVerificationWrite(single, new(DuplicateMergeVerificationStage.Safe, [],
+                EquivalentAudioNames: ["q"], AllAudioCollisionsEquivalent: true, WavOggCollisionNames: ["q"]))
         ]);
         fixture.List.CollisionCleanupMode = mode;
         fixture.List.SelectVisible();
@@ -2497,41 +2508,48 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         DuplicateBatchOrganizeGroup[] requested = [.. fixture.Store.Requests.Single().Groups];
         Assert.AreEqual(7, requested.Length);
-        for (int index = 2; index < requested.Length; index++)
+        for (int index = 4; index < requested.Length; index++)
         {
-            Assert.IsNull(requested[index].AudioCollisionCleanup, "条件に合わないグループには指定しません。index=" + index);
+            Assert.IsNull(requested[index].AudioCollisionCleanup, "未確認・衝突名なし・一フォルダのグループには指定しません。index=" + index);
         }
         UiConfirmationRequest confirmation = fixture.Dialogs.ConfirmationRequest!;
         string[] lines = Lines(confirmation.MessageBoxText);
+        string[] warnings = Lines(confirmation.WarningMessageBoxText);
         string[] baseLines =
         [
             string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_groups_format, 7),
             string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_merge_format, 6, 6),
             BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_trash
         ];
+        string countLine = string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, 1, 3);
+        string overwriteLine = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_source;
         if (mode == DuplicateMergeCollisionCleanupMode.KeepBoth)
         {
-            Assert.IsNull(requested[0].AudioCollisionCleanup);
-            Assert.IsNull(requested[1].AudioCollisionCleanup);
+            for (int index = 0; index < 4; index++) { Assert.IsNull(requested[index].AudioCollisionCleanup, "両方残すでは指定しません。index=" + index); }
             CollectionAssert.AreEqual(baseLines, lines);
+            CollectionAssert.AreEqual(new[] { countLine, overwriteLine }, warnings, "両方残すでは同等でない衝突の行を出しません。");
         }
         else
         {
             string discard = mode == DuplicateMergeCollisionCleanupMode.KeepOgg ? ".wav" : ".ogg";
-            Assert.AreEqual(discard, requested[0].AudioCollisionCleanup!.DiscardExtension);
-            CollectionAssert.AreEqual(new[] { "x" }, requested[0].AudioCollisionCleanup!.Names.ToArray());
-            Assert.AreEqual(discard, requested[1].AudioCollisionCleanup!.DiscardExtension, "要注意の段階でも指定します。");
-            CollectionAssert.AreEqual(new[] { "y", @"sub\z" }, requested[1].AudioCollisionCleanup!.Names.ToArray());
+            string[][] expectedNames = [["x"], ["y", @"sub\z"], ["w"], ["v"]];
+            for (int index = 0; index < expectedNames.Length; index++)
+            {
+                DuplicateBatchAudioCollisionCleanup cleanup = requested[index].AudioCollisionCleanup!;
+                Assert.IsNotNull(cleanup, "衝突名を持つグループには、段階と同等性によらず指定します。index=" + index);
+                Assert.AreEqual(discard, cleanup.DiscardExtension);
+                CollectionAssert.AreEquivalent(expectedNames[index], cleanup.Names.ToArray(), "名前は衝突名のすべてです。index=" + index);
+            }
             string line = string.Format(mode == DuplicateMergeCollisionCleanupMode.KeepOgg
                 ? BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format
-                : BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format, 2);
+                : BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format, 4);
             CollectionAssert.AreEqual(baseLines.Append(line).ToArray(), lines, "ごみ箱の行の後に、指定するグループ数の行を足します。");
-            Assert.IsFalse(Lines(confirmation.WarningMessageBoxText).Contains(line), "警告用の本文へ出しません。");
+            string unequal = string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_audio_unequal_format, 2);
+            CollectionAssert.AreEqual(new[] { countLine, unequal, overwriteLine }, warnings,
+                "同等と判定していない名前を含むグループ数の行は、件数の行の直後、上書きの行の前です。");
         }
-        Assert.AreEqual(MessageBoxImage.Warning, confirmation.Icon, "未確認を含むため警告のままです。");
-        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, 1, 1),
-            Lines(confirmation.WarningMessageBoxText)[0], "警告用の本文の先頭は未確認・要注意の行のままです。");
-        Assert.IsNotNull(confirmation.AcknowledgmentText, "続行のチェック欄は未確認・要注意だけで決まります。");
+        Assert.AreEqual(MessageBoxImage.Warning, confirmation.Icon);
+        Assert.IsNotNull(confirmation.AcknowledgmentText, "続行のチェック欄は未確認・要注意で求めます。");
     }
 
     /// <summary>

@@ -257,18 +257,22 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
-    /// 保証：同じ相対位置の同名音源を持つフォルダ間で拡張子の集合が異なると、その名前の全音源が要注意になる。
-    /// 検出する誤り：同じ集合や保持するフォルダが一つだけの誤検出、真部分集合の見落とし、別ディレクトリ・対象外形式・大文字小文字の扱いの誤り。
+    /// 保証：同じ相対位置の同名音源を持つフォルダ間で拡張子の集合が異なると、その名前の全音源が要注意になる。同等性検査がオフ（既定）でも、
+    /// そのうちグループ内の拡張子が .wav と .ogg のちょうど二種類の名前を、WAV・OGGの衝突名として確認結果に保つ。
+    /// 検出する誤り：同じ集合や保持するフォルダが一つだけの誤検出、真部分集合の見落とし、別ディレクトリ・対象外形式・大文字小文字の扱いの誤り、
+    /// 検査オフでの衝突名の欠落、.mp3・.flac を含む名前の衝突名への混入。
     /// </summary>
     [TestMethod]
-    [DataRow(@"bgm\x.wav", @"bgm\X.ogg", true)]
-    [DataRow(@"bgm\x.wav|bgm\x.flac", @"bgm\x.wav", true)]
-    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"BGM\X.OGG|BGM\X.WAV", false)]
-    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"bgm\other.wav", false)]
-    [DataRow(@"bgm\x.wav", @"sfx\x.ogg", false)]
-    [DataRow(@"bgm\x.bmp", @"bgm\x.png", false)]
-    [DataRow(@"bgm\x.wav", @"bgm\X.WAV", false)]
-    public void AudioExtension_WarnsWhenMergingAddsAFormat(string aFiles, string bFiles, bool expected)
+    [DataRow(@"bgm\x.wav", @"bgm\X.ogg", true, @"bgm\x")]
+    [DataRow(@"bgm\x.wav|bgm\x.flac", @"bgm\x.wav", true, "")]
+    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"BGM\X.OGG|BGM\X.WAV", false, "")]
+    [DataRow(@"bgm\x.wav|bgm\x.ogg", @"bgm\other.wav", false, "")]
+    [DataRow(@"bgm\x.wav", @"sfx\x.ogg", false, "")]
+    [DataRow(@"bgm\x.bmp", @"bgm\x.png", false, "")]
+    [DataRow(@"bgm\x.wav", @"bgm\X.WAV", false, "")]
+    [DataRow(@"bgm\x.wav", @"bgm\x.wav|bgm\x.ogg", true, @"bgm\x")]
+    [DataRow(@"bgm\x.wav", @"bgm\x.ogg|bgm\x.mp3", true, "")]
+    public void AudioExtension_WarnsWhenMergingAddsAFormat(string aFiles, string bFiles, bool expected, string collisionNames)
     {
         string a = Folder("g/a"), b = Folder("g/b");
         DuplicateMergeFinding[] files = aFiles.Split('|').Select(path => Finding(a, path))
@@ -284,12 +288,17 @@ public sealed class DuplicateMergeSafetyInspectorTests
         {
             CollectionAssert.AreEquivalent(files, Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)!.Findings.ToArray());
         }
+        string[] expectedNames = collisionNames.Length == 0 ? [] : collisionNames.Split('|');
+        CollectionAssert.AreEquivalent(
+            expectedNames.Select(name => name.ToUpperInvariant()).ToArray(),
+            result.WavOggCollisionNames!.Select(name => name.ToUpperInvariant()).ToArray(),
+            "WAV・OGGの衝突名は、拡張子がちょうど .wav と .ogg の名前だけです（大文字小文字は問いません）。");
     }
 
     /// <summary>
     /// 保証：同等性検査がオフの確認は、WAVとOGGを復号せず（排他ロックして読めなくしても解析不能が出ない）、従来どおり拡張子違いの理由が残り、
-    /// 同等と判定した名前の一覧は空、「全衝突が同等」は偽である。
-    /// 検出する誤り：オフでの復号、オフの結果への同等性の情報の混入、理由の欠落。
+    /// 同等と判定した名前の一覧は空、「全衝突が同等」は偽である。WAV・OGGの衝突名は、KEEPによらず保つ。
+    /// 検出する誤り：オフでの復号、オフの結果への同等性の情報の混入、理由の欠落、オフやKEEPの変更での衝突名の欠落。
     /// </summary>
     [TestMethod]
     public void AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason()
@@ -309,6 +318,12 @@ public sealed class DuplicateMergeSafetyInspectorTests
         CollectionAssert.AreEqual(new[] { Finding(a, "x.wav"), Finding(b, "x.ogg") }, Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)!.Findings.ToArray());
         Assert.AreEqual(0, result.EquivalentAudioNames!.Count);
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+        foreach (string keep in new[] { a, b })
+        {
+            DuplicateMergeVerificationResult evaluated = keep == a ? result : Inspect([a, b], audioEquivalence: false).Evaluate(b);
+            CollectionAssert.AreEqual(new[] { "x" }, evaluated.WavOggCollisionNames!.ToArray(), "KEEP=" + keep);
+            Assert.AreEqual(0, evaluated.EquivalentAudioNames!.Count, "KEEP=" + keep);
+        }
     }
 
     /// <summary>

@@ -14,7 +14,7 @@ internal sealed class DuplicateBatchOrganizeGroup
     /// <summary>グループの処理対象を固定します。</summary>
     /// <param name="keepDirectory">残すフォルダ。一フォルダのグループでは、整理するフォルダです。</param>
     /// <param name="sourceDirectories">KEEP へ統合する移動元フォルダ。PATH 昇順で渡します。0 件で一フォルダのグループです。</param>
-    /// <param name="audioCollisionCleanup">同等な WAV・OGG の衝突整理の指定。指定しないグループは null です。一フォルダのグループでは無視します。</param>
+    /// <param name="audioCollisionCleanup">WAV・OGG の衝突整理の指定。指定しないグループは null です。一フォルダのグループでは無視します。</param>
     internal DuplicateBatchOrganizeGroup(
         string keepDirectory, IEnumerable<string> sourceDirectories, DuplicateBatchAudioCollisionCleanup audioCollisionCleanup = null)
     {
@@ -24,7 +24,7 @@ internal sealed class DuplicateBatchOrganizeGroup
     }
 
     /// <summary>
-    /// 同等な WAV・OGG の衝突整理の指定です。ないときは null です。
+    /// WAV・OGG の衝突整理の指定です。ないときは null です。
     /// 移動元を一つ以上統合できた二フォルダ以上のグループだけが、KEEP 直下の重複整理の後に使います。
     /// </summary>
     internal DuplicateBatchAudioCollisionCleanup AudioCollisionCleanup { get; }
@@ -40,15 +40,16 @@ internal sealed class DuplicateBatchOrganizeGroup
 }
 
 /// <summary>
-/// グループごとの、同等な WAV・OGG の衝突整理の指定です。KEEP で同名の WAV と OGG が両方とも実在する名前について、
-/// 捨てる形式のファイルだけをごみ箱へ送ります。音源の復号・比較は行いません（同等かどうかは指定を作る側が確認済みの前提です）。
+/// グループごとの、WAV・OGG の衝突整理の指定です。KEEP で同名の WAV と OGG が両方とも実在する名前について、
+/// 捨てる形式のファイルだけをごみ箱へ送ります。音源の復号・比較は行いません。対象の名前は同等と判定したものに限らず、
+/// 利用者が確認文で、同等と判定されていない名前も一方だけが残ることを承認した前提です。
 /// </summary>
 internal sealed class DuplicateBatchAudioCollisionCleanup
 {
     /// <summary>指定を固定します。</summary>
     /// <param name="discardExtension">捨てる形式の拡張子。大文字小文字と先頭のピリオドの有無を問わず、wav または ogg だけを受け付けます。</param>
     /// <param name="names">対象の名前。KEEP からの相対ディレクトリと拡張子なしの名前を <c>\</c> でつないだ文字列で、
-    /// <see cref="DuplicateMergeVerificationResult.EquivalentAudioNames"/> と同じ書式です。大文字小文字を無視して重複を除きます。</param>
+    /// <see cref="DuplicateMergeVerificationResult.WavOggCollisionNames"/> と同じ書式です。大文字小文字を無視して重複を除きます。</param>
     /// <exception cref="ArgumentException">拡張子が wav・ogg でない場合、または名前が空・絶対パス・<c>..</c> を含む場合。呼出し側の誤りとして扱います。</exception>
     internal DuplicateBatchAudioCollisionCleanup(string discardExtension, IEnumerable<string> names)
     {
