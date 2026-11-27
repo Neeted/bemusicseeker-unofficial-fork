@@ -555,6 +555,7 @@ hr {
 <li class="toc-level-4"><a href="#ローカルプレイリストの作成と編集">ローカルプレイリストの作成と編集</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#本体差分のダウンロード">本体・差分のダウンロード</a></summary><ul>
+<li class="toc-level-4"><a href="#本体候補の確認">本体候補の確認</a></li>
 <li class="toc-level-4"><a href="#複数-url-の取り込み">複数 URL の取り込み</a></li>
 <li class="toc-level-4"><a href="#外部-api-から入手先を探す">外部 API から入手先を探す</a></li>
 </ul></details></li>
@@ -1418,6 +1419,7 @@ hr {
 <li><code>Webページを開く</code>: <code>設定画面 &gt; 右クリック設定</code> で設定した有効な項目を、設定した順序で表示します。既定では BMS-IR、Mocha、MinIR、rianIR、STELLAVERSE IR、Kaleid IR が登録され、BMS-IR は BMS のみに対応します。各 URL のテンプレートが必要とする MD5 / SHA-256 がない行では、その項目は表示されません。</li>
 <li><code>本体URLをブラウザで開く</code> / <code>差分URLをブラウザで開く</code>: プレイリスト由来または URL 補完で得られた本体 URL / 差分 URL をブラウザで開きます。複数行を選択している場合は <code>選択中の本体URLを取り込む</code> / <code>選択中の差分URLを取り込む</code> と表示され、確認後に対応ファイルとしてダウンロードできる URL だけを導入処理へ渡します。この一括取り込みではブラウザで開く必要がある URL は開かずにスキップし、進捗はステータスバーに表示されます。</li>
 <li><code>外部APIから入手先を探す</code>: プレイリスト詳細で、選択行の MD5 を外部 API に問い合わせ、本体パッケージの入手先候補を探します。<code>URL1</code> / <code>URL2</code> を使わないため、URL が空の行でも MD5 があれば対象になります。</li>
+<li><code>本体候補</code>: プレイリスト詳細の未所持行で、本体フォルダの候補があるときに表示します。候補のフォルダを選ぶとエクスプローラーで開きます。詳しくは <a href="#本体候補の確認">本体候補の確認</a> を参照してください。</li>
 <li><code>エクスプローラで開く</code>: 譜面ファイルのあるフォルダを Explorer で開きます。</li>
 <li><code>インストール先を開く</code>: <code>INSTL DST</code> やインストール先として記録されているフォルダを開きます。</li>
 <li><code>関連付けで開く</code>: 譜面ファイルを OS の関連付けで開きます。</li>
@@ -1612,6 +1614,28 @@ playlist:"Satellite Sub"
 <p>フォルダ型プレイリストの本体へ譜面を追加すると、名前のある既存フォルダから適切なものが選ばれ、必要なら新しいフォルダが作られます。「フォルダ名なし」へ追加する場合は、そのフォルダをドラッグ先に指定します。</p>
 <h3 id="本体差分のダウンロード">本体・差分のダウンロード</h3>
 <p><code>URL1</code> / <code>URL2</code> 列から本体・差分 URL を開けます。空の URL は <a href="#url1url2-補完">URL 補完</a> で補える場合があります。単体 URL の列クリックで自動取得・導入を使うには、<code>インストール</code> の <code>URL1/URL2列のクリックで自動ダウンロード・インストールを試みる</code> と、<code>詳細設定</code> → <code>初期化</code> の <code>起動時にBMSファイルと構成ファイルのスキャンを行う</code> を両方 ON にします。どちらかが OFF の場合はブラウザで開きます。単体行の右クリックメニュー <code>本体URLをブラウザで開く</code> / <code>差分URLをブラウザで開く</code> はブラウザで開きます。単体の自動取得も進捗表示からキャンセルできます。</p>
+<h4 id="本体候補の確認">本体候補の確認</h4>
+<p>未所持の譜面について、その曲の本体フォルダをすでに持っていると推定できる場合に、次の2か所で知らせます。差分だけを入手すればよい行を見分けるための目印です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>表示</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>URL1</code> 列の色</td>
+<td>差分 URL（<code>URL2</code>）があり、本体フォルダの候補が見つかった未所持行は、<code>URL1</code> を専用の色で表示します。行やセルを選択している間も同じ色です。</td>
+</tr>
+<tr>
+<td>右クリックの <code>本体候補</code></td>
+<td>未所持行を右クリックすると、候補のフォルダを最大5件表示します。選ぶとそのフォルダをエクスプローラーで開きます。差分 URL がない行にも表示し、候補がない行には表示しません。</td>
+</tr>
+</tbody>
+</table></div>
+<p>候補は、プレイリストに書かれた <code>TITLE</code> と <code>ARTIST</code> を、所持している譜面のものと照合して探します。難易度名や差分作者などの表記の違いを取り除いたうえで、曲名が一致し、作者が一致するか近い譜面のあるフォルダを候補にします。プレイリストに作者が書かれていない行は、曲名だけで照合します。</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>本体候補は推定です。未所持の譜面はファイルが手元にないため、判定に使える情報はプレイリストの <code>TITLE</code> と <code>ARTIST</code> だけです。本体を持っていても候補が出ない場合や、同じ曲名の別の作品が候補になる場合があります。条件を緩めると見落としは減りますが、誤った候補が増えるため、その釣り合いで現在の条件にしています。差分を導入する前に、<code>本体候補</code> からフォルダを開いて確認してください。</p><p>譜面のハッシュごとに正しい本体を記録したデータを用意する方法も考えられますが、新しく公開された譜面には対応できないため、採用する予定はありません。</p></div>
 <h4 id="複数-url-の取り込み">複数 URL の取り込み</h4>
 <p>複数行を選択し、右クリックの <code>選択中の本体URLを取り込む</code> / <code>選択中の差分URLを取り込む</code> を選びます。確認後、同一 URL を除いて順にダウンロードし、自動導入を試みます。この操作は単体ダウンロードの自動導入設定に関わらず実行します。進捗表示からキャンセルでき、キャンセルまでに取得したファイルは導入対象になります。完了時に取得、スキップ、サイズ上限超過、失敗、未処理の件数を確認できます。</p>
 <p>対応譜面は <code>.bme</code>、<code>.bms</code>、<code>.bml</code>、<code>.pms</code>、<code>.bmson</code>、アーカイブは <code>.zip</code>、<code>.7z</code>、<code>.rar</code>、<code>.lzh</code> です。自動ダウンロードは1ファイル <code>512 MiB</code> までです。直リンクのほか、Google Drive、Dropbox、OneDrive、MediaFire、manbow、<code>venue.bmssearch.net</code>、<code>bmssearch.net/bmses</code> の一部配布ページに対応します。Google Drive のフォルダ共有、MEGA、AXFC、ログイン・CAPTCHA・JavaScript 操作が必要なページなどは一括取り込みではスキップします。これらはブラウザで取得し、<a href="#導入の手順">ドラッグアンドドロップで導入</a> してください。</p>

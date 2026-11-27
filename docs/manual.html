@@ -554,6 +554,7 @@ hr {
 <li class="toc-level-4"><a href="#creating-and-editing-local-playlists">Creating and Editing Local Playlists</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#downloading-main-packages-and-additional-charts">Downloading Main Packages and Additional Charts</a></summary><ul>
+<li class="toc-level-4"><a href="#checking-base-candidates">Checking Base Candidates</a></li>
 <li class="toc-level-4"><a href="#importing-multiple-urls">Importing Multiple URLs</a></li>
 <li class="toc-level-4"><a href="#finding-sources-through-external-apis">Finding Sources through External APIs</a></li>
 </ul></details></li>
@@ -1416,6 +1417,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Open web pages</code>: Enabled items from <code>Settings &gt; Right-click settings</code> are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, STELLAVERSE IR, and Kaleid IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.</li>
 <li><code>Open main URL in browser</code> / <code>Open diff URL in browser</code>: Opens the main URL / diff URL obtained from a playlist or URL completion in a browser. When multiple rows are selected, these actions are shown as <code>Import selected main URLs</code> / <code>Import selected diff URLs</code>; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.</li>
 <li><code>Find source via external API</code>: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use <code>URL1</code> / <code>URL2</code>, so rows with empty URLs can still be targets when an MD5 is available.</li>
+<li><code>Base candidates</code>: Appears on unowned rows in playlist detail when main-folder candidates exist. Choosing a candidate folder opens it in Explorer. See <a href="#checking-base-candidates">Checking Base Candidates</a>.</li>
 <li><code>Open in Explorer</code>: Opens the folder containing the chart file in Explorer.</li>
 <li><code>Open install destination</code>: Opens the folder recorded as <code>INSTL DST</code> or as the install destination.</li>
 <li><code>Open with default app</code>: Opens the chart file using the OS file association.</li>
@@ -1610,6 +1612,28 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Adding charts to the root of a folder-based playlist selects a suitable existing named folder and creates one if necessary. To add charts to <code>No folder name</code>, drop them onto that folder explicitly.</p>
 <h3 id="downloading-main-packages-and-additional-charts">Downloading Main Packages and Additional Charts</h3>
 <p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON <code>Try automatic download and installation when clicking the URL1/URL2 columns</code> under <code>Install</code> and <code>Scan BMS files and component files at startup</code> under <code>Advanced settings</code> → <code>Initialization</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL in browser</code> / <code>Open diff URL in browser</code> context-menu commands open a browser. You can also cancel a single automatic download from its progress display.</p>
+<h4 id="checking-base-candidates">Checking Base Candidates</h4>
+<p>For an unowned chart, BeMusicSeeker tells you in two places when it estimates that you already have the song's main folder. Use this to spot rows where you only need the additional chart.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Display</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Color of the <code>URL1</code> column</td>
+<td>An unowned row that has a diff URL (<code>URL2</code>) and at least one main-folder candidate shows <code>URL1</code> in a dedicated color. The color stays the same while the row or cell is selected.</td>
+</tr>
+<tr>
+<td><code>Base candidates</code> in the context menu</td>
+<td>Right-clicking an unowned row lists up to five candidate folders. Choosing one opens that folder in Explorer. The menu also appears on rows without a diff URL, and it does not appear on rows without candidates.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Candidates are found by comparing the <code>TITLE</code> and <code>ARTIST</code> written in the playlist with those of the charts you own. After notation differences such as difficulty names and chart authors are removed, a folder becomes a candidate when it contains a chart whose title matches and whose artist matches or is close. Rows whose playlist entry has no artist are compared by title only.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Base candidates are an estimate. An unowned chart has no file on your computer, so the only information available is the playlist's <code>TITLE</code> and <code>ARTIST</code>. A candidate may be missing even though you own the main package, and a different work with the same title may be listed. Loosening the conditions reduces misses but adds wrong candidates, so the current conditions are a balance between the two. Before installing an additional chart, open the folder from <code>Base candidates</code> and check it.</p><p>Preparing data that records the correct main package for each chart hash is another possible approach, but it cannot cover newly released charts, so there are no plans to adopt it.</p></div>
 <h4 id="importing-multiple-urls">Importing Multiple URLs</h4>
 <p>Select several rows and choose <code>Import selected main URLs</code> / <code>Import selected diff URLs</code> from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.</p>
 <p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. Automatic downloads are limited to <code>512 MiB</code> per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>

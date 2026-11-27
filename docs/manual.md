@@ -585,6 +585,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Open web pages`: Enabled items from `Settings > Right-click settings` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, STELLAVERSE IR, and Kaleid IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.
 - `Open main URL in browser` / `Open diff URL in browser`: Opens the main URL / diff URL obtained from a playlist or URL completion in a browser. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
 - `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
+- `Base candidates`: Appears on unowned rows in playlist detail when main-folder candidates exist. Choosing a candidate folder opens it in Explorer. See [Checking Base Candidates](#checking-base-candidates).
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
 - `Open with default app`: Opens the chart file using the OS file association.
@@ -834,6 +835,22 @@ Adding charts to the root of a folder-based playlist selects a suitable existing
 ### Downloading Main Packages and Additional Charts
 
 Open main-package and additional-chart URLs from the `URL1` / `URL2` columns. [URL completion](#url1url2-completion) may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON `Try automatic download and installation when clicking the URL1/URL2 columns` under `Install` and `Scan BMS files and component files at startup` under `Advanced settings` → `Initialization`. If either is OFF, clicking opens the URL in a browser. The single-row `Open main URL in browser` / `Open diff URL in browser` context-menu commands open a browser. You can also cancel a single automatic download from its progress display.
+
+#### Checking Base Candidates
+
+For an unowned chart, BeMusicSeeker tells you in two places when it estimates that you already have the song's main folder. Use this to spot rows where you only need the additional chart.
+
+| Display | Description |
+| --- | --- |
+| Color of the `URL1` column | An unowned row that has a diff URL (`URL2`) and at least one main-folder candidate shows `URL1` in a dedicated color. The color stays the same while the row or cell is selected. |
+| `Base candidates` in the context menu | Right-clicking an unowned row lists up to five candidate folders. Choosing one opens that folder in Explorer. The menu also appears on rows without a diff URL, and it does not appear on rows without candidates. |
+
+Candidates are found by comparing the `TITLE` and `ARTIST` written in the playlist with those of the charts you own. After notation differences such as difficulty names and chart authors are removed, a folder becomes a candidate when it contains a chart whose title matches and whose artist matches or is close. Rows whose playlist entry has no artist are compared by title only.
+
+> [!CAUTION]
+> Base candidates are an estimate. An unowned chart has no file on your computer, so the only information available is the playlist's `TITLE` and `ARTIST`. A candidate may be missing even though you own the main package, and a different work with the same title may be listed. Loosening the conditions reduces misses but adds wrong candidates, so the current conditions are a balance between the two. Before installing an additional chart, open the folder from `Base candidates` and check it.
+>
+> Preparing data that records the correct main package for each chart hash is another possible approach, but it cannot cover newly released charts, so there are no plans to adopt it.
 
 #### Importing Multiple URLs
 
