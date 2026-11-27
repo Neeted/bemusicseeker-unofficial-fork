@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Views;
 
 /// <summary>
 /// GPU経路が使う、プロセスで一組のデバイスです。Direct3D 11のデバイスとコンテキスト、Direct2Dのデバイス、Direct3D 9Exの本体とデバイスを、
-/// 最初に必要になったときに作り、プロセスの終了まで保ちます（終了専用の解放は持ちません）。表ごとに持つのは、寸法に依存する面だけです。
+/// 反映で描画の完了を確認するイベントクエリ（デバイスと一組）を、最初に必要になったときに作り、プロセスの終了まで保ちます（終了専用の解放は持ちません）。表ごとに持つのは、寸法に依存する面だけです。
 /// 消失を検出した表が <see cref="Discard"/> で旧いデバイスを手放して <see cref="Generation"/> を進め、面を持つほかの表は
 /// <see cref="GenerationChanged"/> で再描画を要求され、次の描画の開始時に世代の不一致から自分の面を作り直します。UIスレッドだけで使います。
 /// </summary>
@@ -18,6 +18,7 @@ internal static partial class CustomTableGpuDevices
 {
     private static D3D11.ID3D11Device device11;
     private static D3D11.ID3D11DeviceContext context11;
+    private static D3D11.ID3D11Query completionQuery;
     private static D2D.ID2D1Device device2D;
     private static D3D9.IDirect3D9Ex direct3D9;
     private static D3D9.IDirect3DDevice9Ex device9;
@@ -33,6 +34,12 @@ internal static partial class CustomTableGpuDevices
 
     /// <summary>共有のDirect3D 11のコンテキストです。有効な期間は <see cref="Device11"/> と同じです。</summary>
     internal static D3D11.ID3D11DeviceContext Context11 => context11;
+
+    /// <summary>
+    /// 反映で描画の完了を確認するための、共有のDirect3D 11のイベントクエリです。共有のデバイスと一組で作り、一組で手放します。
+    /// 有効な期間は <see cref="Device11"/> と同じで、<see cref="Context11"/> でだけ使います。
+    /// </summary>
+    internal static D3D11.ID3D11Query CompletionQuery => completionQuery;
 
     /// <summary>共有のDirect2Dのデバイスです。有効な期間は <see cref="Device11"/> と同じです。</summary>
     internal static D2D.ID2D1Device Device2D => device2D;
@@ -106,6 +113,7 @@ internal static partial class CustomTableGpuDevices
                 out device11,
                 out context11).CheckError();
         }
+        completionQuery ??= device11.CreateQuery(new D3D11.QueryDescription(D3D11.QueryType.Event, D3D11.QueryFlags.None));
         if (device2D == null)
         {
             using Dxgi.IDXGIDevice dxgiDevice = device11.QueryInterface<Dxgi.IDXGIDevice>();
@@ -134,7 +142,7 @@ internal static partial class CustomTableGpuDevices
         }
     }
 
-    /// <summary>Direct3D 9Ex、Direct2D、Direct3D 11の順にデバイスを手放します。</summary>
+    /// <summary>Direct3D 9Ex、Direct2D、イベントクエリ、Direct3D 11の順にデバイスを手放します。</summary>
     private static void ReleaseDevices()
     {
         try
@@ -153,16 +161,30 @@ internal static partial class CustomTableGpuDevices
             }
             finally
             {
-                if (context11 != null)
+                // イベントクエリは、作ったコンテキストとデバイスより前に手放す。
+                try
                 {
-                    context11.ClearState();
-                    context11.Flush();
-                    context11.Dispose();
-                    context11 = null;
+                    completionQuery?.Dispose();
+                    completionQuery = null;
                 }
-                device11?.Dispose();
-                device11 = null;
+                finally
+                {
+                    DisposeContextAndDevice();
+                }
             }
         }
+    }
+
+    private static void DisposeContextAndDevice()
+    {
+        if (context11 != null)
+        {
+            context11.ClearState();
+            context11.Flush();
+            context11.Dispose();
+            context11 = null;
+        }
+        device11?.Dispose();
+        device11 = null;
     }
 }

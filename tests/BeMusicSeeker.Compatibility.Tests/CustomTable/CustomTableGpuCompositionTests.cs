@@ -23,6 +23,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomTableGpuCompositionTests
 {
     private const string SwitchLogText = "custom table display switched to the CPU path";
+    private const string PresentTimeoutLogText = "custom table GPU present did not confirm rendering completion";
 
     /// <summary>前提の環境（WPFがGPUで合成する）でなければ、skipせず失敗にします。</summary>
     private static void AssertGpuEnvironment()
@@ -52,6 +53,23 @@ public sealed class CustomTableGpuCompositionTests
             return Task.CompletedTask;
         });
         return count;
+    }
+
+    /// <summary>診断ログの中の、CPU経路への切替えの記録と、描画の完了の確認の上限超過の警告の件数を数えます。</summary>
+    private static async Task<(int Switches, int Timeouts)> RunAndCountLogsAsync(Action body)
+    {
+        int switches = 0;
+        int timeouts = 0;
+        await ApplicationLoggingTestScope.RunAsync(scope =>
+        {
+            string logPath = scope.ConfigureFileLog();
+            body();
+            string log = ApplicationLoggingTestScope.ReadFileLog(logPath);
+            switches = Regex.Count(log, SwitchLogText);
+            timeouts = Regex.Count(log, PresentTimeoutLogText);
+            return Task.CompletedTask;
+        });
+        return (switches, timeouts);
     }
 
     /// <summary>
@@ -264,6 +282,84 @@ public sealed class CustomTableGpuCompositionTests
             TestUiDispatcherHost.AssertNoUnhandledExceptions("復旧の作り直しの失敗");
         });
         Assert.AreEqual(1, logs, "切替えは診断ログへ一回だけ記録します。");
+    }
+
+    /// <summary>
+    /// 反映で描画の完了を上限まで確認できなかったものとして扱う（実際には待たない）ことを一回ずつ起こすと、表はGPU経路のまま同じ画像の実体を保ち、描画要求一回につき注入が一回消費され、
+    /// 描画の完了の計数は1だけ増えて追加の再描画はなく、描画の画素は通常どおり描いた表と一致することを確認します。
+    /// 警告は、解放の前の二回では診断ログへ一件、非表示から再表示で資源を解放した後の一回でもう一件（合計二件）で、CPU経路への切替えのログは0件、例外は出ません。
+    /// </summary>
+    /// <remarks>
+    /// 上限超過でCPU経路へ切り替える誤り、共有のデバイスを手放す誤り、再描画で補う誤り、
+    /// 警告を毎回または全体で一度しか記録しない誤り、注入を消費しない・二重に消費する誤りを検出します。画素の比較は、上限超過の描画の内容が正しいことの確認です。
+    /// 更新領域の通知を省く誤りは、実測で見分けられなかった（通知を省いても画素が一致した）ため、このケースの保証に含めません。
+    /// 終端 → 待ち → 通知の順序、通知の有無、上限200ミリ秒、クエリの世代と解放順は、ここでは固定せず静的レビューで確認します。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PresentCompletionTimeout_PresentsOnTheGpuPathWithoutRedrawAndWarnsOncePerRelease()
+    {
+        AssertGpuEnvironment();
+        (int switches, int timeouts) = await RunAndCountLogsAsync(() =>
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var faults = new CustomTableDisplayFaults();
+                CustomTableView? table = null;
+                CustomTableView? expected = null;
+                try
+                {
+                    table = CustomTableDisplayPathTestKit.Create(1d);
+                    expected = CustomTableDisplayPathTestKit.Create(1d);
+                    AssertGpuPath(table, "最初はGPU経路です。");
+                    // 比較の対象は、注入より前に、同じ操作で通常どおり描いた表です。
+                    expected.SelectedIndex = 2;
+                    expected.UpdateLayout();
+                    SurfacePixels expectedPixels = CustomTableRenderProbe.Read(expected);
+
+                    ImageSource image = table.SurfaceImage!;
+                    CustomTableRenderProbe.Surface(table).DisplayFaults = faults;
+                    int renderCount = table.LastRenderStats.RenderCount;
+
+                    faults.TimeOutPresentCompletion();
+                    table.SelectedIndex = 2;
+                    table.UpdateLayout();
+                    Assert.AreEqual(0, faults.RemainingPresentCompletionTimeouts, "描画要求一回につき注入は一回だけ消費されます。");
+                    AssertGpuPath(table, "上限を超えてもGPU経路のままです。");
+                    Assert.AreSame(image, table.SurfaceImage, "上限を超えても面を解放・作り直しません。");
+                    Assert.AreEqual(renderCount + 1, table.LastRenderStats.RenderCount, "描画の完了は一回だけ増えます。");
+                    SurfacePixels pixels = CustomTableRenderProbe.Read(table);
+                    Assert.IsTrue(pixels.SameAs(expectedPixels), "上限超過の描画も、描いた内容は通常どおりの画素です。" + pixels.DescribeDifference(expectedPixels));
+                    table.UpdateLayout();
+                    Assert.AreEqual(renderCount + 1, table.LastRenderStats.RenderCount, "追加の再描画を要求しません。");
+
+                    // 解放の前の二回目は、警告を増やさない。
+                    faults.TimeOutPresentCompletion();
+                    table.SelectedIndex = 3;
+                    table.UpdateLayout();
+                    Assert.AreEqual(0, faults.RemainingPresentCompletionTimeouts, "二回目の描画要求でも注入は一回だけ消費されます。");
+                    Assert.AreSame(image, table.SurfaceImage, "二回目でも面を作り直しません。");
+                    Assert.AreEqual(renderCount + 2, table.LastRenderStats.RenderCount, "二回目の描画の完了も一回だけ増えます。");
+
+                    // 非表示で資源を解放し、再表示した後の上限超過は、改めて警告する。
+                    table.ApplyVisibilityChanged(false);
+                    table.ApplyVisibilityChanged(true);
+                    faults.TimeOutPresentCompletion();
+                    table.SelectedIndex = 1;
+                    table.UpdateLayout();
+                    Assert.AreEqual(0, faults.RemainingPresentCompletionTimeouts, "再表示の後の描画要求でも注入は一回だけ消費されます。");
+                    AssertGpuPath(table, "再表示した表もGPU経路です。");
+                }
+                finally
+                {
+                    CustomTableDisplayPathTestKit.Release(expected);
+                    CustomTableDisplayPathTestKit.Release(table);
+                }
+            });
+            TestUiDispatcherHost.AssertNoUnhandledExceptions("描画の完了の確認の上限超過");
+        });
+        Assert.AreEqual(0, switches, "上限超過でCPU経路へ切り替えません。");
+        Assert.AreEqual(2, timeouts, "警告は、表の解放まで一度だけ記録します。");
     }
 
     /// <summary>

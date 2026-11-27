@@ -20,7 +20,7 @@
 | everything-native-path-identity | 2 | 明示した固定Everything SDK 3.0.0.9とpath identity fixture DLL |
 | audio-encoders | 1 | 明示opt-in、対象encoderと必要decoderの実exe |
 | audio-encoder-child | 2 | BASS/BASSencとSystem32のcscript.exe、実exit 0/7 |
-| table-gpu | 10 | WPFの描画の階層が1以上で、プロセスがソフトウェア描画でない実GPU環境 |
+| table-gpu | 11 | WPFの描画の階層が1以上で、プロセスがソフトウェア描画でない実GPU環境 |
 
 正式入口では一度に一suiteを指定します。入力・外部toolを準備してから実行します。Javaは参照手順で生成したJSONの絶対pathを `BMS_TEST_CHARTSTRING_REFERENCE_JSON` に指定します。
 
@@ -51,7 +51,7 @@ DriveRootのCLI入力は `BMS_SCD_UPDATER_PUBLISH_ROOT` の明示指定、また
 
 ## 一覧のGPU合成
 
-`table-gpu` は、一覧の表示面のGPU合成（Direct3D 11の共有テクスチャ、Direct3D 9Ex、`D3DImage`）を実GPUで確認します。[`CustomTableGpuCompositionTests`](CustomTable/CustomTableGpuCompositionTests.cs) の10行が、GPU経路で描かれること、GPU経路とCPU経路の画素の同等性、描画先の作り直しの要求とデバイスの消失からの復旧、復旧に失敗したときのCPU経路への切替え、共有のデバイスの下での二つの表の独立（片方の解放の影響を受けず、片方の消失にもう片方が追従する）を確認します。WPFが合成した画像の画素を読み、窓のない表だけを使い、失敗は表示面の故障注入で再現します。各ケースの冒頭で、`RenderCapability.Tier` が1以上でプロセスがソフトウェア描画でないことを表明し、満たさなければskipせず失敗にします。日常の `verify` には含めず、次のとおり明示実行します。
+`table-gpu` は、一覧の表示面のGPU合成（Direct3D 11の共有テクスチャ、Direct3D 9Ex、`D3DImage`）を実GPUで確認します。[`CustomTableGpuCompositionTests`](CustomTable/CustomTableGpuCompositionTests.cs) の11行が、GPU経路で描かれること、GPU経路とCPU経路の画素の同等性、描画先の作り直しの要求とデバイスの消失からの復旧、復旧に失敗したときのCPU経路への切替え、共有のデバイスの下での二つの表の独立（片方の解放の影響を受けず、片方の消失にもう片方が追従する）、描画の完了を上限まで確認できなかったときの扱い（GPU経路のまま反映し、再描画せず、警告は表の解放まで一度）を確認します。WPFが合成した画像の画素を読み、窓のない表だけを使い、失敗は表示面の故障注入で再現します。各ケースの冒頭で、`RenderCapability.Tier` が1以上でプロセスがソフトウェア描画でないことを表明し、満たさなければskipせず失敗にします。日常の `verify` には含めず、次のとおり明示実行します。
 
 ```powershell
 dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite table-gpu

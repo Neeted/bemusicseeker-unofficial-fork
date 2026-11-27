@@ -25,6 +25,7 @@ internal sealed class CustomTableDisplaySurface : IDisposable
     private CustomTableDisplayPath path;
     private bool cpuOnly;
     private bool recovered;
+    private bool presentTimeoutWarned;
 
     /// <param name="getFaults">故障注入の設定を返す関数。設定がなければnullを返します。</param>
     /// <param name="requestRedraw">GPU経路の前面バッファーが使えるようになったときに、再描画を一回要求する処理。</param>
@@ -114,6 +115,10 @@ internal sealed class CustomTableDisplaySurface : IDisposable
         try
         {
             current.Present();
+            if (current is CustomTableGpuDisplayPath { LastPresentTimedOut: true })
+            {
+                WarnPresentCompletionTimeout();
+            }
             return true;
         }
         catch (Exception exception) when (current is CustomTableGpuDisplayPath && exception is not OutOfMemoryException)
@@ -163,6 +168,7 @@ internal sealed class CustomTableDisplaySurface : IDisposable
     {
         DisposePath();
         cpuOnly = false;
+        presentTimeoutWarned = false;
     }
 
     /// <summary>描画先の作り直しの要求またはデバイスの消失（リセットを含む）を表す結果かを返します。</summary>
@@ -190,6 +196,29 @@ internal sealed class CustomTableDisplaySurface : IDisposable
         CustomTableDisplayPath released = path;
         path = null;
         released?.Dispose();
+    }
+
+    /// <summary>
+    /// 反映で描画の完了を上限まで確認できなかったことを、診断ログへ警告として記録します。表の解放（<see cref="Dispose"/>）まで一度だけで、
+    /// 消失からの復旧・世代の変更・寸法の変更による面の作り直しでは記録済みの扱いを保ちます。利用者へは通知しません。
+    /// </summary>
+    private void WarnPresentCompletionTimeout()
+    {
+        if (presentTimeoutWarned)
+        {
+            return;
+        }
+        presentTimeoutWarned = true;
+        try
+        {
+            NLogWrapper.FileLogger?.Warn("custom table GPU present did not confirm rendering completion within "
+                + CustomTableGpuDisplayPath.CompletionWaitLimitMilliseconds.ToString(CultureInfo.InvariantCulture)
+                + " ms; the update region was notified without waiting further");
+        }
+        catch
+        {
+            // 診断の失敗で反映を妨げない。
+        }
     }
 
     /// <summary>以後の生成をCPU経路で行い、切替えを、理由を含めて診断ログへ一度だけ記録します。利用者へは通知しません。</summary>

@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -19,6 +21,9 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
 {
+    /// <summary>反映で描画の完了を待つ時間の上限（ミリ秒）です。</summary>
+    internal const int CompletionWaitLimitMilliseconds = 200;
+
     private readonly Func<CustomTableDisplayFaults> getFaults;
     private readonly Action requestRedraw;
     private int generation;
@@ -42,6 +47,9 @@ internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
     internal override D2D.ID2D1RenderTarget Target => context2D;
 
     internal override ImageSource Image => image;
+
+    /// <summary>直前の <see cref="Present"/> で、描画の完了を上限まで確認できずに通知したかを示します。</summary>
+    internal bool LastPresentTimedOut { get; private set; }
 
     /// <summary>
     /// 描画の開始時に、面が現在の世代で寸法と倍率に合っているかを調べます。合っていれば何もしません。
@@ -72,12 +80,29 @@ internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
     }
 
     /// <summary>
-    /// Direct3D 11側の描画を確定してから、<see cref="D3DImage"/> の更新領域を通知します。<c>Flush</c> を省くと、
-    /// Direct3D 9Ex側から古い内容が見えます。<c>Lock</c> と <c>Unlock</c> は、通知が失敗しても必ず対にします。
+    /// Direct3D 11側の描画の完了を確認してから、<see cref="D3DImage"/> の更新領域を通知します。完了は、共有のイベントクエリを描画の後に終端し、
+    /// 結果が <see cref="CompletionWaitLimitMilliseconds"/> ミリ秒以内に返るまで待って確認します。命令の送り出し（<c>Flush</c>）だけでは、
+    /// WPFが別のデバイスで行う複写が描画を追い越し、古い内容が前面バッファーへ入るためです。上限を超えたときは待つのをやめて通知し、
+    /// <see cref="LastPresentTimedOut"/> をtrueにします。<c>Lock</c> と <c>Unlock</c> は、通知が失敗しても必ず対にします。
+    /// 終端と結果の取得の失敗は例外として呼び出し側へ伝えます。
     /// </summary>
     internal override void Present()
     {
-        CustomTableGpuDevices.Context11.Flush();
+        D3D11.ID3D11DeviceContext context = CustomTableGpuDevices.Context11;
+        D3D11.ID3D11Query query = CustomTableGpuDevices.CompletionQuery;
+        LastPresentTimedOut = false;
+        context.End(query);
+        CustomTableDisplayFaults faults = getFaults?.Invoke();
+        if (faults != null && faults.TryConsumePresentCompletionTimeout())
+        {
+            // 待たずに上限超過として扱う。描画の命令だけは送り出す。
+            context.Flush();
+            LastPresentTimedOut = true;
+        }
+        else
+        {
+            LastPresentTimedOut = !WaitForCompletion(context, query);
+        }
         image.Lock();
         try
         {
@@ -92,6 +117,34 @@ internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
         finally
         {
             image.Unlock();
+        }
+    }
+
+    /// <summary>
+    /// 終端したイベントクエリの完了を、上限まで待ちます。結果の取得は命令の送り出しを兼ねます。未完了（<c>S_FALSE</c>）は成功扱いの結果コードのため、
+    /// 完了は <c>S_OK</c> の場合だけとみなします。待つ間はUIスレッドを譲りながら回転します。
+    /// </summary>
+    /// <returns>上限までに完了を確認できたときtrue。</returns>
+    private static bool WaitForCompletion(D3D11.ID3D11DeviceContext context, D3D11.ID3D11Query query)
+    {
+        long start = Stopwatch.GetTimestamp();
+        var spinner = new SpinWait();
+        while (true)
+        {
+            SharpGen.Runtime.Result result = context.GetData(query, IntPtr.Zero, 0, D3D11.AsyncGetDataFlags.None);
+            if (result.Failure)
+            {
+                result.CheckError();
+            }
+            if (result.Code == 0)
+            {
+                return true;
+            }
+            if (Stopwatch.GetElapsedTime(start).TotalMilliseconds >= CompletionWaitLimitMilliseconds)
+            {
+                return false;
+            }
+            spinner.SpinOnce(-1);
         }
     }
 

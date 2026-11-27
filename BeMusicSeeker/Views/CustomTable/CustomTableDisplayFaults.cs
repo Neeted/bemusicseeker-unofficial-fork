@@ -30,7 +30,7 @@ internal enum CustomTableDisplayLoss
 
 /// <summary>
 /// 表示経路の失敗を決定的に再現するための、表示面ごとの最小の切替点です。既定は設定なし（nullの参照）で、製品の経路には影響しません。
-/// 生成の失敗と描画の終端の消失の二つだけを注入し、解放・作り直し・描き直し・CPU経路への切替えは実際の処理を通します。
+/// 生成の失敗、描画の終端の消失、反映での描画の完了の確認の上限超過の三つだけを注入し、解放・作り直し・描き直し・CPU経路への切替えは実際の処理を通します。
 /// UIスレッドだけで使います。
 /// </summary>
 internal sealed class CustomTableDisplayFaults
@@ -40,6 +40,29 @@ internal sealed class CustomTableDisplayFaults
 
     /// <summary>描画の終端で、実際の結果の代わりに返す消失の残りの回数です。</summary>
     internal int RemainingEndDrawLosses { get; private set; }
+
+    /// <summary>GPU経路の反映で、描画の完了を上限まで確認できなかったものとして扱う残りの回数です。</summary>
+    internal int RemainingPresentCompletionTimeouts { get; private set; }
+
+    /// <summary>
+    /// GPU経路の反映で、描画の完了を上限まで確認できなかったものとして扱う回数を設定します（実際には待ちません）。
+    /// 消費は反映一回につき一回です。設定済みの回数は置き換えます。
+    /// </summary>
+    internal void TimeOutPresentCompletion(int count = 1)
+    {
+        RemainingPresentCompletionTimeouts = Math.Max(0, count);
+    }
+
+    /// <summary>上限超過として扱う設定が残っていれば、回数を一つ減らしてtrueを返します。</summary>
+    internal bool TryConsumePresentCompletionTimeout()
+    {
+        if (RemainingPresentCompletionTimeouts <= 0)
+        {
+            return false;
+        }
+        RemainingPresentCompletionTimeouts--;
+        return true;
+    }
 
     /// <summary>指定の箇所で、資源の生成を失敗させる回数を設定します。設定済みの回数は置き換えます。</summary>
     internal void FailCreation(CustomTableDisplayFaultPoint point, int count = 1)
