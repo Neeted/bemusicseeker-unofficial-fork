@@ -1016,13 +1016,11 @@
                     <Border BorderThickness="1" Margin="0,0,4,0">
                       <Border.Style>
                         <Style TargetType="{x:Type Border}">
-                          <Setter Property="MinWidth" Value="82" />
                           <Setter Property="Padding" Value="8,2" />
                           <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
                           <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
                           <Style.Triggers>
                             <DataTrigger Binding="{Binding Compact}" Value="True">
-                              <Setter Property="MinWidth" Value="58" />
                               <Setter Property="Padding" Value="4,2" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsSelected}" Value="True">

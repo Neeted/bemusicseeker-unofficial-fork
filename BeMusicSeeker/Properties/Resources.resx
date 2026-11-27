@@ -1683,16 +1683,16 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
     <value>演奏時間</value>
   </data>
   <data name="Play_history_summary_score_update" xml:space="preserve">
-    <value>スコア更新</value>
+    <value>スコア</value>
   </data>
   <data name="Play_history_summary_bp_update" xml:space="preserve">
-    <value>BP更新</value>
+    <value>BP</value>
   </data>
   <data name="Play_history_summary_combo_update" xml:space="preserve">
-    <value>コンボ更新</value>
+    <value>コンボ</value>
   </data>
   <data name="Play_history_summary_clear_update" xml:space="preserve">
-    <value>クリア更新</value>
+    <value>クリア</value>
   </data>
   <data name="Play_history_display_target_set_format" xml:space="preserve">
     <value>プリセット: {0}</value>
