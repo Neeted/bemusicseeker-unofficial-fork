@@ -22,6 +22,8 @@
 
 `SerializableVersion` の版文字列はInvariantの整数をドットで区切ります。LR2の表・環境設定で共通に読む `customfolder`・`titleflash`・`autoreload` は、前後空白と符号を含む既存整数文法をInvariantで解釈し、不正・欠落時の既定値を維持します。DB自動再読込みの手動専用値は整数 `0` として保存します。
 
+GitHubのスター依頼の4項目（`GitHubStarPrompt*`）の既定値、不正値と未知の状態の扱いは[GitHubのスター依頼](../ui/github-star-prompt.md#保存する項目)を正本とします。
+
 `AutoInstallAfterAutomaticEstimation` はキー欠損時にfalseを使い、既存利用者の自動導入を更新だけで有効にしません。保存したtrue・falseは、新しいproviderでも同じ値へ復元します。操作と編集の契約は[設定仕様](settings.md#取り込み後の自動推定に続く導入)を参照します。
 
 ### 項目保存と公開

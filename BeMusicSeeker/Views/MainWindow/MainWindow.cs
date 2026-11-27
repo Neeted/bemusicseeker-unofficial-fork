@@ -630,11 +630,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         Task initializationTask = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
             ApplyStartupInitialSelectionRequest,
             action => Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, action),
-            CanPresentElevatedProcessWarning);
+            CanPresentStartupNotice);
         await initializationTask.LoggingAndPropagate("MainWindow_ContentRendered");
     }
 
-    private bool CanPresentElevatedProcessWarning()
+    /// <summary>起動時の案内（昇格の警告とGitHubのスター依頼）を表示できる画面の状態かを、UIスレッドで確認します。</summary>
+    private bool CanPresentStartupNotice()
     {
         if (IsShellClosingOrClosed() || !IsLoaded || Visibility != Visibility.Visible)
         {
@@ -687,6 +688,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.ShellShutdownWorkflow.OperationModeRestartRequested += MainWindowViewModel_OperationModeRestartRequested;
         viewModel.ShellShutdownWorkflow.InitializationExitRequested += MainWindowViewModel_InitializationExitRequested;
         viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
+        viewModel.GitHubStarPromptWorkflow.PresentationRequested += MainWindowViewModel_GitHubStarPromptPresentationRequested;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -715,6 +717,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.ShellShutdownWorkflow.OperationModeRestartRequested -= MainWindowViewModel_OperationModeRestartRequested;
         subscribedViewModel.ShellShutdownWorkflow.InitializationExitRequested -= MainWindowViewModel_InitializationExitRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
+        subscribedViewModel.GitHubStarPromptWorkflow.PresentationRequested -= MainWindowViewModel_GitHubStarPromptPresentationRequested;
         subscribedViewModel = null;
     }
 
@@ -756,7 +759,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         try
         {
-            if (!CanPresentElevatedProcessWarning())
+            if (!CanPresentStartupNotice())
             {
                 request.Complete(false);
                 return;
@@ -771,6 +774,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 owner: this));
             UiDialogRoute.ThrowIfNotShown(notification, caption);
             request.Complete(true);
+        }
+        catch (Exception exception)
+        {
+            request.Fail(exception);
+        }
+    }
+
+    private void MainWindowViewModel_GitHubStarPromptPresentationRequested(GitHubStarPromptPresentationRequest request)
+    {
+        _ = PresentGitHubStarPromptAsync(request);
+    }
+
+    /// <summary>
+    /// GitHubのスター依頼を共通の窓口で表示し、要求へ一度だけ結果を返します。戻り値の Task は失敗させません。
+    /// 閉じる操作とEscでも画面が持つ選択（初期値はあとで）を返します。終了中は表示せずに未表示として返し、表示の失敗は失敗として返します。
+    /// </summary>
+    private async Task PresentGitHubStarPromptAsync(GitHubStarPromptPresentationRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        try
+        {
+            if (IsShellClosingOrClosed())
+            {
+                request.CompleteNotPresented();
+                return;
+            }
+            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel
+                ?? throw new InvalidOperationException("MainWindowViewModel is required to present the GitHub star prompt.");
+            UiWindowDialogResult<GitHubStarPromptChoice> dialogResult = await dialogService
+                .ShowWindowAsync(new UiWindowDialogRequest<GitHubStarPromptDialog, GitHubStarPromptChoice>(
+                    () => new GitHubStarPromptDialog(viewModel.ExternalShellGateway, dialogService),
+                    dialog => dialog.Choice,
+                    this));
+            ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "GitHub star prompt dialog");
+            request.Complete(dialogResult.Value);
         }
         catch (Exception exception)
         {

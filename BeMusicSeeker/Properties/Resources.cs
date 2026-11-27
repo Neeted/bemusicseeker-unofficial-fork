@@ -2374,6 +2374,11 @@ public class Resources
     public static string About_original_site_link => ResourceManager.GetString("About_original_site_link", resourceCulture);
     public static string About_version_format => ResourceManager.GetString("About_version_format", resourceCulture);
     public static string About_build_format => ResourceManager.GetString("About_build_format", resourceCulture);
+    public static string GitHubStarPrompt_title => ResourceManager.GetString("GitHubStarPrompt_title", resourceCulture);
+    public static string GitHubStarPrompt_message => ResourceManager.GetString("GitHubStarPrompt_message", resourceCulture);
+    public static string GitHubStarPrompt_star_button => ResourceManager.GetString("GitHubStarPrompt_star_button", resourceCulture);
+    public static string GitHubStarPrompt_later_button => ResourceManager.GetString("GitHubStarPrompt_later_button", resourceCulture);
+    public static string GitHubStarPrompt_never_button => ResourceManager.GetString("GitHubStarPrompt_never_button", resourceCulture);
 
     public static string RightClick_actions => ResourceManager.GetString("RightClick_actions", resourceCulture);
     public static string RightClick_web_actions => ResourceManager.GetString("RightClick_web_actions", resourceCulture);

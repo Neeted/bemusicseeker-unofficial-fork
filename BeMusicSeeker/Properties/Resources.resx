@@ -3101,6 +3101,11 @@ BMS ディレクトリ一覧を見直し、親子関係になっている登録�
   <data name="About_original_site_link" xml:space="preserve"><value>オリジナルサイト</value></data>
   <data name="About_version_format" xml:space="preserve"><value>バージョン: {0}</value></data>
   <data name="About_build_format" xml:space="preserve"><value>ビルド: {0}</value></data>
+  <data name="GitHubStarPrompt_title" xml:space="preserve"><value>アプリを気に入っていただけましたか？</value></data>
+  <data name="GitHubStarPrompt_message" xml:space="preserve"><value>このアプリが役に立っているなら、このフォーク版のGitHubリポジトリにスターを付けて応援していただけると嬉しいです。今後の開発の励みになります。</value></data>
+  <data name="GitHubStarPrompt_star_button" xml:space="preserve"><value>GitHubでスターを付ける</value></data>
+  <data name="GitHubStarPrompt_later_button" xml:space="preserve"><value>あとで</value></data>
+  <data name="GitHubStarPrompt_never_button" xml:space="preserve"><value>今後表示しない</value></data>
   <data name="RightClick_actions" xml:space="preserve"><value>右クリック設定</value></data>
   <data name="RightClick_web_actions" xml:space="preserve"><value>Webページを開く</value></data>
   <data name="RightClick_web_actions_description" xml:space="preserve"><value>譜面のハッシュを使って開くWebページを保存順に設定します。</value></data>

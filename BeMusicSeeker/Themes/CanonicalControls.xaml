@@ -22,6 +22,7 @@
   <s:String x:Key="App.IconGlyph.Error">&#xE783;</s:String>
   <s:String x:Key="App.IconGlyph.Package">&#xE7B8;</s:String>
   <s:String x:Key="App.IconGlyph.Warning">&#xE7BA;</s:String>
+  <s:String x:Key="App.IconGlyph.Star">&#xE734;</s:String>
   <s:String x:Key="App.IconGlyph.Clear">&#xE894;</s:String>
   <s:String x:Key="App.IconGlyph.Sync">&#xE895;</s:String>
   <s:String x:Key="App.IconGlyph.Download">&#xE896;</s:String>

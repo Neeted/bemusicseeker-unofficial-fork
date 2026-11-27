@@ -1662,6 +1662,49 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>
+    /// GitHubのスター依頼の状態です。空は未終了、<c>Starred</c> と <c>Declined</c> は終了です。
+    /// 未知の値は新しい版が書いた値として終了扱いにし、書き換えません（<see cref="SettingsGitHubStarPromptStore"/>）。
+    /// </summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    public string GitHubStarPromptState
+    {
+        get => (string)this[nameof(GitHubStarPromptState)];
+        set => this[nameof(GitHubStarPromptState)] = value;
+    }
+
+    /// <summary>GitHubのスター依頼のために数えた起動の回数です。前回の基準時点から数え、表示に必要な回数で頭打ちにします。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("0")]
+    public int GitHubStarPromptStartupCount
+    {
+        get => (int)this[nameof(GitHubStarPromptStartupCount)];
+        set => this[nameof(GitHubStarPromptStartupCount)] = value;
+    }
+
+    /// <summary>GitHubのスター依頼を次に表示できるUTCの日時です。InvariantCultureの往復形式（O）で保存し、空は未設定です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    public string GitHubStarPromptNextEligibleUtc
+    {
+        get => (string)this[nameof(GitHubStarPromptNextEligibleUtc)];
+        set => this[nameof(GitHubStarPromptNextEligibleUtc)] = value;
+    }
+
+    /// <summary>GitHubのスター依頼を表示した回数です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("0")]
+    public int GitHubStarPromptShownCount
+    {
+        get => (int)this[nameof(GitHubStarPromptShownCount)];
+        set => this[nameof(GitHubStarPromptShownCount)] = value;
+    }
+
     /// <summary>取り込み後の自動推定が正常完了したとき、今回導入先を自動設定した保留を続けて導入します。既定は無効です。</summary>
     [UserScopedSetting]
     [DebuggerNonUserCode]

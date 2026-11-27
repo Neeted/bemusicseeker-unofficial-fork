@@ -124,6 +124,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IPackageInstallMutationPort packageInstallMutationPort;
 
+    private readonly bool enableGitHubStarPrompt;
+
     /// <summary>同じ共通受付と明示されたプロセス・音声・入力列挙境界で本番の機能を構成します。</summary>
     /// <param name="runtimeOptions">起動境界またはfixtureが明示的に所有する配置と実行条件。</param>
     /// <param name="rootFileEnumerator">モデルとLR2入力に共通の任意グループ列挙境界。nullは通常経路です。</param>
@@ -138,6 +140,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="settingsDialogService">設定画面の確認と通知。省略時は共通のダイアログ窓口を使います。</param>
     /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
     /// <param name="libraryDialogService">ライブラリ操作の通知と確認。省略時は共通のダイアログ窓口を使い、モデルへ注入する窓口の実装を作ります。</param>
+    /// <param name="enableGitHubStarPrompt">GitHubのスター依頼を有効にするか。既定は無効で、本番の起動入口だけが検証起動でない場合に有効にします。テストの構成が隔離した設定へ起動の回数を書かないためです。</param>
     /// <param name="dialogService">アプリ共通のダイアログ窓口（必須）。本番は構成の根（App）が作る一つを渡し、専用引数を省略した経路と構成が作る他の所有者へ同じ窓口を届けます。省略時に実際のダイアログ調停処理を暗黙に作らないのは、通知・確認の宣言を持たないテストが実際のダイアログへ到達することを避けるためで、テストは未宣言の要求を失敗にする窓口か、宣言した記録用の窓口を明示して渡します。null は <see cref="ArgumentNullException"/> です。</param>
     internal ApplicationComposition(
         ApplicationRuntimeOptions runtimeOptions,
@@ -174,9 +177,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IPackageInstallMutationPort packageInstallMutationPort = null,
         IChartFileScanner chartFileScanner = null,
         IUiDialogService libraryDialogService = null,
-        IUiDialogService dialogService = null)
+        IUiDialogService dialogService = null,
+        bool enableGitHubStarPrompt = false)
     {
         RuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
+        this.enableGitHubStarPrompt = enableGitHubStarPrompt;
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         this.applicationLifetime = applicationLifetime
@@ -549,7 +554,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort,
             exitForUnrestoredDestination: applicationLifetime.ExitForUnrestoredDestination,
             playlistOperationAdmission: PlaylistOperationAdmission,
-            reportPlaybackSettingsSaveFailure: reportSettingsApplyFailure);
+            reportPlaybackSettingsSaveFailure: reportSettingsApplyFailure,
+            enableGitHubStarPrompt: enableGitHubStarPrompt);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -721,6 +727,7 @@ internal sealed class MainWindowChildComposition
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
     /// <param name="restartArguments">起動時に捕捉済みの再起動引数。動作モード変更の再起動と同じ値を更新後の再起動へ引き継ぎます。</param>
+    /// <param name="enableGitHubStarPrompt">GitHubのスター依頼を有効にするか。既定は無効で、検証起動でない通常起動だけが有効にします。有効にする場合は <paramref name="settingsProvider"/> と <paramref name="dispatchPackageInstallUi"/> が必要です。</param>
     internal MainWindowChildComposition(
         string updateManifestUrl,
         IReadOnlyList<string> restartArguments,
@@ -778,7 +785,8 @@ internal sealed class MainWindowChildComposition
         IPackageInstallMutationPort packageInstallMutationPort = null,
         Action<Exception> exitForUnrestoredDestination = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
-        Action<Exception> reportPlaybackSettingsSaveFailure = null)
+        Action<Exception> reportPlaybackSettingsSaveFailure = null,
+        bool enableGitHubStarPrompt = false)
     {
         ArgumentNullException.ThrowIfNull(dialogService);
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -918,6 +926,23 @@ internal sealed class MainWindowChildComposition
             ProcessElevationProbe.IsCurrentProcessElevated,
             (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context),
             message => NLogWrapper.FileLogger?.Warn(message));
+        if (enableGitHubStarPrompt && (settingsProvider == null || dispatchPackageInstallUi == null))
+        {
+            throw new ArgumentException("The GitHub star prompt requires the settings provider and the UI dispatcher.", nameof(enableGitHubStarPrompt));
+        }
+        StartupUpdateWorkflowOwner startupUpdateWorkflow = StartupUpdateWorkflow;
+        GitHubStarPromptWorkflow = new GitHubStarPromptWorkflowOwner(
+            enableGitHubStarPrompt,
+            new SettingsGitHubStarPromptStore(settingsProvider ?? (() => throw new InvalidOperationException("The GitHub star prompt is disabled."))),
+            () => DateTimeOffset.UtcNow,
+            async () =>
+            {
+                await startupUpdateWorkflow.WaitForTerminalAsync().ConfigureAwait(false);
+                startupUpdateWorkflow.CaptureState(out StartupUpdateWorkflowCompletionReceipt receipt);
+                return receipt?.Outcome;
+            },
+            dispatchPackageInstallUi ?? (_ => false),
+            (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context));
         ScoreViewerRegistrationWorkflow = scoreViewerRegistrationWorkflow
             ?? throw new ArgumentNullException(nameof(scoreViewerRegistrationWorkflow));
         ZeroNoteMaintenanceWorkflow = new ZeroNoteMaintenanceWorkflowOwner(
@@ -1064,6 +1089,9 @@ internal sealed class MainWindowChildComposition
     internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; }
 
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; }
+
+    /// <summary>起動の完了後に一度だけ判断する、GitHubのスター依頼の所有者です。構成で無効なら保存値に触れません。</summary>
+    internal GitHubStarPromptWorkflowOwner GitHubStarPromptWorkflow { get; }
 
     internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistrationWorkflow { get; }
 

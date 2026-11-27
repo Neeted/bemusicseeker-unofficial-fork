@@ -1,5 +1,7 @@
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -17,6 +19,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         ShellActivationWorkflowOwner owner = new(
             startupUpdate,
             elevatedWarning,
+            GitHubStarPromptTestSupport.CreateDisabledOwner(),
             () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true)));
 
         Assert.IsTrue(owner.ActivateConstructedShell());
@@ -35,6 +38,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         ShellActivationWorkflowOwner owner = new(
             startupUpdate,
             elevatedWarning,
+            GitHubStarPromptTestSupport.CreateDisabledOwner(),
             () =>
             {
                 events.Add("initialize");
@@ -95,6 +99,7 @@ public sealed class ShellActivationWorkflowOwnerTests
             ShellActivationWorkflowOwner owner = new(
                 harness.Owner,
                 new ElevatedProcessWarningWorkflowOwner(() => false),
+                GitHubStarPromptTestSupport.CreateDisabledOwner(),
                 () => initialization.Task);
             try
             {
@@ -159,6 +164,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         ShellActivationWorkflowOwner owner = new(
             harness.Owner,
             new ElevatedProcessWarningWorkflowOwner(() => false),
+            GitHubStarPromptTestSupport.CreateDisabledOwner(),
             () => initialization.Task);
         try
         {
@@ -195,6 +201,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         ShellActivationWorkflowOwner owner = new(
             harness.Owner,
             new ElevatedProcessWarningWorkflowOwner(() => false),
+            GitHubStarPromptTestSupport.CreateDisabledOwner(),
             () => initialization.Task);
         try
         {
@@ -218,6 +225,63 @@ public sealed class ShellActivationWorkflowOwnerTests
         finally
         {
             await harness.FinishAsync();
+        }
+    }
+
+    /// <summary>
+    /// 保証：描画後の起動は、初期化の終端と実際の更新確認の「更新なし」を待ってスター依頼を表示へ進め、
+    /// その表示が終わらなくても起動処理のTaskと起動完了の結果は入力どおりに完了する。
+    /// スター依頼を起動の完了条件へ含めて起動を待たせる誤りと、接続漏れで依頼が届かない誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task ActivateRenderedShell_StartsStarPromptAfterInitializationWithoutWaitingForIt()
+    {
+        StartupUpdateWorkflowOwner startupUpdate = CreateStartupUpdateOwner();
+        DateTimeOffset now = new(2026, 11, 28, 12, 0, 0, TimeSpan.Zero);
+        var store = new RecordingGitHubStarPromptStore(new GitHubStarPromptRecord(GitHubStarPromptState.Unfinished, 9, now.AddDays(-1), 0));
+        var starPrompt = new GitHubStarPromptWorkflowOwner(
+            enabled: true,
+            store,
+            () => now,
+            async () =>
+            {
+                await startupUpdate.WaitForTerminalAsync();
+                startupUpdate.CaptureState(out StartupUpdateWorkflowCompletionReceipt? receipt);
+                return receipt?.Outcome;
+            },
+            action =>
+            {
+                action();
+                return true;
+            });
+        var requested = new TaskCompletionSource<GitHubStarPromptPresentationRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        starPrompt.PresentationRequested += request => requested.TrySetResult(request);
+        var initialization = new TaskCompletionSource<StartupInitializationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ShellActivationWorkflowOwner owner = new(startupUpdate, new ElevatedProcessWarningWorkflowOwner(() => false), starPrompt, () => initialization.Task);
+        try
+        {
+            Assert.IsTrue(owner.ActivateConstructedShell());
+            Task rendered = owner.ActivateRenderedShell(() => { }, action => action(), () => true);
+            var success = new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true);
+            initialization.SetResult(success);
+
+            await TestUiDispatcherHost.AwaitNotificationAsync(requested.Task, starPrompt.Completion, "GitHub star prompt presentation");
+
+            Assert.IsTrue(await (Task<bool>)rendered);
+            Assert.AreSame(success, await owner.StartupCompletion);
+            Assert.IsFalse(starPrompt.Completion.IsCompleted, "表示の応答を保留したまま、起動の完了を確認します。");
+            requested.Task.Result.Complete(GitHubStarPromptChoice.Later);
+            Assert.AreEqual(GitHubStarPromptWorkflowOutcome.Answered, await starPrompt.Completion);
+        }
+        finally
+        {
+            initialization.TrySetResult(new StartupInitializationResult(StartupInitializationOutcome.ShutdownRequested));
+            if (requested.Task.IsCompleted)
+            {
+                requested.Task.Result.CompleteNotPresented();
+            }
+            await Task.WhenAll(startupUpdate.WaitForIdleAsync(), startupUpdate.WaitForTerminalAsync());
+            await starPrompt.Completion;
         }
     }
 

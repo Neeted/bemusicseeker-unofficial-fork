@@ -281,6 +281,7 @@ public sealed class DialogPresentationTests
     [DataRow("PlaylistImportDialog")]
     [DataRow("PlaylistPropertyDialog")]
     [DataRow("PlaylistSummaryBulkEditDialog")]
+    [DataRow("GitHubStarPromptDialog")]
     public void CustomDialogScope_UsesAppliedCanonicalRolesAndKeepsOuterSentinelIsolated(string dialogName)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -439,6 +440,7 @@ public sealed class DialogPresentationTests
     [TestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
+    [DataRow("GitHubStarPromptDialog")]
     public void NonExceptionNativeWindows_KeepSemanticContentInsideClientBounds(string dialogName)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -919,6 +921,13 @@ public sealed class DialogPresentationTests
                     ButtonWithAutomationId("PendingDeleteCancel", DialogButtonRole.Quiet, "pending-delete cancel"),
                 ]),
             "PlayHistoryFolderDisplayPresetEditDialog" => CreatePlayHistoryPresetFixture(),
+            "GitHubStarPromptDialog" => CreateNativeFixture(
+                new GitHubStarPromptDialog(new FailingUpdateShellGateway(), UndeclaredDialogs.Create()),
+                [
+                    ButtonWithAutomationId("GitHubStarPromptStar", DialogButtonRole.Primary, "star prompt open repository"),
+                    ButtonWithAutomationId("GitHubStarPromptLater", DialogButtonRole.Neutral, "star prompt later"),
+                    ButtonWithAutomationId("GitHubStarPromptNever", DialogButtonRole.Neutral, "star prompt never show again"),
+                ]),
             "Lr2PlayHistorySchemaUninstallDialog" => CreateNativeFixture(
                 new Lr2PlayHistorySchemaUninstallDialog("score.db"),
                 [
@@ -1210,7 +1219,7 @@ public sealed class DialogPresentationTests
             "ReleaseNotesWindow" => documents
                 .Cast<FrameworkElement>()
                 .ToArray(),
-            "Lr2PlayHistorySchemaUninstallDialog" => FindVisualDescendants<FrameworkElement>(root)
+            "Lr2PlayHistorySchemaUninstallDialog" or "GitHubStarPromptDialog" => FindVisualDescendants<FrameworkElement>(root)
                 .Where(element => element.Visibility == Visibility.Visible
                     && element.ActualWidth > 0
                     && element.ActualHeight > 0

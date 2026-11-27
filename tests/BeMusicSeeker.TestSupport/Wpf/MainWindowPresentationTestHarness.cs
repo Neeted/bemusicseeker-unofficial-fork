@@ -22,6 +22,7 @@ internal static class MainWindowPresentationTestHarness
         activation.SetValue(viewModel,
             new ShellActivationWorkflowOwner(viewModel.StartupUpdateWorkflow,
                 new ElevatedProcessWarningWorkflowOwner(() => false),
+                GitHubStarPromptTestSupport.CreateDisabledOwner(),
                 () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true))));
     }
 

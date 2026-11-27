@@ -127,6 +127,9 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; private set; }
 
+    /// <summary>起動の完了後に一度だけ判断する、GitHubのスター依頼の所有者です。</summary>
+    internal GitHubStarPromptWorkflowOwner GitHubStarPromptWorkflow { get; private set; }
+
     internal ShellActivationWorkflowOwner ShellActivationWorkflow { get; private set; }
 
     internal ShellShutdownWorkflowOwner ShellShutdownWorkflow { get; private set; }
@@ -2415,9 +2418,11 @@ public partial class MainWindowViewModel : ViewModel,
         FolderAutoRenameWorkflow.RefreshSuppressionChanged += FolderAutoRenameWorkflowRefreshSuppressionChanged;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
+        GitHubStarPromptWorkflow = childComposition.GitHubStarPromptWorkflow;
         ShellActivationWorkflow = new ShellActivationWorkflowOwner(
             StartupUpdateWorkflow,
             ElevatedProcessWarningWorkflow,
+            GitHubStarPromptWorkflow,
             InitializeRenderedShellAsync);
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;

@@ -166,6 +166,8 @@ public partial class App : System.Windows.Application
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
+                    // 検証起動では、隔離したプロファイルの設定へ起動の回数を書かず、依頼も表示しません。
+                    enableGitHubStarPrompt: applicationRuntimeOptions.TestSession == null,
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),
                     reportTerminalSettingsSaveFailure: exception => EmergencyDialog.Show(
