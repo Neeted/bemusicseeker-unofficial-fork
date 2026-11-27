@@ -2281,6 +2281,119 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While <code>Quick check for speed</code> is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.</p></div>
 <p><code>Check WAV/OGG collisions for equivalence</code> is a check below the search box row. It is disabled by default. When it is enabled and you press <code>Verify selected groups</code>, a same-name WAV and OGG that collide are both read and compared by waveform to judge whether the OGG was converted from the WAV. The files are decoded for the comparison, so verification takes longer. Only names that have just WAV and OGG are judged; a name that includes mp3 or flac is not judged.</p>
 <p>A name judged equivalent is removed from <code>same audio name, different extension</code>. When every colliding WAV and OGG in a group was judged equivalent, <code>STATUS</code> gets the <code>WAV/OGG equivalent</code> note, and becomes <code>Safe (WAV/OGG equivalent)</code> if nothing else gets in the way. A group that still has even one collision that is not equivalent keeps <code>same audio name, different extension</code>. The <code>STATUS</code> tooltip shows how many names were judged equivalent.</p>
+<p>When some names were not judged equivalent, the <code>STATUS</code> tooltip shows the count for each reason, such as <code>Breakdown: Length differs (comparison stopped) 5, Insufficient correlation 3</code>. When the OGG or the WAV looks like a lower-quality version, it also shows the number of such names, such as <code>Quality hints: OGG has a low bitrate 3</code>.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Reason</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WAV cannot be decoded</code>, <code>OGG cannot be decoded</code></td>
+<td>The file could not be read as audio. A file with the <code>.wav</code> extension whose content is not uncompressed PCM becomes <code>WAV cannot be decoded</code>.</td>
+</tr>
+<tr>
+<td><code>Channel count differs</code>, <code>3 or more channels</code></td>
+<td>A mono and stereo pair, or audio with three or more channels.</td>
+</tr>
+<tr>
+<td><code>Unsupported sample rate pair</code></td>
+<td>The sampling rates differ, and the pair is not a 48 kHz WAV with a 44.1 kHz OGG.</td>
+</tr>
+<tr>
+<td><code>Length differs (comparison stopped)</code></td>
+<td>The lengths differ beyond the tolerance. The waveforms are not compared.</td>
+</tr>
+<tr>
+<td><code>Length differs, excess is audible (comparison stopped)</code></td>
+<td>The length difference is within the tolerance, but the extra part of the longer file contains sound. The waveforms are not compared.</td>
+</tr>
+<tr>
+<td><code>Only one side is silent</code></td>
+<td>Only one of the files is silent.</td>
+</tr>
+<tr>
+<td><code>Low-band waveform mismatch</code>, <code>Insufficient correlation</code>, <code>Volume difference</code>, <code>Per-segment volume difference</code></td>
+<td>The waveform or the volume differs beyond the change caused by conversion.</td>
+</tr>
+<tr>
+<td><code>Non-finite values</code></td>
+<td>The audio data contains values that cannot be treated as numbers.</td>
+</tr>
+<tr>
+<td><code>Read failure</code></td>
+<td>The file could not be opened or read.</td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Quality hint</th>
+<th>Condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OGG has a low bitrate</code></td>
+<td>The OGG is at least one second long and its average bitrate is below 96 kbps for stereo or 48 kbps for mono.</td>
+</tr>
+<tr>
+<td><code>WAV is 8-bit</code></td>
+<td>The bit depth of the WAV is 8 bits.</td>
+</tr>
+<tr>
+<td><code>WAV has a low sample rate</code></td>
+<td>The sampling rate of the WAV is below 44.1 kHz.</td>
+</tr>
+<tr>
+<td><code>OGG sample rate is lower than WAV</code></td>
+<td>The sampling rate of the OGG is lower than that of the WAV.</td>
+</tr>
+<tr>
+<td><code>Only the WAV is mono</code>, <code>Only the OGG is mono</code></td>
+<td>Only one of the files is mono.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Choosing <code>Copy inspection details</code> from the context menu copies the inspection result of every WAV and OGG pair in the groups of the selected rows to the clipboard. The text is tab-separated with a header on the first line, so you can paste it straight into a spreadsheet. Every pair is included, including pairs judged equivalent.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Columns</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FOLDER</code>, <code>NAME</code></td>
+<td>The <code>KEEP</code> folder and the colliding name.</td>
+</tr>
+<tr>
+<td><code>RESULT</code>, <code>REASON</code>, <code>QUALITY_HINT</code></td>
+<td>The judgment (<code>Equivalent</code>, <code>Not equivalent</code>, or <code>Read failure</code>), the reason it is not equivalent, and the quality hints.</td>
+</tr>
+<tr>
+<td><code>WAV_PATH</code>, <code>WAV_FORMAT</code>, <code>WAV_BITS</code>, <code>WAV_RATE</code>, <code>WAV_CHANNELS</code>, <code>WAV_FRAMES</code>, <code>WAV_SECONDS</code>, <code>WAV_BYTES</code></td>
+<td>The full path, format (<code>PCM</code>, <code>FLOAT</code>, or the format tag otherwise), bit depth, sampling rate, channel count, frame count, duration in seconds, and file size of the WAV.</td>
+</tr>
+<tr>
+<td><code>OGG_PATH</code>, <code>OGG_RATE</code>, <code>OGG_CHANNELS</code>, <code>OGG_FRAMES</code>, <code>OGG_SECONDS</code>, <code>OGG_BYTES</code>, <code>OGG_KBPS</code></td>
+<td>The full path, sampling rate, channel count, frame count, duration in seconds, file size, and average bitrate (calculated from the file size and duration) of the OGG.</td>
+</tr>
+<tr>
+<td><code>FRAME_DIFF</code>, <code>EXCESS_SILENT</code></td>
+<td>The difference in frame count (OGG − WAV), and whether the extra part of the longer file is silent.</td>
+</tr>
+<tr>
+<td><code>CORRELATION</code>, <code>VOLUME_DB</code>, <code>LOW_VOLUME_DB</code>, <code>LOW_ERROR_1K</code>, <code>LOW_ERROR_4K</code>, <code>SEGMENT_MIN_DB</code></td>
+<td>For pairs whose waveforms were compared: the correlation, the volume difference (overall and at 4 kHz and below, in dB), the low-band waveform error (at 1 kHz and below and at 4 kHz and below; above 1 means not equivalent), and the smallest per-segment volume difference (in dB).</td>
+</tr>
+</tbody>
+</table></div>
+<p>For pairs whose waveforms were not compared (a file that cannot be decoded, a length difference, and so on), the comparison columns are empty. When no selected group was verified with <code>Check WAV/OGG collisions for equivalence</code> enabled, a message tells you that there is nothing to copy.</p>
 <p>The tolerance of the judgment is based on the change in sound caused by converting to Ogg Vorbis at about 128 kbps. The following differences are treated as part of the conversion and can be judged equivalent.</p>
 <div class="table-scroll"><table>
 <thead>
@@ -2319,18 +2432,38 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td><code>Keep OGG</code></td>
-<td>For each colliding name, the WAV in the <code>KEEP</code> folder is moved to the Recycle Bin.</td>
+<td>For each colliding name, the WAV in the <code>KEEP</code> folder is deleted.</td>
 </tr>
 <tr>
 <td><code>Keep WAV</code></td>
-<td>For each colliding name, the OGG in the <code>KEEP</code> folder is moved to the Recycle Bin.</td>
+<td>For each colliding name, the OGG in the <code>KEEP</code> folder is deleted.</td>
 </tr>
 </tbody>
 </table></div>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>When <code>Collision cleanup</code> is <code>Keep OGG</code> or <code>Keep WAV</code>, <code>Organize selected groups</code> moves the file of the other format to the Recycle Bin for each colliding name found by verification where the <code>KEEP</code> folder has both the WAV and the OGG. Pairs that were not judged equivalent also keep only one file, so a different sound may be lost. Verify with <code>Check WAV/OGG collisions for equivalence</code> enabled, and check the contents of groups whose <code>STATUS</code> still shows <code>same audio name, different extension</code> before organizing them. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified keep both. The confirmation dialog shows how many groups keep one format and how many include pairs not judged equivalent.</p></div>
-<p>The values of <code>Check WAV/OGG collisions for equivalence</code> and <code>Collision cleanup</code> are kept per list until you close the application.</p>
-<p><code>Organize selected groups</code> processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than <code>KEEP</code> is merged into the <code>KEEP</code> folder. Files are moved and overwritten by the same rules as <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>. Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in <a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></a>.</p>
-<p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>When <code>Collision cleanup</code> is <code>Keep OGG</code> or <code>Keep WAV</code>, <code>Organize selected groups</code> deletes the file of the other format for each colliding name found by verification where the <code>KEEP</code> folder has both the WAV and the OGG. Pairs that were not judged equivalent also keep only one file, so a different sound may be lost. Verify with <code>Check WAV/OGG collisions for equivalence</code> enabled, and check the contents of groups whose <code>STATUS</code> still shows <code>same audio name, different extension</code> before organizing them. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified keep both. The confirmation dialog shows how many groups keep one format and how many include pairs not judged equivalent.</p></div>
+<p><code>Delete</code> is the combo box at the end of the same row. It sets how <code>Organize selected groups</code> deletes files: duplicate charts in the same folder, and the audio of the format that <code>Collision cleanup</code> does not keep.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Choice</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Move to Recycle Bin</code></td>
+<td>The default. Deleted files are moved to the Recycle Bin.</td>
+</tr>
+<tr>
+<td><code>Delete permanently</code></td>
+<td>Files are deleted without using the Recycle Bin. This is faster when you organize a large number of audio files.</td>
+</tr>
+</tbody>
+</table></div>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Files deleted with <code>Delete permanently</code> do not go to the Recycle Bin and cannot be restored. The confirmation dialog also shows a warning. Keep copies of any files you need before organizing.</p></div>
+<p>The values of <code>Check WAV/OGG collisions for equivalence</code>, <code>Collision cleanup</code>, and <code>Delete</code> are kept per list until you close the application. <code>Delete</code> returns to <code>Move to Recycle Bin</code> each time the application starts.</p>
+<p><code>Organize selected groups</code> processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than <code>KEEP</code> is merged into the <code>KEEP</code> folder. Files are moved and overwritten by the same rules as <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>. Then, for duplicate charts in the same folder, one is kept and the rest are deleted by the method chosen with <code>Delete</code>. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in <a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></a>.</p>
+<p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the numbers of charts and audio files deleted. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.</p>
 <p>Other operations are as follows.</p>
 <ul>
 <li>Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept <code>path:</code>, <code>folder:</code>, <code>title:</code>, <code>artist:</code>, and <code>status:</code>. <code>Select all shown</code>, <code>Verify selected groups</code>, and <code>Organize selected groups</code> apply only to the shown groups.</li>
@@ -2338,7 +2471,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>Clicking a column header sorts by group. Rows inside a group are always in path order.</li>
 <li>When you register folders with <code>Preferred destinations...</code> and confirm, for every group, a folder that is the same as or under one of them becomes <code>KEEP</code> when it is the only such folder in its group. The registered folders are kept until you close the application.</li>
 <li>Double-clicking a row moves to that folder in the duplicate-file-check tree.</li>
-<li>From the context menu, you can <code>Check</code>, <code>Uncheck</code>, or <code>Verify this group</code> for the groups of the selected rows, and <code>Open in Explorer</code> for the folders. The <code>Space</code> key also toggles the check mark. Clicking a <code>SELECT</code> or <code>STATUS</code> cell selects every row of that group.</li>
+<li>From the context menu, you can <code>Check</code>, <code>Uncheck</code>, <code>Verify this group</code>, or <code>Copy inspection details</code> for the groups of the selected rows, and <code>Open in Explorer</code> for the folders. The <code>Space</code> key also toggles the check mark. Clicking a <code>SELECT</code> or <code>STATUS</code> cell selects every row of that group.</li>
 </ul>
 <h3 id="split-placement-check">Split Placement Check</h3>
 <p>This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.</p>
@@ -2362,7 +2495,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <ul>
 <li>Groups whose <code>STATUS</code> is <code>Unchecked</code> cannot be organized. If you press <code>Organize selected groups</code> while an <code>Unchecked</code> group is checked, a message asks you to verify first and nothing is organized. Run <code>Verify selected groups</code> before organizing.</li>
 <li>When organizing finishes, the search runs again automatically. <code>KEEP</code> and the verification results of groups that were not affected are kept.</li>
-<li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, the folders registered with <code>Preferred destinations...</code>, and the values of <code>Check WAV/OGG collisions for equivalence</code> and <code>Collision cleanup</code> are kept separately from the merge candidates list of duplicate file check.</li>
+<li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, the folders registered with <code>Preferred destinations...</code>, and the values of <code>Check WAV/OGG collisions for equivalence</code>, <code>Collision cleanup</code>, and <code>Delete</code> are kept separately from the merge candidates list of duplicate file check.</li>
 </ul>
 <p>In the split-placement-check tree, <code>Merge to</code> in the folder context menu and <code>Ctrl + G</code> are not available.</p>
 <h4 id="adjust-the-search-conditions">Adjust the Search Conditions</h4>
@@ -2401,7 +2534,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>A pair is a WAV and an OGG in the same folder whose names match without the extension. Subfolders of a chart folder are searched too, so <code>sound/kick.wav</code> and <code>sound/kick.ogg</code> count as one pair. mp3 and flac files are not covered and are never changed.</p>
 <p>When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the folders disappear from the tree. Click <code>Duplicate audio check</code> again to search again.</p>
 <h4 id="organize-audio-from-cleanup-candidates">Organize Audio from Cleanup Candidates</h4>
-<p>Selecting <code>Cleanup candidates</code> at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a> for duplicate file check. From the context menu, you can <code>Check</code>, <code>Uncheck</code>, or <code>Check this folder</code> for the selected rows, and <code>Open in Explorer</code> for the folders. Double-clicking a row moves to that folder in the tree. There is no <code>KEEP</code> column because folders are not merged.</p>
+<p>Selecting <code>Cleanup candidates</code> at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a> for duplicate file check. From the context menu, you can <code>Check</code>, <code>Uncheck</code>, <code>Check this folder</code>, or <code>Copy inspection details</code> for the selected rows, and <code>Open in Explorer</code> for the folders. Double-clicking a row moves to that folder in the tree. There is no <code>KEEP</code> column because folders are not merged.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -2451,7 +2584,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td><code>Caution: WAV/OGG not equivalent</code></td>
-<td>Some pairs were not judged equivalent. The tooltip of <code>STATUS</code> lists the names.</td>
+<td>Some pairs were not judged equivalent. The tooltip of <code>STATUS</code> lists the names with their reasons, the count for each reason, and the quality hints.</td>
 </tr>
 <tr>
 <td><code>Cannot organize: Link</code>, <code>Cannot organize: Unreadable</code></td>
@@ -2461,11 +2594,13 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </table></div>
 <ol start="3">
 <li>Choose the format to keep with <code>Collision cleanup</code> (<code>Keep OGG</code> or <code>Keep WAV</code>). The default is <code>Keep OGG</code>.</li>
-<li>Check the folders to organize again and press <code>Organize selected folders</code>. When you press <code>OK</code> in the confirmation dialog, the files of the other format are moved to the Recycle Bin.</li>
+<li>Choose how files are deleted with <code>Delete</code> (<code>Move to Recycle Bin</code> or <code>Delete permanently</code>). The default is <code>Move to Recycle Bin</code>.</li>
+<li>Check the folders to organize again and press <code>Organize selected folders</code>. When you press <code>OK</code> in the confirmation dialog, the files of the other format are deleted by the chosen method.</li>
 </ol>
+<p>The reasons for not being judged equivalent, the quality hints, and the columns written by <code>Copy inspection details</code> are the same as in the merge candidates list (see <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a>). The <code>FOLDER</code> column contains the folder of the row.</p>
 <p>Folders are unchecked when their check finishes. If you press <code>Organize selected folders</code> while a folder whose <code>STATUS</code> is <code>Unchecked</code> is checked, a message asks you to check it first and nothing is organized. Folders that have been organized disappear from the list.</p>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Organizing a folder marked <code>Caution: WAV/OGG not equivalent</code> keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and <code>OK</code> stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent.</p></div>
-<p>The check marks, check results, the conditions in the search and exclude boxes, and the value of <code>Collision cleanup</code> are kept separately from the merge candidates lists of duplicate file check and split placement check. The value of <code>Collision cleanup</code> is kept until you close the application.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Organizing a folder marked <code>Caution: WAV/OGG not equivalent</code> keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and <code>OK</code> stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Files deleted with <code>Delete permanently</code> do not go to the Recycle Bin and cannot be restored.</p></div>
+<p>The check marks, check results, the conditions in the search and exclude boxes, and the values of <code>Collision cleanup</code> and <code>Delete</code> are kept separately from the merge candidates lists of duplicate file check and split placement check. The values of <code>Collision cleanup</code> and <code>Delete</code> are kept until you close the application, and <code>Delete</code> returns to <code>Move to Recycle Bin</code> each time the application starts.</p>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>

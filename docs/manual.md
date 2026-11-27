@@ -1404,6 +1404,41 @@ When comparing content, same-name files with different sizes are treated as diff
 
 A name judged equivalent is removed from `same audio name, different extension`. When every colliding WAV and OGG in a group was judged equivalent, `STATUS` gets the `WAV/OGG equivalent` note, and becomes `Safe (WAV/OGG equivalent)` if nothing else gets in the way. A group that still has even one collision that is not equivalent keeps `same audio name, different extension`. The `STATUS` tooltip shows how many names were judged equivalent.
 
+When some names were not judged equivalent, the `STATUS` tooltip shows the count for each reason, such as `Breakdown: Length differs (comparison stopped) 5, Insufficient correlation 3`. When the OGG or the WAV looks like a lower-quality version, it also shows the number of such names, such as `Quality hints: OGG has a low bitrate 3`.
+
+| Reason | Description |
+| --- | --- |
+| `WAV cannot be decoded`, `OGG cannot be decoded` | The file could not be read as audio. A file with the `.wav` extension whose content is not uncompressed PCM becomes `WAV cannot be decoded`. |
+| `Channel count differs`, `3 or more channels` | A mono and stereo pair, or audio with three or more channels. |
+| `Unsupported sample rate pair` | The sampling rates differ, and the pair is not a 48 kHz WAV with a 44.1 kHz OGG. |
+| `Length differs (comparison stopped)` | The lengths differ beyond the tolerance. The waveforms are not compared. |
+| `Length differs, excess is audible (comparison stopped)` | The length difference is within the tolerance, but the extra part of the longer file contains sound. The waveforms are not compared. |
+| `Only one side is silent` | Only one of the files is silent. |
+| `Low-band waveform mismatch`, `Insufficient correlation`, `Volume difference`, `Per-segment volume difference` | The waveform or the volume differs beyond the change caused by conversion. |
+| `Non-finite values` | The audio data contains values that cannot be treated as numbers. |
+| `Read failure` | The file could not be opened or read. |
+
+| Quality hint | Condition |
+| --- | --- |
+| `OGG has a low bitrate` | The OGG is at least one second long and its average bitrate is below 96 kbps for stereo or 48 kbps for mono. |
+| `WAV is 8-bit` | The bit depth of the WAV is 8 bits. |
+| `WAV has a low sample rate` | The sampling rate of the WAV is below 44.1 kHz. |
+| `OGG sample rate is lower than WAV` | The sampling rate of the OGG is lower than that of the WAV. |
+| `Only the WAV is mono`, `Only the OGG is mono` | Only one of the files is mono. |
+
+Choosing `Copy inspection details` from the context menu copies the inspection result of every WAV and OGG pair in the groups of the selected rows to the clipboard. The text is tab-separated with a header on the first line, so you can paste it straight into a spreadsheet. Every pair is included, including pairs judged equivalent.
+
+| Columns | Description |
+| --- | --- |
+| `FOLDER`, `NAME` | The `KEEP` folder and the colliding name. |
+| `RESULT`, `REASON`, `QUALITY_HINT` | The judgment (`Equivalent`, `Not equivalent`, or `Read failure`), the reason it is not equivalent, and the quality hints. |
+| `WAV_PATH`, `WAV_FORMAT`, `WAV_BITS`, `WAV_RATE`, `WAV_CHANNELS`, `WAV_FRAMES`, `WAV_SECONDS`, `WAV_BYTES` | The full path, format (`PCM`, `FLOAT`, or the format tag otherwise), bit depth, sampling rate, channel count, frame count, duration in seconds, and file size of the WAV. |
+| `OGG_PATH`, `OGG_RATE`, `OGG_CHANNELS`, `OGG_FRAMES`, `OGG_SECONDS`, `OGG_BYTES`, `OGG_KBPS` | The full path, sampling rate, channel count, frame count, duration in seconds, file size, and average bitrate (calculated from the file size and duration) of the OGG. |
+| `FRAME_DIFF`, `EXCESS_SILENT` | The difference in frame count (OGG − WAV), and whether the extra part of the longer file is silent. |
+| `CORRELATION`, `VOLUME_DB`, `LOW_VOLUME_DB`, `LOW_ERROR_1K`, `LOW_ERROR_4K`, `SEGMENT_MIN_DB` | For pairs whose waveforms were compared: the correlation, the volume difference (overall and at 4 kHz and below, in dB), the low-band waveform error (at 1 kHz and below and at 4 kHz and below; above 1 means not equivalent), and the smallest per-segment volume difference (in dB). |
+
+For pairs whose waveforms were not compared (a file that cannot be decoded, a length difference, and so on), the comparison columns are empty. When no selected group was verified with `Check WAV/OGG collisions for equivalence` enabled, a message tells you that there is nothing to copy.
+
 The tolerance of the judgment is based on the change in sound caused by converting to Ogg Vorbis at about 128 kbps. The following differences are treated as part of the conversion and can be judged equivalent.
 
 | Difference | Range that can be judged equivalent |
@@ -1417,17 +1452,27 @@ The tolerance of the judgment is based on the change in sound caused by converti
 | Choice | Description |
 | --- | --- |
 | `Keep both` | The default. Neither the WAV nor the OGG is cleaned up, and merging follows the usual rules. |
-| `Keep OGG` | For each colliding name, the WAV in the `KEEP` folder is moved to the Recycle Bin. |
-| `Keep WAV` | For each colliding name, the OGG in the `KEEP` folder is moved to the Recycle Bin. |
+| `Keep OGG` | For each colliding name, the WAV in the `KEEP` folder is deleted. |
+| `Keep WAV` | For each colliding name, the OGG in the `KEEP` folder is deleted. |
 
 > [!CAUTION]
-> When `Collision cleanup` is `Keep OGG` or `Keep WAV`, `Organize selected groups` moves the file of the other format to the Recycle Bin for each colliding name found by verification where the `KEEP` folder has both the WAV and the OGG. Pairs that were not judged equivalent also keep only one file, so a different sound may be lost. Verify with `Check WAV/OGG collisions for equivalence` enabled, and check the contents of groups whose `STATUS` still shows `same audio name, different extension` before organizing them. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified keep both. The confirmation dialog shows how many groups keep one format and how many include pairs not judged equivalent.
+> When `Collision cleanup` is `Keep OGG` or `Keep WAV`, `Organize selected groups` deletes the file of the other format for each colliding name found by verification where the `KEEP` folder has both the WAV and the OGG. Pairs that were not judged equivalent also keep only one file, so a different sound may be lost. Verify with `Check WAV/OGG collisions for equivalence` enabled, and check the contents of groups whose `STATUS` still shows `same audio name, different extension` before organizing them. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Groups that were not verified keep both. The confirmation dialog shows how many groups keep one format and how many include pairs not judged equivalent.
 
-The values of `Check WAV/OGG collisions for equivalence` and `Collision cleanup` are kept per list until you close the application.
+`Delete` is the combo box at the end of the same row. It sets how `Organize selected groups` deletes files: duplicate charts in the same folder, and the audio of the format that `Collision cleanup` does not keep.
 
-`Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
+| Choice | Description |
+| --- | --- |
+| `Move to Recycle Bin` | The default. Deleted files are moved to the Recycle Bin. |
+| `Delete permanently` | Files are deleted without using the Recycle Bin. This is faster when you organize a large number of audio files. |
 
-A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.
+> [!CAUTION]
+> Files deleted with `Delete permanently` do not go to the Recycle Bin and cannot be restored. The confirmation dialog also shows a warning. Keep copies of any files you need before organizing.
+
+The values of `Check WAV/OGG collisions for equivalence`, `Collision cleanup`, and `Delete` are kept per list until you close the application. `Delete` returns to `Move to Recycle Bin` each time the application starts.
+
+`Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are deleted by the method chosen with `Delete`. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
+
+A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the numbers of charts and audio files deleted. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.
 
 Other operations are as follows.
 
@@ -1436,7 +1481,7 @@ Other operations are as follows.
 - Clicking a column header sorts by group. Rows inside a group are always in path order.
 - When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
 - Double-clicking a row moves to that folder in the duplicate-file-check tree.
-- From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark. Clicking a `SELECT` or `STATUS` cell selects every row of that group.
+- From the context menu, you can `Check`, `Uncheck`, `Verify this group`, or `Copy inspection details` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark. Clicking a `SELECT` or `STATUS` cell selects every row of that group.
 
 ### Split Placement Check
 
@@ -1467,7 +1512,7 @@ Folders are merged from `Merge candidates` at the top of the tree. Reading the l
 
 - Groups whose `STATUS` is `Unchecked` cannot be organized. If you press `Organize selected groups` while an `Unchecked` group is checked, a message asks you to verify first and nothing is organized. Run `Verify selected groups` before organizing.
 - When organizing finishes, the search runs again automatically. `KEEP` and the verification results of groups that were not affected are kept.
-- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, the folders registered with `Preferred destinations...`, and the values of `Check WAV/OGG collisions for equivalence` and `Collision cleanup` are kept separately from the merge candidates list of duplicate file check.
+- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, the folders registered with `Preferred destinations...`, and the values of `Check WAV/OGG collisions for equivalence`, `Collision cleanup`, and `Delete` are kept separately from the merge candidates list of duplicate file check.
 
 In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
 
@@ -1497,7 +1542,7 @@ When the library changes, for example by deleting or moving charts or by install
 
 #### Organize Audio from Cleanup Candidates
 
-Selecting `Cleanup candidates` at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. From the context menu, you can `Check`, `Uncheck`, or `Check this folder` for the selected rows, and `Open in Explorer` for the folders. Double-clicking a row moves to that folder in the tree. There is no `KEEP` column because folders are not merged.
+Selecting `Cleanup candidates` at the top of the tree lists the folders that were found, one per row. The search and exclude boxes and the check marks work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. From the context menu, you can `Check`, `Uncheck`, `Check this folder`, or `Copy inspection details` for the selected rows, and `Open in Explorer` for the folders. Double-clicking a row moves to that folder in the tree. There is no `KEEP` column because folders are not merged.
 
 | Column | Description |
 | --- | --- |
@@ -1515,18 +1560,21 @@ Organize in the following order.
    | `STATUS` | Meaning |
    | --- | --- |
    | `Safe (WAV/OGG equivalent)` | Every pair was judged equivalent. |
-   | `Caution: WAV/OGG not equivalent` | Some pairs were not judged equivalent. The tooltip of `STATUS` lists the names. |
+   | `Caution: WAV/OGG not equivalent` | Some pairs were not judged equivalent. The tooltip of `STATUS` lists the names with their reasons, the count for each reason, and the quality hints. |
    | `Cannot organize: Link`, `Cannot organize: Unreadable` | The folder is a link, or the folder or its audio could not be read, so it cannot be organized. |
 
 3. Choose the format to keep with `Collision cleanup` (`Keep OGG` or `Keep WAV`). The default is `Keep OGG`.
-4. Check the folders to organize again and press `Organize selected folders`. When you press `OK` in the confirmation dialog, the files of the other format are moved to the Recycle Bin.
+4. Choose how files are deleted with `Delete` (`Move to Recycle Bin` or `Delete permanently`). The default is `Move to Recycle Bin`.
+5. Check the folders to organize again and press `Organize selected folders`. When you press `OK` in the confirmation dialog, the files of the other format are deleted by the chosen method.
+
+The reasons for not being judged equivalent, the quality hints, and the columns written by `Copy inspection details` are the same as in the merge candidates list (see [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates)). The `FOLDER` column contains the folder of the row.
 
 Folders are unchecked when their check finishes. If you press `Organize selected folders` while a folder whose `STATUS` is `Unchecked` is checked, a message asks you to check it first and nothing is organized. Folders that have been organized disappear from the list.
 
 > [!CAUTION]
-> Organizing a folder marked `Caution: WAV/OGG not equivalent` keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and `OK` stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent.
+> Organizing a folder marked `Caution: WAV/OGG not equivalent` keeps only one file of each pair, including pairs that were not judged equivalent, so a different sound may be lost. The confirmation dialog shows the number of folders marked as caution, and `OK` stays disabled until you tick the box to continue. Check the contents before organizing. Equivalence is judged by comparing waveforms, so a different sound that is too similar to tell apart by ear may also be judged equivalent. Files deleted with `Delete permanently` do not go to the Recycle Bin and cannot be restored.
 
-The check marks, check results, the conditions in the search and exclude boxes, and the value of `Collision cleanup` are kept separately from the merge candidates lists of duplicate file check and split placement check. The value of `Collision cleanup` is kept until you close the application.
+The check marks, check results, the conditions in the search and exclude boxes, and the values of `Collision cleanup` and `Delete` are kept separately from the merge candidates lists of duplicate file check and split placement check. The values of `Collision cleanup` and `Delete` are kept until you close the application, and `Delete` returns to `Move to Recycle Bin` each time the application starts.
 
 ### Full Resource Scan
 
