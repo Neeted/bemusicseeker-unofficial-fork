@@ -2281,6 +2281,16 @@ public sealed partial class CustomTableView : Grid
         return true;
     }
 
+    /// <summary>
+    /// 指定した文字列をクリップボードへコピーします。選択行のTSVコピーと同じ書込みと、失敗の通知（ログとエラー表示）を使います。
+    /// 一覧の管理主体が組み立てた、表の列以外の内容（検査結果の詳細など）のコピーに使います。
+    /// </summary>
+    internal void CopyTextToClipboard(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        SetClipboardText(text);
+    }
+
     private void SetClipboardText(string text)
     {
         try { Clipboard.SetText(text); }

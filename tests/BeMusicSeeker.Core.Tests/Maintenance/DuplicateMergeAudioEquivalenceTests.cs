@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 /// 「高域」は12kHzの正弦波（44100Hzで4000Hz・1000Hzの低域通過フィルタが取り除く）、「低域」は300Hzの正弦波です。サンプルレートを指定しないケースは44100Hzです。
 /// </summary>
 [TestClass]
-public sealed class DuplicateMergeAudioEquivalenceTests
+public sealed partial class DuplicateMergeAudioEquivalenceTests
 {
     private const int Rate = 44100;
 
@@ -42,14 +42,18 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         return samples;
     }
 
+    /// <summary>判定が同等かだけを返します（判定の戻り値の形が理由と測定値を持つようになっても、既存の判定の保証が見る値は同等かだけです）。</summary>
+    private static bool JudgeEquivalent(DuplicateMergeAudioSamples wav, DuplicateMergeAudioSamples ogg)
+        => DuplicateMergeAudioEquivalence.Judge(wav, ogg).Equivalent;
+
     private static bool JudgeMono(int rate, float[] wav, float[] ogg)
-        => DuplicateMergeAudioEquivalence.Judge(new(rate, 1, wav), new(rate, 1, ogg));
+        => JudgeEquivalent(new(rate, 1, wav), new(rate, 1, ogg));
 
     private static bool JudgeMono(int wavRate, float[] wav, int oggRate, float[] ogg)
-        => DuplicateMergeAudioEquivalence.Judge(new(wavRate, 1, wav), new(oggRate, 1, ogg));
+        => JudgeEquivalent(new(wavRate, 1, wav), new(oggRate, 1, ogg));
 
     private static bool JudgeStereo(int rate, float[] wavLeft, float[] wavRight, float[] oggLeft, float[] oggRight)
-        => DuplicateMergeAudioEquivalence.Judge(new(rate, 2, Interleave(wavLeft, wavRight)), new(rate, 2, Interleave(oggLeft, oggRight)));
+        => JudgeEquivalent(new(rate, 2, Interleave(wavLeft, wavRight)), new(rate, 2, Interleave(oggLeft, oggRight)));
 
     private static bool JudgeStereo(float[] wavLeft, float[] wavRight, float[] oggLeft, float[] oggRight)
         => JudgeStereo(Rate, wavLeft, wavRight, oggLeft, oggRight);
@@ -92,9 +96,9 @@ public sealed class DuplicateMergeAudioEquivalenceTests
     {
         double[] wave = [100, -50, 80, 20, -90, 10, 60, -30];
 
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wave), Make(Rate, 1, wave)), "前提：同形式で同じ波形は同等です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wave), Make(Rate, 2, wave)), "モノラル2Nとステレオ N（並びは同一）です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 2, wave), Make(Rate, 1, wave)), "向きを入れ替えても同じです。");
+        Assert.IsTrue(JudgeEquivalent(Make(Rate, 1, wave), Make(Rate, 1, wave)), "前提：同形式で同じ波形は同等です。");
+        Assert.IsFalse(JudgeEquivalent(Make(Rate, 1, wave), Make(Rate, 2, wave)), "モノラル2Nとステレオ N（並びは同一）です。");
+        Assert.IsFalse(JudgeEquivalent(Make(Rate, 2, wave), Make(Rate, 1, wave)), "向きを入れ替えても同じです。");
     }
 
     /// <summary>
@@ -106,7 +110,7 @@ public sealed class DuplicateMergeAudioEquivalenceTests
     {
         float[] noise = DuplicateMergeAudioTestFiles.Noise(3000, seed: 3);
 
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(new(Rate, 3, noise), new(Rate, 3, [.. noise])));
+        Assert.IsFalse(JudgeEquivalent(new(Rate, 3, noise), new(Rate, 3, [.. noise])));
     }
 
     /// <summary>
@@ -232,8 +236,8 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         var ogg = new DuplicateMergeAudioSamples(44100, 2, Interleave(Left(44100, 4410 * 4), Right(44100, 4410 * 4)));
         var swapped = new DuplicateMergeAudioSamples(44100, 2, Interleave(Right(44100, 4410 * 4), Left(44100, 4410 * 4)));
 
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(wav, ogg), "左右が同じ並びです。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(wav, swapped), "OGGの左右を入れ替えます。");
+        Assert.IsTrue(JudgeEquivalent(wav, ogg), "左右が同じ並びです。");
+        Assert.IsFalse(JudgeEquivalent(wav, swapped), "OGGの左右を入れ替えます。");
     }
 
     /// <summary>
@@ -268,9 +272,9 @@ public sealed class DuplicateMergeAudioEquivalenceTests
     [TestMethod]
     public void Judge_Silence_IsEquivalentOnlyWhenBothAreSilent()
     {
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Mono(0, 0, 0, 0), Mono(0, 0, 0, 0)), "両方が全0です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Mono(0, 0, 0, 0), Mono(0, 1, 0, 0)), "OGGだけが有音です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Mono(0, 1, 0, 0), Mono(0, 0, 0, 0)), "WAVだけが有音です。");
+        Assert.IsTrue(JudgeEquivalent(Mono(0, 0, 0, 0), Mono(0, 0, 0, 0)), "両方が全0です。");
+        Assert.IsFalse(JudgeEquivalent(Mono(0, 0, 0, 0), Mono(0, 1, 0, 0)), "OGGだけが有音です。");
+        Assert.IsFalse(JudgeEquivalent(Mono(0, 1, 0, 0), Mono(0, 0, 0, 0)), "WAVだけが有音です。");
 
         float[] silent48 = new float[4800], silent44 = new float[4410];
         float[] sound48 = [.. silent48], sound44 = [.. silent44];
@@ -291,12 +295,12 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         float[] noise = DuplicateMergeAudioTestFiles.Noise(2000, seed: 1);
         float[] swapped = [.. noise];
         for (int index = 0; index + 1 < swapped.Length; index += 2) { (swapped[index], swapped[index + 1]) = (swapped[index + 1], swapped[index]); }
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(new(Rate, 2, noise), new(Rate, 2, [.. noise])), "前提：同一の雑音は同等です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(new(Rate, 2, noise), new(Rate, 2, swapped)), "左右を入れ替えます。");
+        Assert.IsTrue(JudgeEquivalent(new(Rate, 2, noise), new(Rate, 2, [.. noise])), "前提：同一の雑音は同等です。");
+        Assert.IsFalse(JudgeEquivalent(new(Rate, 2, noise), new(Rate, 2, swapped)), "左右を入れ替えます。");
 
         float[] mono = DuplicateMergeAudioTestFiles.Noise(2000, seed: 2);
         float[] delayed = [0, .. mono.Take(mono.Length - 1)];
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(new(Rate, 1, mono), new(Rate, 1, delayed)), "1フレーム遅らせます。");
+        Assert.IsFalse(JudgeEquivalent(new(Rate, 1, mono), new(Rate, 1, delayed)), "1フレーム遅らせます。");
     }
 
     /// <summary>
@@ -437,10 +441,10 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         double[] Alternating(double value) => Repeat([value, -value], Frames / 2);
         double[] wav = Alternating(200);
 
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wav), Make(Rate, 1, Alternating(126))), "音量比がちょうど0.63です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wav), Make(Rate, 1, Alternating(125))), "音量比が0.63未満です。");
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wav), Make(Rate, 1, Alternating(230))), "音量比がちょうど1.15です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(Rate, 1, wav), Make(Rate, 1, Alternating(231))), "音量比が1.15を超えます。");
+        Assert.IsTrue(JudgeEquivalent(Make(Rate, 1, wav), Make(Rate, 1, Alternating(126))), "音量比がちょうど0.63です。");
+        Assert.IsFalse(JudgeEquivalent(Make(Rate, 1, wav), Make(Rate, 1, Alternating(125))), "音量比が0.63未満です。");
+        Assert.IsTrue(JudgeEquivalent(Make(Rate, 1, wav), Make(Rate, 1, Alternating(230))), "音量比がちょうど1.15です。");
+        Assert.IsFalse(JudgeEquivalent(Make(Rate, 1, wav), Make(Rate, 1, Alternating(231))), "音量比が1.15を超えます。");
     }
 
     /// <summary>
@@ -455,10 +459,10 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         double[] Alternating(double value) => Repeat([value, -value], Frames / 2);
         double[] wav = Alternating(200);
 
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Make(rate, 1, wav), Make(rate, 1, Alternating(168))), "低域の音量比がちょうど0.84です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(rate, 1, wav), Make(rate, 1, Alternating(167))), "低域の音量比が0.84未満です。");
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(Make(rate, 1, wav), Make(rate, 1, Alternating(214))), "低域の音量比がちょうど1.07です。");
-        Assert.IsFalse(DuplicateMergeAudioEquivalence.Judge(Make(rate, 1, wav), Make(rate, 1, Alternating(215))), "低域の音量比が1.07を超えます。");
+        Assert.IsTrue(JudgeEquivalent(Make(rate, 1, wav), Make(rate, 1, Alternating(168))), "低域の音量比がちょうど0.84です。");
+        Assert.IsFalse(JudgeEquivalent(Make(rate, 1, wav), Make(rate, 1, Alternating(167))), "低域の音量比が0.84未満です。");
+        Assert.IsTrue(JudgeEquivalent(Make(rate, 1, wav), Make(rate, 1, Alternating(214))), "低域の音量比がちょうど1.07です。");
+        Assert.IsFalse(JudgeEquivalent(Make(rate, 1, wav), Make(rate, 1, Alternating(215))), "低域の音量比が1.07を超えます。");
     }
 
     /// <summary>
@@ -637,7 +641,7 @@ public sealed class DuplicateMergeAudioEquivalenceTests
         float[] wavBefore = [.. wav.Samples];
         float[] oggBefore = [.. ogg.Samples];
 
-        Assert.IsTrue(DuplicateMergeAudioEquivalence.Judge(wav, ogg), $"{label}：前提：同等です。");
+        Assert.IsTrue(JudgeEquivalent(wav, ogg), $"{label}：前提：同等です。");
         CollectionAssert.AreEqual(wavBefore, wav.Samples, $"{label}：WAVのサンプルが変わりました。");
         CollectionAssert.AreEqual(oggBefore, ogg.Samples, $"{label}：OGGのサンプルが変わりました。");
     }

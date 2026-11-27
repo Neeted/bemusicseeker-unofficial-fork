@@ -298,7 +298,8 @@ public sealed class DuplicateMergeSafetyInspectorTests
     /// <summary>
     /// 保証：同等性検査がオフの確認は、WAVとOGGを復号せず（排他ロックして読めなくしても解析不能が出ない）、従来どおり拡張子違いの理由が残り、
     /// 同等と判定した名前の一覧は空、「全衝突が同等」は偽である。WAV・OGGの衝突名は、KEEPによらず保つ。
-    /// 検出する誤り：オフでの復号、オフの結果への同等性の情報の混入、理由の欠落、オフやKEEPの変更での衝突名の欠落。
+    /// 診断（WAVとOGGの組ごとの結果・理由・測定値）も持たない（<c>null</c>）。
+    /// 検出する誤り：オフでの復号、オフの結果への同等性の情報の混入、理由の欠落、オフやKEEPの変更での衝突名の欠落、オフの結果への診断の混入。
     /// </summary>
     [TestMethod]
     public void AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason()
@@ -323,6 +324,7 @@ public sealed class DuplicateMergeSafetyInspectorTests
             DuplicateMergeVerificationResult evaluated = keep == a ? result : Inspect([a, b], audioEquivalence: false).Evaluate(b);
             CollectionAssert.AreEqual(new[] { "x" }, evaluated.WavOggCollisionNames!.ToArray(), "KEEP=" + keep);
             Assert.AreEqual(0, evaluated.EquivalentAudioNames!.Count, "KEEP=" + keep);
+            Assert.IsNull(evaluated.AudioPairDiagnostics, "同等性検査をオフにした確認は診断を持ちません。KEEP=" + keep);
         }
     }
 

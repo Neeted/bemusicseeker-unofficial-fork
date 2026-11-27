@@ -59,7 +59,8 @@ public sealed class AudioDuplicateCandidateListOwnerTests
     /// <summary>
     /// 保証：STATUSの文言は、未確認・安全（全名が同等なら同等の付記、衝突名0件は付記なし）・要注意（非同等）・整理不可（リンク／解析不能の理由）で、
     /// ツールチップは要注意で同等でない衝突名を昇順に10件まで出して超過分を「ほか{n}件」に省略し、同等と判定した名前があれば末尾に同等の組数を、整理不可では理由の説明と該当のパスを出す。
-    /// 検出する誤り：段階・理由の文言の取り違え、10件を超える名前の無制限表示、同等の文の欠落、整理不可の該当パスの欠落。
+    /// 診断を持たない確認結果（<c>Inspection</c> の既定）では、名前の行は理由を添えない「- 名前」のままで、内訳・音質の目安の行も出さない（診断を持つ場合は別のケースが確認する）。
+    /// 検出する誤り：段階・理由の文言の取り違え、10件を超える名前の無制限表示、同等の文の欠落、整理不可の該当パスの欠落、診断を持たない結果への内訳の混入。
     /// </summary>
     [TestMethod]
     public void StatusText_AndTooltip_FollowTheStage()
@@ -80,7 +81,7 @@ public sealed class AudioDuplicateCandidateListOwnerTests
         string[] many = [.. Enumerable.Range(1, 12).Select(index => "n" + (13 - index).ToString("00"))];
         string tooltip = AudioDuplicateStatusPresentation.FormatTooltip(Inspection(AudioDuplicateInspectionStage.Caution, [.. many, "good"], ["good"]), @"C:\S\a")!;
         string[] lines = tooltip.Split(Environment.NewLine);
-        Assert.AreEqual("- n01", lines[1], "同等でない名前は昇順");
+        Assert.AreEqual("- n01", lines[1], "同等でない名前は昇順。診断を持たない結果は理由を添えず、内訳の行も出さない");
         Assert.AreEqual("- n10", lines[10]);
         Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_tooltip_more_format, 2), lines[11], "10件を超える分は省略");
         StringAssert.EndsWith(tooltip, string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 1));
@@ -346,5 +347,250 @@ public sealed class AudioDuplicateCandidateListOwnerTests
             new[] { @"C:\S\a", @"C:\S\g", @"C:\S\b", @"C:\S\e", @"C:\S\d", @"C:\S\h", @"C:\S\c", @"C:\S\f" },
             Names(owner),
             "降順：要注意、未確認、整理不可、安全。同値は探索結果の順のまま");
+    }
+
+    private static string Item(string name, int count) => string.Format(Resources.Duplicate_merge_candidate_audio_count_item_format, name, count);
+
+    private static string Joined(params string[] items) => string.Join(Resources.Duplicate_merge_candidate_audio_list_separator, items);
+
+    private static string NameWithReason(string name, string reason) => "- " + string.Format(Resources.Duplicate_merge_candidate_audio_name_reason_format, name, reason);
+
+    /// <summary>
+    /// 保証：診断を持つ要注意の確認結果のツールチップは、説明行の次に「内訳：理由 件数／…」（理由の順位の順、読取り失敗は最後、0件の理由は出さない）、
+    /// 同等と判定しなかった衝突名に音質の目安が成立するものがあれば「音質の目安：目安 件数／…」（目安の並びの順）、その次に「- 名前：理由」を昇順で出す。
+    /// 同等の名前は件数にも目安にも数えない（同等の名前の目安は数えない）。同等の組数の文は従来どおり末尾に出る。
+    /// 検出する誤り：理由の順位・読取り失敗の位置の誤り、同等の名前の混入、目安の件数の誤り、名前の行の書式の誤り、説明行・名前の行の順序の誤り。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_WithDiagnostics_ShowsTheBreakdownQualityHintsAndTheReasonOfEveryName()
+    {
+        const string folder = @"C:\S\a";
+        DuplicateMergeAudioPairDiagnostic[] diagnostics =
+        [
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("a", folder, DuplicateMergeAudioPairReason.Volume, DuplicateMergeAudioQualityHints.OggLowBitrate),
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent(
+                "b", folder, DuplicateMergeAudioPairReason.LowBandWaveform, DuplicateMergeAudioQualityHints.OggLowBitrate | DuplicateMergeAudioQualityHints.Wav8Bit),
+            DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("c", folder),
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("d", folder, DuplicateMergeAudioPairReason.LowBandWaveform),
+            DuplicateMergeAudioDiagnosticTestSupport.Equivalent("good", folder, DuplicateMergeAudioQualityHints.WavOnlyMono)
+        ];
+        AudioDuplicateFolderInspection inspection = Inspection(AudioDuplicateInspectionStage.Caution, ["a", "b", "c", "d", "good"], ["good"], diagnostics);
+
+        string tooltip = AudioDuplicateStatusPresentation.FormatTooltip(inspection, folder)!;
+
+        string[] lines = tooltip.Split(Environment.NewLine);
+        Assert.AreEqual(Resources.Audio_duplicate_candidate_non_equivalent_description, lines[0]);
+        Assert.AreEqual(
+            string.Format(
+                Resources.Duplicate_merge_candidate_audio_breakdown_format,
+                Joined(
+                    Item(Resources.Duplicate_merge_candidate_audio_reason_low_band_waveform, 2),
+                    Item(Resources.Duplicate_merge_candidate_audio_reason_volume, 1),
+                    Item(Resources.Duplicate_merge_candidate_audio_result_read_failure, 1))),
+            lines[1],
+            "理由の順位の順で、読取り失敗は最後です。");
+        Assert.AreEqual(
+            string.Format(
+                Resources.Duplicate_merge_candidate_audio_hint_format,
+                Joined(Item(Resources.Duplicate_merge_candidate_audio_hint_ogg_low_bitrate, 2), Item(Resources.Duplicate_merge_candidate_audio_hint_wav_8bit, 1))),
+            lines[2],
+            "同等の名前の目安（WAVだけモノラル）は数えません。");
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                NameWithReason("a", Resources.Duplicate_merge_candidate_audio_reason_volume),
+                NameWithReason("b", Resources.Duplicate_merge_candidate_audio_reason_low_band_waveform),
+                NameWithReason("c", Resources.Duplicate_merge_candidate_audio_result_read_failure),
+                NameWithReason("d", Resources.Duplicate_merge_candidate_audio_reason_low_band_waveform)
+            },
+            lines[3..7]);
+        Assert.AreEqual(string.Empty, lines[7]);
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 1), lines[8]);
+    }
+
+    /// <summary>
+    /// 保証：名前を11件以上持つ場合も、内訳の件数は同等と判定しなかった全名前を数え（10件に切らない）、名前の列挙は従来どおり昇順で10件まで「- 名前：理由」、超過分は「ほか{n}件」。
+    /// 音質の目安が成立する名前がなければ、音質の目安の行を出さない。
+    /// 検出する誤り：件数を表示した10件だけで数える誤り、目安がないときの空の行、名前の省略の欠落。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_WithDiagnostics_CountsEveryNameAndOmitsTheHintLineWithoutHints()
+    {
+        const string folder = @"C:\S\a";
+        string[] names = [.. Enumerable.Range(1, 12).Select(index => "n" + (13 - index).ToString("00"))];
+        DuplicateMergeAudioPairDiagnostic[] diagnostics =
+            [.. names.Select(name => DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent(name, folder, DuplicateMergeAudioPairReason.Volume))];
+
+        string[] lines = AudioDuplicateStatusPresentation.FormatTooltip(
+            Inspection(AudioDuplicateInspectionStage.Caution, names, [], diagnostics), folder)!.Split(Environment.NewLine);
+
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_audio_breakdown_format, Item(Resources.Duplicate_merge_candidate_audio_reason_volume, 12)),
+            lines[1]);
+        Assert.AreEqual(NameWithReason("n01", Resources.Duplicate_merge_candidate_audio_reason_volume), lines[2], "目安の行はなく、名前の列挙が続きます。");
+        Assert.AreEqual(NameWithReason("n10", Resources.Duplicate_merge_candidate_audio_reason_volume), lines[11]);
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_tooltip_more_format, 2), lines[12]);
+        Assert.AreEqual(13, lines.Length);
+    }
+
+    /// <summary>
+    /// 保証：整理不可と安全のツールチップは、診断を持っても変わらない（内訳・音質の目安・理由を出さない）。診断を持たない要注意の確認結果は、従来どおり名前だけを出す
+    /// （既存の <see cref="StatusText_AndTooltip_FollowTheStage"/> が診断なしの保証）。
+    /// 検出する誤り：整理不可・安全への内訳の混入、診断を持たない結果での例外・理由の混入。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_UnorganizableAndSafe_AreUnchangedByDiagnostics()
+    {
+        const string folder = @"C:\S\a";
+        DuplicateMergeAudioPairDiagnostic[] diagnostics = [DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("x", folder)];
+        AudioDuplicateFolderInspection unorganizable = Unorganizable(DuplicateMergeVerificationReasonKind.Unreadable, folder, "sub");
+
+        Assert.AreEqual(
+            AudioDuplicateStatusPresentation.FormatTooltip(unorganizable, folder),
+            AudioDuplicateStatusPresentation.FormatTooltip(unorganizable with { PairDiagnostics = diagnostics }, folder));
+
+        DuplicateMergeAudioPairDiagnostic[] safeDiagnostics = [DuplicateMergeAudioDiagnosticTestSupport.Equivalent("x", folder)];
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_tooltip_audio_equivalent_format, 1),
+            AudioDuplicateStatusPresentation.FormatTooltip(Inspection(AudioDuplicateInspectionStage.Safe, ["x"], null, safeDiagnostics), folder));
+    }
+
+    private static readonly string[] TsvHeaderColumns =
+    [
+        "FOLDER", "NAME", "RESULT", "REASON", "QUALITY_HINT", "WAV_PATH", "WAV_FORMAT", "WAV_BITS", "WAV_RATE", "WAV_CHANNELS", "WAV_FRAMES", "WAV_SECONDS", "WAV_BYTES",
+        "OGG_PATH", "OGG_RATE", "OGG_CHANNELS", "OGG_FRAMES", "OGG_SECONDS", "OGG_BYTES", "OGG_KBPS", "FRAME_DIFF", "EXCESS_SILENT", "CORRELATION", "VOLUME_DB",
+        "LOW_VOLUME_DB", "LOW_ERROR_1K", "LOW_ERROR_4K", "SEGMENT_MIN_DB"
+    ];
+
+    private static string Row(params string[] cells)
+    {
+        Assert.AreEqual(28, cells.Length, "行は28列です。");
+        return string.Join("\t", cells);
+    }
+
+    /// <summary>
+    /// 保証：検査結果の詳細のTSVは、見出し28列（表示言語によらない固定の英字）の次に組ごとの一行を、列をTAB・行をCRLFで区切り（末尾に改行を付けない）、
+    /// 衝突名の昇順で出す。数値は <c>CurrentCulture</c> を sv-SE にしても不変書式（小数点はピリオド、負号はASCIIのハイフンマイナス、桁区切りなし）で、小数の桁数は
+    /// 秒6・kbps3・相関と誤差比4・dB3、無限大は <c>Infinity</c>・<c>-Infinity</c>、未測定は空、WAV_FORMAT は <c>PCM</c>・<c>FLOAT</c>・<c>0x</c>と4桁の16進、EXCESS_SILENT は <c>TRUE</c>/<c>FALSE</c>。
+    /// RESULT・REASON・QUALITY_HINT は現在の表示言語の表示リソースの文言（目安は「, 」区切り）で、同等・読取り失敗の組も全量を出し、制御文字（U+0085）は空白1個に置き換える。
+    /// 検出する誤り：現在のカルチャでの書式化（負号・小数点）、桁数・無限大・未測定の表記の誤り、列の欠落・順序の誤り、見出しの翻訳、行の順序の誤り、改行コードの誤り。
+    /// </summary>
+    [TestMethod]
+    public void BuildInspectionDetailsTsv_WritesTheFixedColumnsWithInvariantNumberFormat()
+    {
+        using IDisposable culture = TestCultureScope.UseCulture("sv-SE");
+        const string folder = @"C:\S\a";
+        AudioDuplicateFolder a = Folder(folder, "n1");
+        AudioDuplicateCandidateListOwner owner = CreateOwner();
+        Adopt(owner, new object(), [a]);
+        DuplicateMergeAudioPairDiagnostic[] diagnostics =
+        [
+            DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("n3", folder),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair("n5\u0085x", folder, reason: DuplicateMergeAudioPairReason.NonFinite),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair(
+                "n1", folder, reason: DuplicateMergeAudioPairReason.LowBandWaveform,
+                hints: DuplicateMergeAudioQualityHints.OggLowBitrate | DuplicateMergeAudioQualityHints.Wav8Bit,
+                wav: new DuplicateMergeWavInfo(1, 8, 22050, 1, 44100, 44144), ogg: new DuplicateMergeOggInfo(44100, 2, 88200, 20000),
+                frameDifference: -1152, excessSilent: false,
+                comparison: new DuplicateMergeAudioComparison(0.98764, -6.0206, null, 1.23456, double.PositiveInfinity, double.NegativeInfinity)),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair(
+                "n2", folder, DuplicateMergeAudioPairResult.Equivalent,
+                wav: new DuplicateMergeWavInfo(3, 32, 44100, 2, 44100, 352844), ogg: new DuplicateMergeOggInfo(44100, 2, 44100, 12000),
+                frameDifference: 0, comparison: new DuplicateMergeAudioComparison(1, 0, 0, 0, 0, 0)),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair(
+                "n4", folder, reason: DuplicateMergeAudioPairReason.WavUndecodable, wav: new DuplicateMergeWavInfo(2, 4, null, null, null, 100))
+        ];
+        Verify(owner, a, Inspection(AudioDuplicateInspectionStage.Caution, ["n1", "n2", "n3", "n4", "n5\u0085x"], ["n2"], diagnostics));
+
+        string tsv = owner.BuildInspectionDetailsTsv(owner.RowSet)!;
+
+        Assert.IsFalse(tsv.EndsWith("\r\n", StringComparison.Ordinal), "末尾の行に改行を付けません。");
+        Assert.IsFalse(tsv.Contains('\u2212'), "負号はASCIIのハイフンマイナスです。");
+        string[] lines = tsv.Split("\r\n");
+        Assert.AreEqual(6, lines.Length);
+        Assert.AreEqual(string.Join("\t", TsvHeaderColumns), lines[0]);
+        string hintSeparator = ", ";
+        Assert.AreEqual(
+            Row(
+                folder, "n1", Resources.Duplicate_merge_candidate_audio_result_non_equivalent, Resources.Duplicate_merge_candidate_audio_reason_low_band_waveform,
+                Resources.Duplicate_merge_candidate_audio_hint_ogg_low_bitrate + hintSeparator + Resources.Duplicate_merge_candidate_audio_hint_wav_8bit,
+                @"C:\S\a\n1.wav", "PCM", "8", "22050", "1", "44100", "2.000000", "44144",
+                @"C:\S\a\n1.ogg", "44100", "2", "88200", "2.000000", "20000", "80.000",
+                "-1152", "FALSE", "0.9876", "-6.021", "", "1.2346", "Infinity", "-Infinity"),
+            lines[1]);
+        Assert.AreEqual(
+            Row(
+                folder, "n2", Resources.Duplicate_merge_candidate_audio_result_equivalent, "", "",
+                @"C:\S\a\n2.wav", "FLOAT", "32", "44100", "2", "44100", "1.000000", "352844",
+                @"C:\S\a\n2.ogg", "44100", "2", "44100", "1.000000", "12000", "96.000",
+                "0", "", "1.0000", "0.000", "0.000", "0.0000", "0.0000", "0.000"),
+            lines[2],
+            "同等の組も出ます。");
+        Assert.AreEqual(
+            Row(
+                folder, "n3", Resources.Duplicate_merge_candidate_audio_result_read_failure, "", "",
+                @"C:\S\a\n3.wav", "", "", "", "", "", "", "100",
+                @"C:\S\a\n3.ogg", "", "", "", "", "200", "",
+                "", "", "", "", "", "", "", ""),
+            lines[3],
+            "読取り失敗の組は理由を持たず、ファイルサイズだけを出します。");
+        Assert.AreEqual(
+            Row(
+                folder, "n4", Resources.Duplicate_merge_candidate_audio_result_non_equivalent, Resources.Duplicate_merge_candidate_audio_reason_wav_undecodable, "",
+                @"C:\S\a\n4.wav", "0x0002", "4", "", "", "", "", "100",
+                @"C:\S\a\n4.ogg", "44100", "2", "44100", "1.000000", "16000", "128.000",
+                "", "", "", "", "", "", "", ""),
+            lines[4]);
+        Assert.AreEqual(
+            Row(
+                folder, "n5 x", Resources.Duplicate_merge_candidate_audio_result_non_equivalent, Resources.Duplicate_merge_candidate_audio_reason_non_finite, "",
+                @"C:\S\a\n5 x.wav", "PCM", "16", "44100", "2", "44100", "1.000000", "176444",
+                @"C:\S\a\n5 x.ogg", "44100", "2", "44100", "1.000000", "16000", "128.000",
+                "", "", "", "", "", "", "", ""),
+            lines[5],
+            "制御文字（U+0085）は空白1個に置き換わります。");
+    }
+
+    /// <summary>
+    /// 保証：検査結果の詳細は、選択された行のフォルダを、フォルダごとに一度、表の表示順（並べ替えを当てた後）で出し、FOLDER列にはそのフォルダを出す。
+    /// 行を逆順に渡しても、同じフォルダの行を重ねて渡しても、表示順で一度だけ出る。診断を持たないフォルダ（未確認、診断なしの確認結果）は行を出さない。
+    /// 読取りの失敗で整理不可になったフォルダは、保持した診断を出す。リンクで整理不可になったフォルダ（診断なし）と、対象に診断が一件もない場合は <c>null</c>（コピーしない）。
+    /// 検出する誤り：選択順での出力、重複したフォルダの二重出力、診断のないフォルダの空行、整理不可で保持した診断の欠落、対象なしでの空のTSV。
+    /// </summary>
+    [TestMethod]
+    public void BuildInspectionDetailsTsv_FollowsTheDisplayOrderAndSkipsFoldersWithoutDiagnostics()
+    {
+        AudioDuplicateFolder a = Folder(@"C:\S\a", "x"), b = Folder(@"C:\S\b", "x"), c = Folder(@"C:\S\c", "x"), d = Folder(@"C:\S\d", "x");
+        AudioDuplicateCandidateListOwner owner = CreateOwner();
+        Adopt(owner, new object(), [a, b, c, d]);
+        Verify(owner, a, Inspection(AudioDuplicateInspectionStage.Caution, ["x"], [], [DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("x", a.Folder, DuplicateMergeAudioPairReason.Volume)]));
+        Verify(owner, b, Inspection(AudioDuplicateInspectionStage.Safe, ["x"], null, [DuplicateMergeAudioDiagnosticTestSupport.Equivalent("x", b.Folder)]));
+        Verify(owner, c, Inspection(AudioDuplicateInspectionStage.Caution, ["x"], []));
+        AudioDuplicateFolderInspection unreadable = Unorganizable(DuplicateMergeVerificationReasonKind.Unreadable, d.Folder, "x.wav")
+            with
+        { PairDiagnostics = [DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("x", d.Folder)] };
+        Verify(owner, d, unreadable);
+        string[] FoldersOf(string? tsv) => [.. tsv!.Split("\r\n").Skip(1).Select(line => line.Split('\t')[0])];
+
+        AudioDuplicateCandidateRow[] rows = [.. owner.RowSet];
+        CollectionAssert.AreEqual(
+            new[] { @"C:\S\a", @"C:\S\b", @"C:\S\d" },
+            FoldersOf(owner.BuildInspectionDetailsTsv([rows[3], rows[1], rows[0], rows[1], rows[2]])),
+            "逆順・重複した行を渡しても、表示順でフォルダごとに一度です。診断のないフォルダcは行を出しません。");
+
+        owner.RequestSort("Path", ListSortDirection.Descending);
+        CollectionAssert.AreEqual(
+            new[] { @"C:\S\d", @"C:\S\b", @"C:\S\a" },
+            FoldersOf(owner.BuildInspectionDetailsTsv(owner.RowSet)),
+            "並べ替えを当てた表示順です。");
+
+        Assert.IsNull(owner.BuildInspectionDetailsTsv([owner.RowSet.Single(row => row.Path == c.Folder)]), "診断のないフォルダだけなら null です。");
+        Assert.IsNull(owner.BuildInspectionDetailsTsv([]), "選択なしは null です。");
+
+        AudioDuplicateFolder e = Folder(@"C:\S\e", "x");
+        Adopt(owner, new object(), [e]);
+        Assert.IsNull(owner.BuildInspectionDetailsTsv(owner.RowSet), "未確認は null です。");
+        Verify(owner, e, Unorganizable(DuplicateMergeVerificationReasonKind.Link, e.Folder));
+        Assert.IsNull(owner.BuildInspectionDetailsTsv(owner.RowSet), "リンクで整理不可（判定へ進まない）は診断を持ちません。");
     }
 }

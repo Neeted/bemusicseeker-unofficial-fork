@@ -87,6 +87,14 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
     private static string[] CollisionNames(DuplicateMergeVerificationResult result)
         => [.. result.WavOggCollisionNames!.Select(name => name.ToLowerInvariant()).Order()];
 
+    private static DuplicateMergeAudioPairDiagnostic[] Pairs(DuplicateMergeVerificationResult result)
+        => [.. result.AudioPairDiagnostics ?? throw new AssertFailedException("同等性検査をオンにした確認は診断を持ちます。")];
+
+    private static DuplicateMergeAudioPairDiagnostic PairOf(DuplicateMergeVerificationResult result, string name)
+        => Pairs(result).Single(pair => string.Equals(pair.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static long LengthOf(string path) => new FileInfo(path).Length;
+
     private static DuplicateMergeFinding[] AudioFindings(DuplicateMergeVerificationResult result)
         => Reason(result, DuplicateMergeVerificationReasonKind.AudioExtension)?.Findings.ToArray() ?? [];
 
@@ -118,6 +126,18 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
             CollectionAssert.AreEqual(new[] { @"bgm\y", "x" }, Names(result));
             CollectionAssert.AreEqual(new[] { @"bgm\y", "x" }, CollisionNames(result), "同等で理由から外れた名前も衝突名に残ります。");
             Assert.IsTrue(result.AllAudioCollisionsEquivalent);
+
+            // 診断：KEEPによらず、判定した全組（名前ごとにWAV一つとOGG一つ）が同等として保持され、フルパスはフォルダと相対パスから組み立てる。
+            DuplicateMergeAudioPairDiagnostic[] pairs = Pairs(result);
+            Assert.AreEqual(2, pairs.Length);
+            Assert.IsTrue(pairs.All(pair => pair.Measurement.Result == DuplicateMergeAudioPairResult.Equivalent && pair.Measurement.Reason == DuplicateMergeAudioPairReason.None));
+            DuplicateMergeAudioPairDiagnostic x = PairOf(result, "x");
+            Assert.AreEqual(Path.Combine(a, "x.wav"), x.WavPath);
+            Assert.AreEqual(Path.Combine(b, "x.ogg"), x.OggPath);
+            DuplicateMergeAudioPairDiagnostic y = PairOf(result, @"bgm\y");
+            Assert.AreEqual(Path.Combine(a, "bgm", "Y.WAV"), y.WavPath);
+            Assert.AreEqual(Path.Combine(b, "bgm", "Y.OGG"), y.OggPath);
+            Assert.AreEqual(2, y.Measurement.Ogg.Channels, "ステレオのOGGです。");
         }
     }
 
@@ -136,7 +156,9 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         WriteEquivalentWave(Path.Combine(a, "x.wav"));
         CopyOgg(MonoOgg, Path.Combine(a, "x.ogg"));
         WriteDifferentWave(Path.Combine(b, "x.wav"), seed: 1);
-        AssertNameRemains(Inspect([a, b], audioEquivalence: true).Evaluate(a), "別フォルダ間の組");
+        DuplicateMergeVerificationResult crossFolder = Inspect([a, b], audioEquivalence: true).Evaluate(a);
+        AssertNameRemains(crossFolder, "別フォルダ間の組");
+        AssertAllPairsJudged(crossFolder, "別フォルダ間の組", nonEquivalentWavFolder: b);
 
         // 同じフォルダ内の組だけが同等でない: A={x.wav(異なる), x.ogg}, B={x.wav(同等)}。
         a = Folder("c2/a");
@@ -146,7 +168,9 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         WriteDifferentWave(Path.Combine(a, "x.wav"), seed: 2);
         CopyOgg(MonoOgg, Path.Combine(a, "x.ogg"));
         WriteEquivalentWave(Path.Combine(b, "x.wav"));
-        AssertNameRemains(Inspect([a, b], audioEquivalence: true).Evaluate(a), "同じフォルダ内の組");
+        DuplicateMergeVerificationResult sameFolder = Inspect([a, b], audioEquivalence: true).Evaluate(a);
+        AssertNameRemains(sameFolder, "同じフォルダ内の組");
+        AssertAllPairsJudged(sameFolder, "同じフォルダ内の組（後ろの組が同等でも前の組の結果で打ち切らない）", nonEquivalentWavFolder: a);
 
         // 三つ目のフォルダのOGGだけが異なる: A=x.wav, B=x.ogg(同等), C=x.ogg(形式が異なる)。
         a = Folder("c3/a");
@@ -156,7 +180,35 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         WriteEquivalentWave(Path.Combine(a, "x.wav"));
         CopyOgg(MonoOgg, Path.Combine(b, "x.ogg"));
         CopyOgg(StereoOgg, Path.Combine(c, "x.ogg"));
-        AssertNameRemains(Inspect([a, b, c], audioEquivalence: true).Evaluate(a), "三つ目のフォルダ");
+        DuplicateMergeVerificationResult third = Inspect([a, b, c], audioEquivalence: true).Evaluate(a);
+        AssertNameRemains(third, "三つ目のフォルダ");
+        DuplicateMergeAudioPairDiagnostic[] thirdPairs = Pairs(third);
+        Assert.AreEqual(2, thirdPairs.Length, "WAV一つ×OGG二つの全組です。");
+        Assert.AreEqual(DuplicateMergeAudioPairResult.Equivalent, thirdPairs.Single(pair => pair.OggFolder == b).Measurement.Result);
+        DuplicateMergeAudioPairMeasurement channelMismatch = thirdPairs.Single(pair => pair.OggFolder == c).Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, channelMismatch.Result);
+        Assert.AreEqual(DuplicateMergeAudioPairReason.ChannelCountMismatch, channelMismatch.Reason, "モノラルのWAVとステレオのOGGです。");
+        Assert.IsNull(channelMismatch.Comparison, "比較は未測定です。");
+    }
+
+    /// <summary>
+    /// 全組の診断を確認します。同等な組と同等でない組が一つずつあり、同等でない組のWAVは <paramref name="nonEquivalentWavFolder"/> のフォルダにあります。
+    /// 同等でない組は、WAVとOGGが同じレート・同じフレーム数の決定的な雑音なので、理由は低域波形の不一致・相関不足・音量差・区間音量差のいずれかで、比較の測定値は測定済みです。
+    /// </summary>
+    private static void AssertAllPairsJudged(DuplicateMergeVerificationResult result, string label, string nonEquivalentWavFolder)
+    {
+        DuplicateMergeAudioPairDiagnostic[] pairs = Pairs(result);
+        Assert.AreEqual(2, pairs.Length, label + "：WAV二つ×OGG一つの全組です。");
+        DuplicateMergeAudioPairMeasurement equivalent = pairs.Single(pair => pair.WavFolder != nonEquivalentWavFolder).Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.Equivalent, equivalent.Result, label);
+        DuplicateMergeAudioPairMeasurement different = pairs.Single(pair => pair.WavFolder == nonEquivalentWavFolder).Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, different.Result, label);
+        Assert.IsTrue(
+            different.Reason is DuplicateMergeAudioPairReason.LowBandWaveform or DuplicateMergeAudioPairReason.Correlation
+                or DuplicateMergeAudioPairReason.Volume or DuplicateMergeAudioPairReason.SegmentVolume,
+            label + "：同じレート・同じ長さの雑音の組は、波形と音量の四条件の理由です: " + different.Reason);
+        Assert.IsNotNull(different.Comparison, label);
+        Assert.AreEqual(0L, different.FrameDifference, label);
     }
 
     private static void AssertNameRemains(DuplicateMergeVerificationResult result, string label)
@@ -208,6 +260,12 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         CollectionAssert.IsSubsetOf(Names(result), CollisionNames(result));
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
         Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable), "mp3を含む名前の音源は読みません。");
+
+        // 診断は、衝突名（同等な10件と同等でないy）の組だけで、mp3を含む名前zは診断を持たない（読まない）。
+        CollectionAssert.AreEqual(
+            equivalentNames.Append("y").Order().ToArray(), Pairs(result).Select(pair => pair.Name).Order().ToArray(), "WAV・OGGの衝突名ごとに一組です。");
+        Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, PairOf(result, "y").Measurement.Result);
+        Assert.AreEqual(10, Pairs(result).Count(pair => pair.Measurement.Result == DuplicateMergeAudioPairResult.Equivalent));
     }
 
     /// <summary>
@@ -256,6 +314,9 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         CopyOgg(MonoOgg, Path.Combine(b, "u3.ogg"));
         WriteFile(Path.Combine(a, "u4.wav"), Wave(44100, 1, WaveSampleFormat.Pcm16, [0.5f, 0.25f])[..30]);
         CopyOgg(MonoOgg, Path.Combine(b, "u4.ogg"));
+        // u5: ADPCMのWAVと空のOGG（両方が復号不可）。
+        WriteFile(Path.Combine(a, "u5.wav"), adpcm);
+        WriteFile(Path.Combine(b, "u5.ogg"), []);
 
         DuplicateMergeVerificationResult result = Inspect([a, b], audioEquivalence: true).Evaluate(a);
 
@@ -263,12 +324,37 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
             new[]
             {
                 Finding(a, "u1.wav"), Finding(b, "u1.ogg"), Finding(a, "u2.wav"), Finding(b, "u2.ogg"),
-                Finding(a, "u3.wav"), Finding(b, "u3.ogg"), Finding(a, "u4.wav"), Finding(b, "u4.ogg")
+                Finding(a, "u3.wav"), Finding(b, "u3.ogg"), Finding(a, "u4.wav"), Finding(b, "u4.ogg"),
+                Finding(a, "u5.wav"), Finding(b, "u5.ogg")
             },
             AudioFindings(result));
         Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable));
         Assert.AreEqual(0, result.EquivalentAudioNames!.Count);
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+
+        // 診断：段階の理由は増やさないが、組の理由は復号不可で、読めた範囲の測定値とファイルサイズを持つ。復号不可のOGGはファイルサイズだけ。WAVとOGGの両方が復号不可なら、WAV復号不可。
+        DuplicateMergeAudioPairMeasurement u1 = PairOf(result, "u1").Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, u1.Result);
+        Assert.AreEqual(DuplicateMergeAudioPairReason.OggUndecodable, u1.Reason);
+        Assert.AreEqual(new DuplicateMergeOggInfo(null, null, null, 0), u1.Ogg, "空のOGGはファイルサイズ0だけです。");
+        Assert.IsNull(u1.Ogg.AverageKbps);
+        Assert.AreEqual(44100, u1.Wav.SampleRate, "WAVは読めています。");
+        Assert.IsNull(u1.Comparison);
+        Assert.AreEqual(DuplicateMergeAudioPairReason.OggUndecodable, PairOf(result, "u2").Measurement.Reason);
+        Assert.AreEqual(LengthOf(Path.Combine(b, "u2.ogg")), PairOf(result, "u2").Measurement.Ogg.FileBytes);
+        Assert.IsNull(PairOf(result, "u2").Measurement.Ogg.SampleRate);
+
+        DuplicateMergeAudioPairMeasurement u3 = PairOf(result, "u3").Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairReason.WavUndecodable, u3.Reason);
+        Assert.AreEqual(new DuplicateMergeWavInfo(2, 16, 44100, 1, null, LengthOf(Path.Combine(a, "u3.wav"))), u3.Wav, "ADPCMタグ2のヘッダーと、ファイルサイズだけです（フレーム数は未測定）。");
+        Assert.AreEqual(44100, u3.Ogg.SampleRate, "OGGは復号できています。");
+        Assert.IsNull(u3.FrameDifference, "両方を復号できないときのフレーム差は未測定です。");
+
+        DuplicateMergeAudioPairMeasurement u4 = PairOf(result, "u4").Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairReason.WavUndecodable, u4.Reason);
+        Assert.AreEqual(new DuplicateMergeWavInfo(null, null, null, null, null, 30), u4.Wav, "ヘッダーの途中で切れたWAVは、ファイルサイズだけです。");
+
+        Assert.AreEqual(DuplicateMergeAudioPairReason.WavUndecodable, PairOf(result, "u5").Measurement.Reason, "WAVとOGGの両方が復号不可なら、WAV復号不可です。");
     }
 
     /// <summary>
@@ -298,6 +384,25 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         CollectionAssert.AreEquivalent(new[] { Finding(a, "x.wav"), Finding(b, "x.ogg") }, AudioFindings(result));
         Assert.AreEqual(0, result.EquivalentAudioNames!.Count);
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
+
+        // 診断：結果は「読取り失敗」で理由を持たず、読めなかったファイルはファイルサイズだけ、読めた側は測定値を持つ。
+        DuplicateMergeAudioPairMeasurement measurement = PairOf(result, "x").Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.ReadFailure, measurement.Result);
+        Assert.AreEqual(DuplicateMergeAudioPairReason.None, measurement.Reason);
+        Assert.AreEqual(DuplicateMergeAudioQualityHints.None, measurement.Hints);
+        Assert.IsNull(measurement.Comparison);
+        if (lockedName == "x.wav")
+        {
+            Assert.AreEqual(new DuplicateMergeWavInfo(null, null, null, null, null, LengthOf(wav)), measurement.Wav);
+            Assert.AreEqual(44100, measurement.Ogg.SampleRate, "読めたOGGの測定値です。");
+            Assert.AreEqual(LengthOf(ogg), measurement.Ogg.FileBytes);
+        }
+        else
+        {
+            Assert.AreEqual(new DuplicateMergeOggInfo(null, null, null, LengthOf(ogg)), measurement.Ogg);
+            Assert.AreEqual(44100, measurement.Wav.SampleRate, "読めたWAVの測定値です。");
+            Assert.AreEqual(LengthOf(wav), measurement.Wav.FileBytes);
+        }
     }
 
     private static float[] Source(string fileName) => ReadFloat32(File.ReadAllBytes(AudioPath(fileName)));
@@ -360,6 +465,29 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         CollectionAssert.AreEqual(new[] { "hh", "pad", "r48", "sn" }, Names(result));
         Assert.IsTrue(result.AllAudioCollisionsEquivalent);
         Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable));
+
+        // 診断：OGGの測定値（レート・チャンネル数・フレーム数・ファイルサイズ・平均ビットレート）、フレーム差、超過分が無音かを、固定データの実際の値と式から確かめる。
+        foreach ((string name, int wavFrames, int oggFrames, long? frameDifference, bool? excessSilent, int oggChannels) in new (string, int, int, long?, bool?, int)[]
+        {
+            ("hh", 13230, 13230, 0L, null, 1),
+            ("sn", 13230, 13230, 0L, null, 2),
+            ("r48", 14400, 13230, null, null, 1),
+            ("pad", 13330, 13230, -100L, true, 1)
+        })
+        {
+            DuplicateMergeAudioPairMeasurement measurement = PairOf(result, name).Measurement;
+            long oggBytes = LengthOf(Path.Combine(b, name + ".ogg"));
+            Assert.AreEqual(DuplicateMergeAudioPairResult.Equivalent, measurement.Result, name);
+            Assert.AreEqual(new DuplicateMergeOggInfo(44100, oggChannels, oggFrames, oggBytes), measurement.Ogg, name);
+            Assert.AreEqual(oggBytes * 8.0 / (oggFrames / 44100.0) / 1000, measurement.Ogg.AverageKbps!.Value, 1e-6, name + "：平均ビットレート");
+            Assert.AreEqual((long?)wavFrames, measurement.Wav.Frames, name);
+            Assert.AreEqual(3, measurement.Wav.FormatTag, name + "：32ビット浮動小数点です。");
+            Assert.AreEqual(32, measurement.Wav.BitsPerSample, name);
+            Assert.AreEqual(LengthOf(Path.Combine(a, name + ".wav")), measurement.Wav.FileBytes, name);
+            Assert.AreEqual(frameDifference, measurement.FrameDifference, name);
+            Assert.AreEqual(excessSilent, measurement.ExcessSilent, name);
+            Assert.IsNotNull(measurement.Comparison, name + "：無音でない同等の組は比較の測定値を持ちます。");
+        }
     }
 
     /// <summary>
@@ -410,5 +538,23 @@ public sealed class DuplicateMergeAudioEquivalenceInspectionTests
         Assert.AreEqual(10, AudioFindings(result).Length, "全名前の拡張子違いが残ります。");
         Assert.IsFalse(result.AllAudioCollisionsEquivalent);
         Assert.IsNull(Reason(result, DuplicateMergeVerificationReasonKind.Unreadable));
+
+        // 診断：実際の符号化で作った固定データの非同等の組は、実装の出力から特定の理由を期待値にしない。
+        // 保証：五つとも、WAVとOGGが同じレート（44100Hz）・同じフレーム数（adj・v3・v6・tail は元音と同じ長さ、shift は元音の先頭へ220フレームの無音を足して末尾を同じだけ切った同じ長さ）の
+        // 組（(a)）なので、理由は波形と音量の四条件（低域波形の不一致・相関不足・音量差・区間音量差）のいずれかで、比較の測定値は測定済み、フレーム差は0である。
+        // 復号不可・読取り失敗・長さ違いの理由は、このデータでは成り立たない。
+        foreach (string name in new[] { "adj", "v3", "v6", "tail", "shift" })
+        {
+            DuplicateMergeAudioPairMeasurement measurement = PairOf(result, name).Measurement;
+            Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, measurement.Result, name);
+            Assert.IsTrue(
+                measurement.Reason is DuplicateMergeAudioPairReason.LowBandWaveform or DuplicateMergeAudioPairReason.Correlation
+                    or DuplicateMergeAudioPairReason.Volume or DuplicateMergeAudioPairReason.SegmentVolume,
+                $"{name}：同じレート・同じ長さの組の理由は四条件のいずれかです: {measurement.Reason}");
+            Assert.IsNotNull(measurement.Comparison, name);
+            Assert.AreEqual(0L, measurement.FrameDifference, name);
+            Assert.AreEqual(44100, measurement.Ogg.SampleRate, name);
+            Assert.AreEqual(LengthOf(Path.Combine(b, name + ".ogg")), measurement.Ogg.FileBytes, name);
+        }
     }
 }

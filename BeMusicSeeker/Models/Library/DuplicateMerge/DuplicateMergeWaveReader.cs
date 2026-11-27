@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Models;
 /// （整数8・16・24・32ビット、32ビット浮動小数点。<c>WAVE_FORMAT_EXTENSIBLE</c> の同じ形式を含む）だけを、フルスケールを±1とするPCMへ読みます。
 /// </summary>
 /// <remarks>
-/// 対応しない形式や壊れた入力は、復号できないものとして <c>null</c> を返します。読取りの入出力の失敗は例外のまま呼出元へ伝え、
+/// 対応しない形式や壊れた入力は、復号できないもの（PCMが <c>null</c>）として返し、<c>fmt </c> チャンクから読めた範囲のヘッダーを添えます（追加の読取りはしません）。読取りの入出力の失敗は例外のまま呼出元へ伝え、
 /// 復号できないことと区別します。<c>fmt </c> と <c>data</c> 以外のチャンクは奇数長のパディングを含めて読み飛ばし、
 /// <c>data</c> の後ろのチャンクは読みません。<c>data</c> の申告長がファイルの残りを超える場合は、実在する範囲をフレーム単位に切り捨てて読みます。
 /// </remarks>
@@ -29,8 +29,8 @@ internal static class DuplicateMergeWaveReader
 
     /// <summary>ファイルを読みます。入出力の失敗は例外のまま伝えます。</summary>
     /// <param name="path">WAVファイルのパス。</param>
-    /// <returns>読めたPCM。復号できなければ <c>null</c>。</returns>
-    internal static DuplicateMergeAudioSamples ReadFile(string path)
+    /// <returns>読めたPCMと、<c>fmt </c> チャンクから読めた範囲のヘッダー。復号できなければPCMは <c>null</c> です。</returns>
+    internal static DuplicateMergeWaveReadResult ReadFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         using FileStream stream = LongPathFileSystem.OpenRead(path);
@@ -39,17 +39,18 @@ internal static class DuplicateMergeWaveReader
 
     /// <summary>シーク可能なストリームを現在の位置から読みます。入出力の失敗は例外のまま伝えます。</summary>
     /// <param name="stream">RIFFヘッダーの先頭に位置するストリーム。</param>
-    /// <returns>読めたPCM。復号できなければ <c>null</c>。</returns>
-    internal static DuplicateMergeAudioSamples Read(Stream stream)
+    /// <returns>読めたPCMと、<c>fmt </c> チャンクから読めた範囲のヘッダー。復号できなければPCMは <c>null</c> です。</returns>
+    internal static DuplicateMergeWaveReadResult Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
         long length = stream.Length;
         Span<byte> header = stackalloc byte[ChunkHeaderLength + 4];
-        if (length - stream.Position < header.Length) { return null; }
+        if (length - stream.Position < header.Length) { return DuplicateMergeWaveReadResult.Unreadable; }
         stream.ReadExactly(header);
-        if (!header[..4].SequenceEqual("RIFF"u8) || !header[8..12].SequenceEqual("WAVE"u8)) { return null; }
+        if (!header[..4].SequenceEqual("RIFF"u8) || !header[8..12].SequenceEqual("WAVE"u8)) { return DuplicateMergeWaveReadResult.Unreadable; }
 
         Format? format = null;
+        DuplicateMergeWavHeader wavHeader = default;
         Span<byte> chunkHeader = stackalloc byte[ChunkHeaderLength];
         while (length - stream.Position >= ChunkHeaderLength)
         {
@@ -58,20 +59,21 @@ internal static class DuplicateMergeWaveReader
             long bodyStart = stream.Position;
             if (chunkHeader[..4].SequenceEqual("fmt "u8))
             {
-                if (size < 16 || size > length - bodyStart) { return null; }
-                format = ReadFormat(stream, (int)Math.Min(size, 40));
-                if (format == null) { return null; }
+                if (size < 16 || size > length - bodyStart) { return new DuplicateMergeWaveReadResult(null, wavHeader); }
+                format = ReadFormat(stream, (int)Math.Min(size, 40), out wavHeader);
+                if (format == null) { return new DuplicateMergeWaveReadResult(null, wavHeader); }
             }
             else if (chunkHeader[..4].SequenceEqual("data"u8))
             {
-                return format == null ? null : ReadData(stream, format.Value, Math.Min(size, length - bodyStart));
+                return new DuplicateMergeWaveReadResult(
+                    format == null ? null : ReadData(stream, format.Value, Math.Min(size, length - bodyStart)), wavHeader);
             }
             stream.Seek(bodyStart + size + (size & 1), SeekOrigin.Begin);
         }
-        return null;
+        return new DuplicateMergeWaveReadResult(null, wavHeader);
     }
 
-    private static Format? ReadFormat(Stream stream, int available)
+    private static Format? ReadFormat(Stream stream, int available, out DuplicateMergeWavHeader wavHeader)
     {
         Span<byte> body = stackalloc byte[40];
         body = body[..available];
@@ -83,9 +85,15 @@ internal static class DuplicateMergeWaveReader
         if (tag == FormatExtensible)
         {
             // 拡張部(cbSize 2バイト、有効ビット 2バイト、チャンネルマスク 4バイト)に続くサブフォーマットのGUIDで、実際の形式を示す。
-            if (available < 40 || !body[26..40].SequenceEqual(SubFormatSuffix)) { return null; }
+            // 読めない・既知でないサブフォーマットは、形式タグを0xFFFEのまま診断へ残す。
+            if (available < 40 || !body[26..40].SequenceEqual(SubFormatSuffix))
+            {
+                wavHeader = new DuplicateMergeWavHeader(tag, bits, sampleRate, channels);
+                return null;
+            }
             tag = BinaryPrimitives.ReadUInt16LittleEndian(body[24..]);
         }
+        wavHeader = new DuplicateMergeWavHeader(tag, bits, sampleRate, channels);
         if (channels < 1 || sampleRate <= 0) { return null; }
         return (tag, bits) switch
         {

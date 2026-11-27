@@ -272,7 +272,8 @@ internal static class AudioDuplicateStatusPresentation
     };
 
     /// <summary>
-    /// STATUSのツールチップです。要注意では同等と判定しなかった衝突名を昇順（大文字小文字を無視）に出し、10件を超える分は「ほか{n}件」と省略します。
+    /// STATUSのツールチップです。要注意では説明行の次に、診断を持つ確認結果なら内訳と音質の目安の行を出し、同等と判定しなかった衝突名を昇順（大文字小文字を無視）に
+    /// 「- 名前：理由」（診断を持たなければ「- 名前」）で出し、10件を超える分は「ほか{n}件」と省略します。
     /// 同等と判定した衝突名が一つ以上あれば、段階によらず末尾に同等の組数の文を出します。整理不可では理由の説明と該当するパスを出します。未確認はnullです。
     /// </summary>
     /// <param name="folder">整理不可の該当のパスを組み立てる、確認したフォルダ。</param>
@@ -283,7 +284,22 @@ internal static class AudioDuplicateStatusPresentation
         if (inspection.Stage == AudioDuplicateInspectionStage.Caution)
         {
             var lines = new List<string> { Resources.Audio_duplicate_candidate_non_equivalent_description };
-            AppendNames(lines, inspection.NonEquivalentCollisionNames.Order(StringComparer.OrdinalIgnoreCase));
+            string[] names = [.. inspection.NonEquivalentCollisionNames.Order(StringComparer.OrdinalIgnoreCase)];
+            if (inspection.PairDiagnostics == null)
+            {
+                // 診断を持たない確認結果は、内訳・音質の目安・名前ごとの理由を出さず、従来の名前の行のままにする。
+                AppendNames(lines, names);
+            }
+            else
+            {
+                IReadOnlyDictionary<string, DuplicateMergeAudioDiagnosticPresentation.NameSummary> summaries =
+                    DuplicateMergeAudioDiagnosticPresentation.SummarizeNonEquivalentNames(inspection.PairDiagnostics);
+                lines.AddRange(DuplicateMergeAudioDiagnosticPresentation.FormatSummaryLines(
+                    [.. names.Where(summaries.ContainsKey).Select(name => summaries[name])]));
+                AppendNames(lines, names.Select(name => summaries.TryGetValue(name, out DuplicateMergeAudioDiagnosticPresentation.NameSummary summary)
+                    ? DuplicateMergeAudioDiagnosticPresentation.FormatNameWithReason(summary)
+                    : name));
+            }
             sections.Add(string.Join(Environment.NewLine, lines));
         }
         foreach (DuplicateMergeVerificationReason reason in inspection.Reasons)

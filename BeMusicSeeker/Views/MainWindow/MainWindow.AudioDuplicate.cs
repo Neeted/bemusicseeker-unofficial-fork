@@ -281,6 +281,26 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// 右クリックメニューの「検査結果の詳細をコピー」です。選択行のフォルダの組の診断のTSVを管理主体が組み立てて返します。
+    /// この部分は呼出しの接続と、コピーの入口の呼出し、想定外の例外の通知だけを担います。
+    /// </summary>
+    private async void audioDuplicateCandidateContextMenuCopyDetailsClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("audio_duplicate_candidate_copy_details") || AudioDuplicateCandidates is not { } list)
+        {
+            return;
+        }
+        try
+        {
+            await CopyInspectionDetailsAsync(list.BuildInspectionDetailsTsv(GetSelectedAudioDuplicateCandidateRows()), customTableAudioDuplicateCandidates);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "audioDuplicateCandidateContextMenuCopyDetailsClick");
+        }
+    }
+
     /// <summary>ツールバーの「選択フォルダを確認」です。表示中でSELECTがオンのフォルダを確認します。対象が0件なら何もしません。</summary>
     private async void audioDuplicateCandidateVerifyClick(object sender, RoutedEventArgs e)
     {

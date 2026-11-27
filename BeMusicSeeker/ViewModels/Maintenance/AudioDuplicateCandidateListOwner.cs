@@ -428,6 +428,24 @@ public sealed class AudioDuplicateCandidateListOwner : ViewModel, ICandidateList
         }
     }
 
+    /// <summary>
+    /// 右クリックメニューの「検査結果の詳細をコピー」の本文です。指定した行のフォルダを、フォルダごとに一度、表の表示順（並べ替え・検索・除外を当てた後）で対象にし、
+    /// 各フォルダの確認結果が持つ組の診断をTSVにします。書式は <see cref="DuplicateMergeAudioDiagnosticPresentation.BuildTsv"/> が定めます。
+    /// 現在の状態表にないフォルダと、未確認・診断を持たないフォルダは行を出しません。UIスレッドで呼びます。
+    /// </summary>
+    /// <returns>TSV。対象に組の診断が一件もなければ <c>null</c> で、呼出し側はクリップボードを変えず案内を出します。</returns>
+    internal string BuildInspectionDetailsTsv(IEnumerable<AudioDuplicateCandidateRow> targetRows)
+    {
+        var seen = new HashSet<AudioDuplicateCandidateState>(ReferenceEqualityComparer.Instance);
+        var ordered = new List<AudioDuplicateCandidateRow>();
+        foreach (AudioDuplicateCandidateRow row in targetRows ?? [])
+        {
+            if (IsCurrent(row) && seen.Add(row.State)) { ordered.Add(row); }
+        }
+        return DuplicateMergeAudioDiagnosticPresentation.BuildTsv(
+            ordered.OrderBy(row => row.Index).Select(row => (row.State.Folder, row.State.Inspection?.PairDiagnostics)));
+    }
+
     /// <summary>表示中でSELECTがオンのフォルダを、確認結果と、捕捉時点の衝突整理とともに、表示順に捕捉します。以後の状態の変更は影響しません。</summary>
     internal IReadOnlyList<AudioDuplicateCandidateTarget> CaptureSelectedFolders()
         => [.. visibleStates.Where(state => state.IsSelected).Select(CaptureTarget)];

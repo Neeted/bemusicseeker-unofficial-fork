@@ -3648,6 +3648,64 @@ public class Resources
     public static string Audio_duplicate_candidate_reason_non_equivalent => ResourceManager.GetString("Audio_duplicate_candidate_reason_non_equivalent", resourceCulture);
     /// <summary>整理候補一覧のSTATUSのツールチップで、同等と判定されていない衝突名の見出しです。</summary>
     public static string Audio_duplicate_candidate_non_equivalent_description => ResourceManager.GetString("Audio_duplicate_candidate_non_equivalent_description", resourceCulture);
+    /// <summary>統合候補一覧と整理候補一覧の右クリックメニューで、選択行の検査結果の詳細（WAVとOGGの組ごとの結果・理由・測定値）をTSVでコピーする項目の文言です。</summary>
+    public static string Duplicate_merge_candidate_copy_details => ResourceManager.GetString("Duplicate_merge_candidate_copy_details", resourceCulture);
+    /// <summary>検査結果の詳細をコピーする対象に、組の診断が一件もないときの案内です。</summary>
+    public static string Duplicate_merge_candidate_copy_details_none => ResourceManager.GetString("Duplicate_merge_candidate_copy_details_none", resourceCulture);
+    /// <summary>検査結果の詳細で、同名のWAVとOGGの組を同等と判定した結果の名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_result_equivalent => ResourceManager.GetString("Duplicate_merge_candidate_audio_result_equivalent", resourceCulture);
+    /// <summary>検査結果の詳細で、同名のWAVとOGGの組を同等と判定しなかった結果の名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_result_non_equivalent => ResourceManager.GetString("Duplicate_merge_candidate_audio_result_non_equivalent", resourceCulture);
+    /// <summary>同名のWAVとOGGの組で、ファイルの読取りが入出力の失敗で終わり判定できなかった結果の名前です。ツールチップの内訳では理由名にも使います。</summary>
+    public static string Duplicate_merge_candidate_audio_result_read_failure => ResourceManager.GetString("Duplicate_merge_candidate_audio_result_read_failure", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、WAVを復号できないことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_wav_undecodable => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_wav_undecodable", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、OGGを復号できないことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_ogg_undecodable => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_ogg_undecodable", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、WAVとOGGのチャンネル数が異なることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_channel_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_channel_mismatch", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、3チャンネル以上のため比べないことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_multi_channel => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_multi_channel", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、比べる対象外のサンプルレートの組であることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_unsupported_rates => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_unsupported_rates", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、比べる範囲に当たらない長さの違いがあり比較を打ち切ったことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_length_mismatch => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_length_mismatch", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、長さの違いの超過分に音があり比較を打ち切ったことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_length_excess_audible => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_length_excess_audible", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、比べる範囲に非数・無限大のサンプルがあることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_non_finite => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_non_finite", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、WAVとOGGの一方だけが無音であることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_one_side_silent => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_one_side_silent", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、低域の波形が一致しないことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_low_band_waveform => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_low_band_waveform", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、全帯域の相関が不足していることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_correlation => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_correlation", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、全帯域または4000Hz以下の音量比が範囲外であることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_volume => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_volume", resourceCulture);
+    /// <summary>同等と判定しなかった理由で、区間ごとの音量差が大きいことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_reason_segment_volume => ResourceManager.GetString("Duplicate_merge_candidate_audio_reason_segment_volume", resourceCulture);
+    /// <summary>音質の目安で、OGGが低ビットレートであることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_ogg_low_bitrate => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_ogg_low_bitrate", resourceCulture);
+    /// <summary>音質の目安で、WAVが8ビットであることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_wav_8bit => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_wav_8bit", resourceCulture);
+    /// <summary>音質の目安で、WAVのサンプルレートが低いことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_wav_low_rate => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_wav_low_rate", resourceCulture);
+    /// <summary>音質の目安で、OGGのサンプルレートがWAVより低いことの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_ogg_lower_rate => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_ogg_lower_rate", resourceCulture);
+    /// <summary>音質の目安で、WAVだけがモノラルであることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_wav_only_mono => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_wav_only_mono", resourceCulture);
+    /// <summary>音質の目安で、OGGだけがモノラルであることの名前です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_ogg_only_mono => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_ogg_only_mono", resourceCulture);
+    /// <summary>STATUSのツールチップで、同等と判定しなかった衝突名の理由ごとの内訳の行の書式です。{0}は項目を区切り文字でつないだ文字列です。</summary>
+    public static string Duplicate_merge_candidate_audio_breakdown_format => ResourceManager.GetString("Duplicate_merge_candidate_audio_breakdown_format", resourceCulture);
+    /// <summary>STATUSのツールチップで、同等と判定しなかった衝突名の音質の目安の行の書式です。{0}は項目を区切り文字でつないだ文字列です。</summary>
+    public static string Duplicate_merge_candidate_audio_hint_format => ResourceManager.GetString("Duplicate_merge_candidate_audio_hint_format", resourceCulture);
+    /// <summary>STATUSのツールチップの内訳と音質の目安の一項目の書式です。{0}は理由名または目安名、{1}は衝突名の数です。</summary>
+    public static string Duplicate_merge_candidate_audio_count_item_format => ResourceManager.GetString("Duplicate_merge_candidate_audio_count_item_format", resourceCulture);
+    /// <summary>STATUSのツールチップの内訳と音質の目安で、項目を区切る文字列です。</summary>
+    public static string Duplicate_merge_candidate_audio_list_separator => ResourceManager.GetString("Duplicate_merge_candidate_audio_list_separator", resourceCulture);
+    /// <summary>STATUSのツールチップで、同等と判定しなかった衝突名とその理由を並べる書式です。{0}は衝突名、{1}は理由名です。</summary>
+    public static string Duplicate_merge_candidate_audio_name_reason_format => ResourceManager.GetString("Duplicate_merge_candidate_audio_name_reason_format", resourceCulture);
     /// <summary>整理候補一覧のツールバーで、選択したフォルダを確認するボタンの文言です。</summary>
     public static string Audio_duplicate_candidate_verify_selected => ResourceManager.GetString("Audio_duplicate_candidate_verify_selected", resourceCulture);
     /// <summary>整理候補一覧の右クリックメニューで、選択行のフォルダを確認する項目の文言です。</summary>

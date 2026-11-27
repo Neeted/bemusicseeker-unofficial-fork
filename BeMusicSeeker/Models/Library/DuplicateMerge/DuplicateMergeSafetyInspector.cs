@@ -96,11 +96,12 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
         IReadOnlyList<string> equivalentAudioNames = [];
         bool allAudioCollisionsEquivalent = false;
         IReadOnlyList<string> wavOggCollisionNames = [];
+        IReadOnlyList<DuplicateMergeAudioPairDiagnostic> audioPairDiagnostics = null;
         var keepDependent = new Dictionary<string, DuplicateMergeKeepDependentFacts>(StringComparer.OrdinalIgnoreCase);
         if (multiple)
         {
             InspectFolderRelations(request, folders, Reason);
-            (protectedCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent, wavOggCollisionNames) = InspectContents(request, folders, scans, Reason);
+            (protectedCollisions, comparisons, equivalentAudioNames, allAudioCollisionsEquivalent, wavOggCollisionNames, audioPairDiagnostics) = InspectContents(request, folders, scans, Reason);
             for (int index = 0; index < folders.Count; index++)
             {
                 keepDependent[folders[index]] = InspectOwnedCharts(folders[index], Reason);
@@ -116,7 +117,8 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
             keepDependent,
             equivalentAudioNames,
             allAudioCollisionsEquivalent,
-            wavOggCollisionNames);
+            wavOggCollisionNames,
+            audioPairDiagnostics);
     }
 
     /// <summary>グループ内の親子関係と、別のグループとの重なりを調べます。</summary>
@@ -151,7 +153,8 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
     /// 各ファイルの内容は、比較が必要な場合に一度だけ読みます。保護対象は資源と同じ手順で比べますが、連結と比較の組の数には数えません。
     /// </summary>
     private static (IReadOnlyList<string> ProtectedCollisions, DuplicateMergeComparisonSummary Comparisons,
-        IReadOnlyList<string> EquivalentAudioNames, bool AllAudioCollisionsEquivalent, IReadOnlyList<string> WavOggCollisionNames) InspectContents(
+        IReadOnlyList<string> EquivalentAudioNames, bool AllAudioCollisionsEquivalent, IReadOnlyList<string> WavOggCollisionNames,
+        IReadOnlyList<DuplicateMergeAudioPairDiagnostic> AudioPairDiagnostics) InspectContents(
         DuplicateMergeInspectionRequest request, IReadOnlyList<string> folders, DuplicateMergeFolderScan[] scans,
         Func<DuplicateMergeVerificationReasonKind, List<DuplicateMergeFinding>> reason)
     {
@@ -253,7 +256,13 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
         }
         // WAV・OGGの衝突名は、同等性検査のオン・オフによらず求め、一括整理の衝突整理の対象にする。同等性検査の対象も同じ名前。
         List<(string Name, List<Entry> Entries)> wavOggCollisions = [.. collisions.Where(collision => HasOnlyWavAndOgg(collision.Entries))];
-        HashSet<string> equivalent = request.AudioEquivalence ? JudgeAudioEquivalence(wavOggCollisions, folders, reason) : [];
+        HashSet<string> equivalent = [];
+        // 同等性検査をオフにした確認は診断を持たない（復号しない）。オンなら、衝突名がなくても空の診断を持つ。
+        List<DuplicateMergeAudioPairDiagnostic> diagnostics = null;
+        if (request.AudioEquivalence)
+        {
+            (equivalent, diagnostics) = JudgeAudioEquivalence(wavOggCollisions, folders, reason);
+        }
         foreach ((string name, List<Entry> entries) in collisions)
         {
             if (equivalent.Contains(name)) { continue; }
@@ -272,22 +281,26 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
             new DuplicateMergeComparisonSummary(sizeAndTime, full, partial),
             [.. equivalent.Order(StringComparer.OrdinalIgnoreCase)],
             collisions.Count > 0 && equivalent.Count == collisions.Count,
-            [.. wavOggCollisions.Select(collision => collision.Name).Order(StringComparer.OrdinalIgnoreCase)]);
+            [.. wavOggCollisions.Select(collision => collision.Name).Order(StringComparer.OrdinalIgnoreCase)],
+            diagnostics);
     }
 
-    /// <summary>一つの名前の判定の結果です。<paramref name="Unreadable"/> は、読取りの入出力に失敗したファイルです。</summary>
-    private sealed record AudioNameJudgement(bool Equivalent, IReadOnlyList<Entry> Unreadable);
+    /// <summary>一つの名前の判定の結果です。<paramref name="Unreadable"/> は、読取りの入出力に失敗したファイル、<paramref name="Pairs"/> は全WAV×全OGGの組の診断です。</summary>
+    private sealed record AudioNameJudgement(
+        bool Equivalent, IReadOnlyList<Entry> Unreadable, IReadOnlyList<(Entry Wav, Entry Ogg, DuplicateMergeAudioPairMeasurement Measurement)> Pairs);
 
     /// <summary>
     /// WAV・OGGの衝突名（同名音源の拡張子違いに該当する名前のうち、拡張子が <c>.wav</c> と <c>.ogg</c> のちょうど二種類のもの）について、波形が同等かを調べ、同等な名前の集合を返します。
     /// 名前ごとに、論理プロセッサ数を上限に並列で処理します。読取りの入出力に失敗したファイルは解析不能の理由へ加え、その名前は同等にしません。
+    /// 同等な名前の集合とともに、全名前の全組の診断を、名前の並びで返します。
     /// </summary>
-    private static HashSet<string> JudgeAudioEquivalence(
+    private static (HashSet<string> Equivalent, List<DuplicateMergeAudioPairDiagnostic> Diagnostics) JudgeAudioEquivalence(
         List<(string Name, List<Entry> Entries)> targets, IReadOnlyList<string> folders,
         Func<DuplicateMergeVerificationReasonKind, List<DuplicateMergeFinding>> reason)
     {
         var equivalent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (targets.Count == 0) { return equivalent; }
+        var diagnostics = new List<DuplicateMergeAudioPairDiagnostic>();
+        if (targets.Count == 0) { return (equivalent, diagnostics); }
 
         DuplicateMergeAudioReader.EnsureRuntime();
         var judgements = new AudioNameJudgement[targets.Count];
@@ -297,12 +310,17 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
         for (int index = 0; index < targets.Count; index++)
         {
             if (judgements[index].Equivalent) { equivalent.Add(targets[index].Name); }
+            foreach ((Entry wav, Entry ogg, DuplicateMergeAudioPairMeasurement measurement) in judgements[index].Pairs)
+            {
+                diagnostics.Add(new DuplicateMergeAudioPairDiagnostic(
+                    targets[index].Name, folders[wav.FolderIndex], wav.RelativePath, folders[ogg.FolderIndex], ogg.RelativePath, measurement));
+            }
             foreach (Entry entry in judgements[index].Unreadable)
             {
                 reason(DuplicateMergeVerificationReasonKind.Unreadable).Add(new(folders[entry.FolderIndex], entry.RelativePath));
             }
         }
-        return equivalent;
+        return (equivalent, diagnostics);
     }
 
     private static bool HasOnlyWavAndOgg(List<Entry> entries)
@@ -320,13 +338,17 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
 
     /// <summary>
     /// 一つの名前の全WAVと全OGGを一度ずつ読み、すべての組が同等かを返します。読めなかったファイルがあれば同等にしません。
-    /// 復号の結果はこの呼出しの中だけで持ちます。復号できない音源は理由を増やさず同等でないものとし、読取りの入出力の失敗は記録して同等でないものとします。
+    /// 復号の結果はこの呼出しの中だけで持ちます。復号できない音源は段階の理由を増やさず同等でないものとし、読取りの入出力の失敗は記録して同等でないものとします。
+    /// 同等でない組が見つかった後も、全組を判定します。
     /// </summary>
     private static AudioNameJudgement JudgeAudioName(List<Entry> entries)
     {
         DuplicateMergeAudioNameJudge.Result result = DuplicateMergeAudioNameJudge.Judge([.. entries.Select(entry =>
-            (entry.File.FullPath, Path.GetExtension(entry.RelativePath).Equals(".wav", StringComparison.OrdinalIgnoreCase)))]);
-        return new AudioNameJudgement(result.Equivalent, [.. result.UnreadableIndexes.Select(index => entries[index])]);
+            (entry.File.FullPath, Path.GetExtension(entry.RelativePath).Equals(".wav", StringComparison.OrdinalIgnoreCase), entry.File.Length))]);
+        return new AudioNameJudgement(
+            result.Equivalent,
+            [.. result.UnreadableIndexes.Select(index => entries[index])],
+            [.. result.Pairs.Select(pair => (entries[pair.WavIndex], entries[pair.OggIndex], pair.Measurement))]);
     }
 
     /// <summary>

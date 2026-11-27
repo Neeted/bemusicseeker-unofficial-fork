@@ -39,12 +39,12 @@ internal sealed class DuplicateMergeAudioSamples
 internal static class DuplicateMergeAudioEquivalence
 {
     /// <summary>
-    /// 同名のOGGが、同名のWAVからの通常のVorbis変換（libvorbisのVBR品質4、約128kbps相当）として説明できるかを返します。
+    /// 同名のOGGが、同名のWAVからの通常のVorbis変換（libvorbisのVBR品質4、約128kbps相当）として説明できるかを判定し、同等でない理由と測定値を返します。
     /// Vorbisが保存する情報（低域の波形、区間ごとの音量）だけを根拠にします。
     /// <list type="number">
     /// <item><description>
     /// 形式：チャンネル数が異なるか3以上なら同等ではありません。有限でない値（非数・無限大）を含む音源も同等ではありません。
-    /// この検査は、比べる範囲への切詰めと変換の前の全サンプルに行います。
+    /// 有限でない値は、比べる範囲の全サンプルの二乗和が有限かで検出し（レート違いの組は変換前の全サンプルを検査し）、独立した全サンプルの走査を足しません。
     /// </description></item>
     /// <item><description>
     /// 比べる範囲：サンプルレートが同じでフレーム数が同じなら全体を比べます。サンプルレートが同じ44100Hzまたは48000Hzで、OGGのフレーム数からWAVのフレーム数を引いた値が
@@ -60,20 +60,27 @@ internal static class DuplicateMergeAudioEquivalence
     /// （4）個別に見るチャンネルのすべての区間（2048フレーム。末尾の端数を含む）で、エネルギーの大きい方が <c>P</c> の100分の1以上なら、小さい方が大きい方の−12dB以上。
     /// </description></item>
     /// </list>
+    /// 同等でない理由は、判定が不成立を確定する順（<see cref="DuplicateMergeAudioPairReason"/> の宣言順）で最初のものを一つ返します。波形と音量の四条件は、最初の不成立で打ち切らず
+    /// 全条件を評価し、この順で最初に満たさないものを理由にします（評価は区間数・チャンネル数に比例し、サンプルを再び走査しません）。
+    /// 比較の測定値は、波形の比較まで進んだ組（理由10〜13の組と、無音でない同等の組）だけが持ち、早期に打ち切った組と両方無音の組は未測定です。
     /// 位置をずらした照合、長さの伸縮、チャンネルの入替えの吸収、周波数領域の比較は行いません。入力のサンプルは書き換えず、フィルタ後の波形を全長で保持しません。
     /// 手順の詳細としきい値の根拠は、仕様の「WAVとOGGの同等性検査」と、定数を定める <see cref="DuplicateMergeSafetyPolicy"/> にあります。
     /// </summary>
     /// <param name="wav">WAVの音源。</param>
     /// <param name="ogg">OGGの音源。</param>
-    internal static bool Judge(DuplicateMergeAudioSamples wav, DuplicateMergeAudioSamples ogg)
+    internal static DuplicateMergeAudioJudgement Judge(DuplicateMergeAudioSamples wav, DuplicateMergeAudioSamples ogg)
     {
         ArgumentNullException.ThrowIfNull(wav);
         ArgumentNullException.ThrowIfNull(ogg);
         int channels = wav.Channels;
-        if (channels != ogg.Channels) { return false; }
-        // チャンネル数が3以上の並びは、形式によって異なるため比べない。
-        if (channels >= 3) { return false; }
         long wavFrames = wav.FrameCount, oggFrames = ogg.FrameCount;
+        long? frameDifference = wav.SampleRate == ogg.SampleRate ? oggFrames - wavFrames : null;
+        bool? excessSilent = null;
+        DuplicateMergeAudioJudgement Fail(DuplicateMergeAudioPairReason reason) => new(reason, frameDifference, excessSilent, null);
+
+        if (channels != ogg.Channels) { return Fail(DuplicateMergeAudioPairReason.ChannelCountMismatch); }
+        // チャンネル数が3以上の並びは、形式によって異なるため比べない。
+        if (channels >= 3) { return Fail(DuplicateMergeAudioPairReason.MultiChannel); }
         int frames;
         double[] converted = null;
         if (wav.SampleRate == ogg.SampleRate)
@@ -81,30 +88,38 @@ internal static class DuplicateMergeAudioEquivalence
             if (wavFrames != oggFrames)
             {
                 if (wav.SampleRate != DuplicateMergeSafetyPolicy.AudioLengthToleranceSampleRateFirst
-                    && wav.SampleRate != DuplicateMergeSafetyPolicy.AudioLengthToleranceSampleRateSecond) { return false; }
+                    && wav.SampleRate != DuplicateMergeSafetyPolicy.AudioLengthToleranceSampleRateSecond) { return Fail(DuplicateMergeAudioPairReason.LengthMismatch); }
                 long difference = oggFrames - wavFrames;
                 if (difference < -DuplicateMergeSafetyPolicy.AudioWavLongerExcessMaximumFrames
-                    || difference > DuplicateMergeSafetyPolicy.AudioOggLongerExcessMaximumFrames) { return false; }
+                    || difference > DuplicateMergeSafetyPolicy.AudioOggLongerExcessMaximumFrames) { return Fail(DuplicateMergeAudioPairReason.LengthMismatch); }
                 // 超過分は「0でない」を検査する。非数・無限大は 0 と等しくないため、ここで同等でないとなる。
                 float[] longer = wavFrames > oggFrames ? wav.Samples : ogg.Samples;
-                if (!AllZero(longer.AsSpan((int)(Math.Min(wavFrames, oggFrames) * channels)))) { return false; }
+                if (!AllZero(longer.AsSpan((int)(Math.Min(wavFrames, oggFrames) * channels))))
+                {
+                    excessSilent = false;
+                    return Fail(DuplicateMergeAudioPairReason.LengthExcessAudible);
+                }
+                excessSilent = true;
             }
             frames = (int)Math.Min(wavFrames, oggFrames);
             // 比べる範囲の有限でない値は、走査で得る全帯域の二乗和が有限かどうかで検出する（下の統計の後。独立した全サンプルの走査をしない）。
         }
         else if (wav.SampleRate == DuplicateMergeSafetyPolicy.AudioResampleWavSampleRate
-            && ogg.SampleRate == DuplicateMergeSafetyPolicy.AudioResampleOggSampleRate
-            && Math.Abs(DuplicateMergeSafetyPolicy.AudioResampleInputUnits * wavFrames - DuplicateMergeSafetyPolicy.AudioResampleOutputUnits * oggFrames)
-                <= DuplicateMergeSafetyPolicy.AudioResampleLengthToleranceUnits)
+            && ogg.SampleRate == DuplicateMergeSafetyPolicy.AudioResampleOggSampleRate)
         {
+            if (Math.Abs(DuplicateMergeSafetyPolicy.AudioResampleInputUnits * wavFrames - DuplicateMergeSafetyPolicy.AudioResampleOutputUnits * oggFrames)
+                > DuplicateMergeSafetyPolicy.AudioResampleLengthToleranceUnits)
+            {
+                return Fail(DuplicateMergeAudioPairReason.LengthMismatch);
+            }
             // 変換は有限でない値を広げる・消すため、変換の前の全サンプルを検査する。
-            if (!AllFinite(wav.Samples) || !AllFinite(ogg.Samples)) { return false; }
+            if (!AllFinite(wav.Samples) || !AllFinite(ogg.Samples)) { return Fail(DuplicateMergeAudioPairReason.NonFinite); }
             frames = (int)wavFrames;
             converted = DuplicateMergeAudioResampler.Convert(ogg.Samples, channels, frames);
         }
         else
         {
-            return false;
+            return Fail(DuplicateMergeAudioPairReason.UnsupportedSampleRates);
         }
 
         int segmentLength = DuplicateMergeSafetyPolicy.AudioSegmentFrames;
@@ -141,15 +156,22 @@ internal static class DuplicateMergeAudioEquivalence
 
         // 有限なfloatの二乗の和は倍精度で桁あふれしないため、和が有限でないのは非数・無限大のサンプルを含む場合だけ（非数は和へ伝わる）。
         // 無音の判定と各条件の比較より前に、同等でないとする。
-        if (!double.IsFinite(wavTotal) || !double.IsFinite(oggTotal)) { return false; }
+        if (!double.IsFinite(wavTotal) || !double.IsFinite(oggTotal)) { return Fail(DuplicateMergeAudioPairReason.NonFinite); }
 
         // 有限なfloatの二乗は倍精度で桁あふれ・桁落ちしないため、エネルギーが0であることが全サンプルが0であることと同じ。
-        if (wavTotal == 0 || oggTotal == 0) { return wavTotal == 0 && oggTotal == 0; }
+        if (wavTotal == 0 || oggTotal == 0)
+        {
+            return wavTotal == 0 && oggTotal == 0
+                ? new DuplicateMergeAudioJudgement(DuplicateMergeAudioPairReason.None, frameDifference, excessSilent, null)
+                : Fail(DuplicateMergeAudioPairReason.OneSideSilent);
+        }
 
         double peak = 0;
         foreach (double energy in fullEnergy) { peak = Math.Max(peak, energy); }
 
-        // 低域の波形。弱いチャンネルも含めて見る。
+        // 低域の波形。弱いチャンネルも含めて見る。誤差比は、最初の不成立で打ち切らず全区間の最大を求める。
+        bool lowBandFailed = false;
+        double lowErrorRatioNarrow = 0, lowErrorRatioWide = 0;
         foreach (SegmentStatistics[] channelSegments in statistics)
         {
             for (int segment = 0; segment < channelSegments.Length; segment++)
@@ -160,40 +182,73 @@ internal static class DuplicateMergeAudioEquivalence
                     + DuplicateMergeSafetyPolicy.AudioNarrowBandErrorPeakCoefficient * peak;
                 double wideLimit = DuplicateMergeSafetyPolicy.AudioWideBandErrorLowCoefficient * wideEnergy[segment]
                     + DuplicateMergeSafetyPolicy.AudioWideBandErrorPeakCoefficient * peak;
-                if (!(item.NarrowError <= narrowLimit) || !(item.WideError <= wideLimit)) { return false; }
+                if (!(item.NarrowError <= narrowLimit) || !(item.WideError <= wideLimit)) { lowBandFailed = true; }
+                lowErrorRatioNarrow = Math.Max(lowErrorRatioNarrow, ErrorRatio(item.NarrowError, narrowLimit));
+                lowErrorRatioWide = Math.Max(lowErrorRatioWide, ErrorRatio(item.WideError, wideLimit));
             }
         }
 
         // 全帯域の相関（両チャンネルを合算）。
         double correlation = productTotal / Math.Sqrt(wavTotal * oggTotal);
-        if (!(correlation >= DuplicateMergeSafetyPolicy.AudioFullBandCorrelationMinimum)) { return false; }
+        bool correlationFailed = !(correlation >= DuplicateMergeSafetyPolicy.AudioFullBandCorrelationMinimum);
 
+        bool volumeFailed = false, segmentFailed = false;
+        double volumeDb = 0;
+        double? lowVolumeDb = null, segmentMinDb = null;
         for (int channel = 0; channel < channels; channel++)
         {
             double wavEnergy = wavChannel[channel], oggEnergy = oggChannel[channel];
             if (!(Math.Max(wavEnergy, oggEnergy) * DuplicateMergeSafetyPolicy.AudioIndividualChannelEnergyDivisor >= largest)) { continue; }
 
             // 個別に見るチャンネルは両方が0になることがなく、一方だけが0なら音量比を満たさない。
-            if (wavEnergy == 0 || oggEnergy == 0) { return false; }
-            double ratio = Math.Sqrt(oggEnergy / wavEnergy);
-            if (!(ratio >= DuplicateMergeSafetyPolicy.AudioVolumeRatioMinimum && ratio <= DuplicateMergeSafetyPolicy.AudioVolumeRatioMaximum)) { return false; }
+            double channelDb = Decibels(oggEnergy, wavEnergy);
+            if (Math.Abs(channelDb) > Math.Abs(volumeDb)) { volumeDb = channelDb; }
+            if (wavEnergy == 0 || oggEnergy == 0) { volumeFailed = true; }
+            else
+            {
+                double ratio = Math.Sqrt(oggEnergy / wavEnergy);
+                if (!(ratio >= DuplicateMergeSafetyPolicy.AudioVolumeRatioMinimum && ratio <= DuplicateMergeSafetyPolicy.AudioVolumeRatioMaximum)) { volumeFailed = true; }
+            }
 
             if (wavWide[channel] * DuplicateMergeSafetyPolicy.AudioLowBandVolumeEnergyDivisor >= largest)
             {
+                double wideDb = Decibels(oggWide[channel], wavWide[channel]);
+                if (lowVolumeDb is not { } known || Math.Abs(wideDb) > Math.Abs(known)) { lowVolumeDb = wideDb; }
                 double wideRatio = Math.Sqrt(oggWide[channel] / wavWide[channel]);
                 if (!(wideRatio >= DuplicateMergeSafetyPolicy.AudioLowBandVolumeRatioMinimum
-                    && wideRatio <= DuplicateMergeSafetyPolicy.AudioLowBandVolumeRatioMaximum)) { return false; }
+                    && wideRatio <= DuplicateMergeSafetyPolicy.AudioLowBandVolumeRatioMaximum)) { volumeFailed = true; }
             }
 
             foreach (SegmentStatistics item in statistics[channel])
             {
                 double larger = Math.Max(item.WavEnergy, item.OggEnergy);
                 if (larger * DuplicateMergeSafetyPolicy.AudioSegmentEnergyFloorDivisor < peak) { continue; }
-                if (!(Math.Min(item.WavEnergy, item.OggEnergy) >= larger * DuplicateMergeSafetyPolicy.AudioSegmentEnergyRatioMinimum)) { return false; }
+                double smaller = Math.Min(item.WavEnergy, item.OggEnergy);
+                if (!(smaller >= larger * DuplicateMergeSafetyPolicy.AudioSegmentEnergyRatioMinimum)) { segmentFailed = true; }
+                double segmentDb = Decibels(smaller, larger);
+                if (segmentMinDb is not { } minimum || segmentDb < minimum) { segmentMinDb = segmentDb; }
             }
         }
-        return true;
+
+        var comparison = new DuplicateMergeAudioComparison(
+            correlation, volumeDb, lowVolumeDb, lowErrorRatioNarrow, lowErrorRatioWide, segmentMinDb);
+        DuplicateMergeAudioPairReason reason = lowBandFailed ? DuplicateMergeAudioPairReason.LowBandWaveform
+            : correlationFailed ? DuplicateMergeAudioPairReason.Correlation
+            : volumeFailed ? DuplicateMergeAudioPairReason.Volume
+            : segmentFailed ? DuplicateMergeAudioPairReason.SegmentVolume
+            : DuplicateMergeAudioPairReason.None;
+        return new DuplicateMergeAudioJudgement(reason, frameDifference, excessSilent, comparison);
     }
+
+    /// <summary>誤差エネルギーと上限の比です。上限が0なら、誤差も0のときは0、誤差が正なら正の無限大です。</summary>
+    private static double ErrorRatio(double error, double limit)
+        => limit > 0 ? error / limit : error > 0 ? double.PositiveInfinity : 0;
+
+    /// <summary>二つのエネルギーの比のdB（<c>10·log10(numerator/denominator)</c>）です。分子が0なら負の無限大、分母だけが0なら正の無限大です。</summary>
+    private static double Decibels(double numerator, double denominator)
+        => numerator == 0 ? (denominator == 0 ? 0 : double.NegativeInfinity)
+            : denominator == 0 ? double.PositiveInfinity
+            : 10 * Math.Log10(numerator / denominator);
 
     private static bool AllFinite(float[] samples)
     {

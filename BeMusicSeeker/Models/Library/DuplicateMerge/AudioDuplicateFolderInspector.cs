@@ -49,11 +49,17 @@ internal enum AudioDuplicateInspectionStage
 /// <param name="Reasons">整理不可の理由。<see cref="DuplicateMergeVerificationReasonKind.Link"/> と <see cref="DuplicateMergeVerificationReasonKind.Unreadable"/> のどちらか一つだけで、整理不可でなければ空です。</param>
 /// <param name="CollisionNames">実フォルダから確定した衝突名。大文字小文字を無視した昇順で、書式は <see cref="AudioDuplicateFolder.CollisionNames"/> と同じです。整理不可では空です。</param>
 /// <param name="EquivalentCollisionNames">同等と判定した衝突名。<paramref name="CollisionNames"/> の部分集合で、同じ並びです。整理不可では空です。</param>
+/// <param name="PairDiagnostics">
+/// 衝突名ごとの、WAVとOGGの組の診断（結果・理由・測定値・音質の目安）です。衝突名の昇順（大文字小文字を無視）です。判定まで進んだ確認だけが持ち、
+/// 読取り失敗で整理不可（解析不能）になったフォルダも、判定まで進んだ組の診断を保持します（衝突名と同等の一覧は空のままです）。
+/// リンクや列挙の失敗で判定へ進まなかった整理不可と、診断を持たない値（テスト補助など）は <c>null</c> です。寿命は確認結果と同じで、永続化しません。
+/// </param>
 internal sealed record AudioDuplicateFolderInspection(
     AudioDuplicateInspectionStage Stage,
     IReadOnlyList<DuplicateMergeVerificationReason> Reasons,
     IReadOnlyList<string> CollisionNames,
-    IReadOnlyList<string> EquivalentCollisionNames)
+    IReadOnlyList<string> EquivalentCollisionNames,
+    IReadOnlyList<DuplicateMergeAudioPairDiagnostic> PairDiagnostics = null)
 {
     /// <summary>同等と判定しなかった衝突名を、<see cref="CollisionNames"/> の並びで返します。</summary>
     internal IEnumerable<string> NonEquivalentCollisionNames
@@ -111,7 +117,7 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
         CollisionEntry[] collisions = FindCollisions(scan);
         if (collisions.Length == 0)
         {
-            return new AudioDuplicateFolderInspection(AudioDuplicateInspectionStage.Safe, [], [], []);
+            return new AudioDuplicateFolderInspection(AudioDuplicateInspectionStage.Safe, [], [], [], []);
         }
 
         DuplicateMergeAudioReader.EnsureRuntime();
@@ -119,7 +125,18 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
         DuplicateMergeAudioNameJudge.RunParallel(
             collisions.Length,
             index => judgements[index] = DuplicateMergeAudioNameJudge.Judge(
-                [(collisions[index].Wav.FullPath, true), (collisions[index].Ogg.FullPath, false)]));
+                [(collisions[index].Wav.FullPath, true, collisions[index].Wav.Length), (collisions[index].Ogg.FullPath, false, collisions[index].Ogg.Length)]));
+
+        // 組の診断は、判定まで進んだ全衝突名の分を、衝突名の並びで作る。読取り失敗で整理不可になる場合も保持する。
+        var diagnostics = new List<DuplicateMergeAudioPairDiagnostic>(collisions.Length);
+        for (int index = 0; index < collisions.Length; index++)
+        {
+            foreach (DuplicateMergeAudioNameJudge.PairResult pair in judgements[index].Pairs)
+            {
+                diagnostics.Add(new DuplicateMergeAudioPairDiagnostic(
+                    collisions[index].Name, folder, collisions[index].Wav.RelativePath, folder, collisions[index].Ogg.RelativePath, pair.Measurement));
+            }
+        }
 
         var unreadable = new List<DuplicateMergeFinding>();
         for (int index = 0; index < collisions.Length; index++)
@@ -132,7 +149,7 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
         }
         if (unreadable.Count > 0)
         {
-            return Unorganizable(DuplicateMergeVerificationReasonKind.Unreadable, unreadable);
+            return Unorganizable(DuplicateMergeVerificationReasonKind.Unreadable, unreadable, diagnostics);
         }
 
         string[] names = [.. collisions.Select(collision => collision.Name)];
@@ -141,16 +158,19 @@ internal sealed class AudioDuplicateFolderInspector : IAudioDuplicateFolderInspe
             equivalent.Length == names.Length ? AudioDuplicateInspectionStage.Safe : AudioDuplicateInspectionStage.Caution,
             [],
             names,
-            equivalent);
+            equivalent,
+            diagnostics);
     }
 
     private static AudioDuplicateFolderInspection Unorganizable(
-        DuplicateMergeVerificationReasonKind kind, IEnumerable<DuplicateMergeFinding> findings)
+        DuplicateMergeVerificationReasonKind kind, IEnumerable<DuplicateMergeFinding> findings,
+        IReadOnlyList<DuplicateMergeAudioPairDiagnostic> diagnostics = null)
         => new(
             AudioDuplicateInspectionStage.Unorganizable,
             [new DuplicateMergeVerificationReason(kind, DuplicateMergeGroupInspection.Sort(findings.Distinct()))],
             [],
-            []);
+            [],
+            diagnostics);
 
     /// <summary>
     /// 走査したファイルから衝突名を求めます。同じディレクトリで拡張子なしの名前が一致する <c>.wav</c> と <c>.ogg</c> の組で、

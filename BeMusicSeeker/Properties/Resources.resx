@@ -4646,6 +4646,93 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Audio_duplicate_candidate_non_equivalent_description" xml:space="preserve">
     <value>同等と判定されていない同名のWAVとOGGがあります。</value>
   </data>
+  <data name="Duplicate_merge_candidate_copy_details" xml:space="preserve">
+    <value>検査結果の詳細をコピー</value>
+  </data>
+  <data name="Duplicate_merge_candidate_copy_details_none" xml:space="preserve">
+    <value>コピーできる検査結果の詳細がありません。先に確認を実行してください（統合候補一覧では「衝突WAV/OGGの同等性を検査」をオンにします）。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_result_equivalent" xml:space="preserve">
+    <value>同等</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_result_non_equivalent" xml:space="preserve">
+    <value>非同等</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_result_read_failure" xml:space="preserve">
+    <value>読取り失敗</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_wav_undecodable" xml:space="preserve">
+    <value>WAV復号不可</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_ogg_undecodable" xml:space="preserve">
+    <value>OGG復号不可</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_channel_mismatch" xml:space="preserve">
+    <value>チャンネル数違い</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_multi_channel" xml:space="preserve">
+    <value>3チャンネル以上</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_unsupported_rates" xml:space="preserve">
+    <value>対象外のサンプルレート</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_length_mismatch" xml:space="preserve">
+    <value>長さ違い（比較打ち切り）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_length_excess_audible" xml:space="preserve">
+    <value>長さ違い・超過分に音あり（比較打ち切り）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_non_finite" xml:space="preserve">
+    <value>有限でない値</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_one_side_silent" xml:space="preserve">
+    <value>片方だけ無音</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_low_band_waveform" xml:space="preserve">
+    <value>低域波形の不一致</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_correlation" xml:space="preserve">
+    <value>相関不足</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_volume" xml:space="preserve">
+    <value>音量差</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_reason_segment_volume" xml:space="preserve">
+    <value>区間音量差</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_ogg_low_bitrate" xml:space="preserve">
+    <value>OGGが低ビットレート</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_wav_8bit" xml:space="preserve">
+    <value>WAVが8ビット</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_wav_low_rate" xml:space="preserve">
+    <value>WAVが低サンプルレート</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_ogg_lower_rate" xml:space="preserve">
+    <value>OGGのサンプルレートがWAVより低い</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_wav_only_mono" xml:space="preserve">
+    <value>WAVだけモノラル</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_ogg_only_mono" xml:space="preserve">
+    <value>OGGだけモノラル</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_breakdown_format" xml:space="preserve">
+    <value>内訳：{0}</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_hint_format" xml:space="preserve">
+    <value>音質の目安：{0}</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_count_item_format" xml:space="preserve">
+    <value>{0} {1}</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_list_separator" xml:space="preserve">
+    <value>／</value>
+  </data>
+  <data name="Duplicate_merge_candidate_audio_name_reason_format" xml:space="preserve">
+    <value>{0}：{1}</value>
+  </data>
   <data name="Audio_duplicate_candidate_verify_selected" xml:space="preserve">
     <value>選択フォルダを確認</value>
   </data>

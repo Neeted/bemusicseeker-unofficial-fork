@@ -23,8 +23,8 @@ internal static class DuplicateMergeAudioReader
         BassAudioRuntime.Initialize();
     }
 
-    /// <summary>WAVファイルを読みます。</summary>
-    internal static DuplicateMergeAudioSamples ReadWave(string path) => DuplicateMergeWaveReader.ReadFile(path);
+    /// <summary>WAVファイルを読みます。復号できないときはPCMが <c>null</c> で、ヘッダーは読めた範囲だけを持ちます。</summary>
+    internal static DuplicateMergeWaveReadResult ReadWave(string path) => DuplicateMergeWaveReader.ReadFile(path);
 
     /// <summary>OGGファイルを再生と同じ復号器で復号します。<see cref="EnsureRuntime"/> の後に、複数のスレッドから呼べます。</summary>
     internal static DuplicateMergeAudioSamples ReadOgg(string path)

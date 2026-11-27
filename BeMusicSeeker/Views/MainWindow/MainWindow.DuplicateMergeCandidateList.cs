@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -181,6 +182,43 @@ public partial class MainWindow
         {
             await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateContextMenuVerifyClick");
         }
+    }
+
+    /// <summary>
+    /// 右クリックメニューの「検査結果の詳細をコピー」です。選択行が属するグループ（表示中の一覧が分裂配置なら、その一覧のグループ）の組の診断のTSVを、
+    /// 管理主体が組み立てて返します。この部分は呼出しの接続と、コピーの入口の呼出し、想定外の例外の通知だけを担います。
+    /// </summary>
+    private async void duplicateCandidateContextMenuCopyDetailsClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("duplicate_candidate_copy_details") || DuplicateCandidateList is not { } list)
+        {
+            return;
+        }
+        try
+        {
+            await CopyInspectionDetailsAsync(list.BuildInspectionDetailsTsv(GetSelectedDuplicateCandidateRows()), customTableDuplicateCandidates);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateContextMenuCopyDetailsClick");
+        }
+    }
+
+    /// <summary>
+    /// 検査結果の詳細のTSVをクリップボードへコピーします。TSVがない（対象に組の診断が一件もない）ときは、クリップボードを変えず、
+    /// 先に確認を実行する案内を一件、ダイアログ窓口経由で出します。両方の一覧が共用します。
+    /// </summary>
+    private async Task CopyInspectionDetailsAsync(string tsv, CustomTableView table)
+    {
+        if (tsv != null)
+        {
+            table.CopyTextToClipboard(tsv);
+            return;
+        }
+        string caption = BeMusicSeeker.Properties.Resources.Warning;
+        UiDialogResult notification = await dialogService.ShowMessageAsync(
+            UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Duplicate_merge_candidate_copy_details_none, caption));
+        UiDialogRoute.ThrowIfNotShown(notification, "Inspection details copy notification");
     }
 
     /// <summary>ツールバーの「選択グループを確認」です。表示中でSELECTがオンのグループを確認します。対象が0件なら何もしません。</summary>

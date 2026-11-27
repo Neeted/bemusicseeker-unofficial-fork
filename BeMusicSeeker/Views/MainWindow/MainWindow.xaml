@@ -362,6 +362,7 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_on, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuCheckOnClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_off, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuCheckOffClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio_duplicate_candidate_verify_folder, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuVerifyClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_copy_details, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuCopyDetailsClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="audioDuplicateCandidateContextMenuOpenExplorerClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewAudioDuplicateFolderContextMenu" HasDropShadow="True">
@@ -520,6 +521,7 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_on, Mode=OneWay}" Click="duplicateCandidateContextMenuCheckOnClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_check_off, Mode=OneWay}" Click="duplicateCandidateContextMenuCheckOffClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_verify_group, Mode=OneWay}" Click="duplicateCandidateContextMenuVerifyClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_copy_details, Mode=OneWay}" Click="duplicateCandidateContextMenuCopyDetailsClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="duplicateCandidateContextMenuOpenExplorerClick" />
       </ContextMenu>
       <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/Assets/Fonts/#Sovjet Box</FontFamily>

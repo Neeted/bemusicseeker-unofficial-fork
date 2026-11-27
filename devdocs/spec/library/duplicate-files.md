@@ -105,7 +105,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | SELECT・KEEPのセルのクリック | そのグループのオン・オフ、またはそのフォルダのKEEP。結合列では先頭でない行でも同じ。有効なSELECT・KEEPのダブルクリックは遷移しない。選択は、SELECT（結合列）のクリックがそのグループの全行、KEEPのクリックがその行だけ（[結合列の選択](../ui/table-view.md#結合列の選択)）。 |
 | それ以外のセルのダブルクリック、行でのEnterキー | 重複ツリーの対応するグループを展開し、そのフォルダノードを選択して既存のフォルダ表示へ移る。画面外で未生成のグループでも同じ。現在の結果で解決できなければ何もしない。 |
 | Space | 選択行が属するグループごとに一度。統合不可を除いてオンとオフが混在していればすべてオン。 |
-| 右クリック | 「チェックを入れる」「チェックを外す」（グループごとに一度、統合不可は変えない）、「このグループを確認」（[安全性確認](#安全性確認)）、「エクスプローラーで開く」（存在する選択フォルダごとに一度）。 |
+| 右クリック | 「チェックを入れる」「チェックを外す」（グループごとに一度、統合不可は変えない）、「このグループを確認」（[安全性確認](#安全性確認)）、「検査結果の詳細をコピー」（[組の診断と検査結果の詳細](#組の診断と検査結果の詳細)）、「エクスプローラーで開く」（存在する選択フォルダごとに一度）。 |
 | 「表示中をすべて選択」「表示中をすべて解除」 | 検索と除外を当てた後の表示中のグループだけに作用する。統合不可は選択しない。 |
 | 「優先統合先…」 | ディレクトリを追加・削除するウィンドウ。OKで全グループ（非表示を含む）へ適用し、優先先と同じかその配下にあるフォルダがグループ内でちょうど一つならKEEPにする。該当なし・二つ以上・固定のグループは変えない。判定はパス成分の境界で行い、大文字小文字と末尾の区切りを無視する。登録内容は起動中だけ保持し、キャンセルは何も変えない。 |
 
@@ -156,7 +156,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 
 同名のOGGが同名のWAVから変換されたものかを、波形で判定します。「衝突WAV/OGGの同等性を検査」がオンの確認でだけ行い、オフの確認はファイルを復号しません。
 
-対象は、同等性検査を行わない場合に「同名音源の拡張子違い」へ該当する名前（相対ディレクトリと拡張子なしの名前の組）のうち、グループ内でその名前を持つ音源の拡張子が `.wav` と `.ogg` のちょうど二種類であるものです。`.mp3`・`.flac` を含む名前は検査せず、従来どおり該当します。対象の名前ごとに、グループ内の全フォルダにあるその名前のWAVとOGGのすべての組（同じフォルダ内の組を含む）を比べ、全組が同等のときだけ、その名前を同等と判定します。
+対象は、同等性検査を行わない場合に「同名音源の拡張子違い」へ該当する名前（相対ディレクトリと拡張子なしの名前の組）のうち、グループ内でその名前を持つ音源の拡張子が `.wav` と `.ogg` のちょうど二種類であるものです。`.mp3`・`.flac` を含む名前は検査せず、従来どおり該当します。対象の名前ごとに、グループ内の全フォルダにあるその名前のWAVとOGGのすべての組（同じフォルダ内の組を含む）を比べ、全組が同等のときだけ、その名前を同等と判定します。同等でない組が見つかった後も全組を判定します（復号はファイルごとに一回で、同じファイルを相手ごとに復号し直しません）。
 
 二つの音源は、次の順で判定します。判定は、128kbps相当（libvorbisのVBR品質4）の通常のVorbis変換で保存される情報だけを根拠にします。採用理由と限界は[WAVとOGGの同等性判定](../../decisions/wav-ogg-equivalence.md)にあります。
 
@@ -185,11 +185,86 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 
 しきい値と定数は `DuplicateMergeSafetyPolicy` で一か所に定めます。OGGは再生と同じ復号器（`VorbisDecoder`）で復号します。WAVは再生の経路を使わず、RIFF/WAVEの無圧縮PCM（整数8・16・24・32ビット、32ビット浮動小数点。`WAVE_FORMAT_EXTENSIBLE` の同じ形式を含む）だけを読みます。`data` チャンクの申告長がファイルの残りを超える場合は、実在する範囲をフレーム単位に切り捨てて読みます。再生の音声セッションと出力デバイスの状態には依存しません。
 
-復号できない音源（非PCMのWAV、壊れたOGGなど）を含む名前は、同等でないものとして扱い、理由を増やしません。読取りの入出力の失敗は、内容の比較と同じく解析不能の理由になり、その名前は同等と判定しません。音声ランタイムの致命的な失敗は、入出力以外の予期しない例外として確認の手順へ伝えます。音声ランタイムが未初期化で、他の音声要求が初期化の受付を保持している間に確認を始めた場合も同じで、再試行や待機は行いません。
+復号できない音源（非PCMのWAV、壊れたOGGなど）を含む名前は、同等でないものとして扱い、確認結果の段階の理由を増やしません（組の診断は、復号不可の理由を持ちます）。読取りの入出力の失敗は、内容の比較と同じく解析不能の理由になり、その名前は同等と判定しません。音声ランタイムの致命的な失敗は、入出力以外の予期しない例外として確認の手順へ伝えます。音声ランタイムが未初期化で、他の音声要求が初期化の受付を保持している間に確認を始めた場合も同じで、再試行や待機は行いません。
 
 グループは従来どおり逐次に処理し、一つのグループの中では、対象の名前を論理プロセッサ数を上限に並列で処理します。一つの名前の中で同じファイルを相手ごとに復号し直さず、復号結果を名前の判定の外へ保持しません。
 
 同等と判定した名前は「同名音源の拡張子違い」の該当から外し、該当が残らなければ理由自体が成立しません。確認結果は、WAV・OGGの衝突名の一覧、同等と判定した名前の一覧、「全衝突が同等」かを保ちます。WAV・OGGの衝突名は、同等性検査を行わない場合に「同名音源の拡張子違い」へ該当する名前のうち、グループ内でその名前を持つ音源の拡張子が `.wav` と `.ogg` のちょうど二種類であるもの（同等性検査の対象と同じ条件）で、同等性検査のオン・オフによらず求めます。同等と判定した名前は、その部分集合です。「全衝突が同等」は、同等性検査を行わない場合に該当する名前が一つ以上あり、そのすべてを同等と判定した場合です。いずれもKEEPによりません。
+
+##### 組の診断と検査結果の詳細
+
+判定（同等かどうか）は、診断のために変えません。診断は、追加のサンプル走査・復号・ファイルの読取りを増やさずに得ます。測定値は、判定が求める統計（チャンネルごとの一回の走査で区間別に求め終える全帯域・4000Hz以下・1000Hz以下の統計）と、走査で得たファイルサイズ、WAVのヘッダー、復号結果のレート・チャンネル数・フレーム数だけから得ます。
+
+同等性検査をオンにした確認結果（`DuplicateMergeVerificationResult.AudioPairDiagnostics`）は、WAV・OGGの衝突名ごとの全組（WAV一つとOGG一つ）の診断（`DuplicateMergeAudioPairDiagnostic`）を保持します。診断は確認結果の値の中にあり、寿命は確認結果と同じです（状態表に対応付け、再確認で置換し、ライブラリの解除・交換で破棄し、永続化しません）。KEEPによりません。同等性検査をオフにした確認は診断を持ちません（復号もしません）。組ごとにフルパスの文字列を複製せず、フォルダと相対パスから組み立て、測定値は組あたり固定長の小さな値です。
+
+一組の診断は、結果（同等／非同等／読取り失敗）、非同等の理由（一つ）、音質の目安、測定値を持ちます。読取りの入出力に失敗したファイルを含む組は、結果が「読取り失敗」で、理由を持ちません。
+
+**理由**：判定が不成立を確定する順の最初の一つで、次の順位で決まります。理由3〜7の早期の棄却では有限でない値の走査を足さず、8より先に3〜7を返します。理由10〜13は、四条件を最初の不成立で打ち切らず全条件を評価し（区間数に比例する処理で、サンプルを再び走査しません）、この順で最初に満たさないものです。
+
+| 順位 | 理由 | 条件 |
+| --- | --- | --- |
+| 1 | WAV復号不可 | WAVリーダーが復号できない（非PCM、壊れた入力、有限でない値を含む浮動小数点など）。 |
+| 2 | OGG復号不可 | OGGを復号できない。1と重なるときは1。 |
+| 3 | チャンネル数違い | チャンネル数が異なる。 |
+| 4 | 3チャンネル以上 | 比べない。 |
+| 5 | 対象外のサンプルレート | レートが異なり、WAV 48000Hz・OGG 44100Hz 以外。 |
+| 6 | 長さ違い（比較打ち切り） | 比べる範囲に当たらない長さの違い（44100Hz・48000Hz以外の同じレートでフレーム数が異なる、差が許容範囲外、レート違いで換算差が許容外）。 |
+| 7 | 長さ違い・超過分に音あり（比較打ち切り） | 同じレートで許容範囲内だが、長い側の超過分に0でないサンプル（有限でない値を含む）がある。 |
+| 8 | 有限でない値 | 比べる範囲に非数・無限大のサンプルがある（レート違いの組は変換前の全サンプル）。 |
+| 9 | 片方だけ無音 | 一方だけが全サンプル0。 |
+| 10 | 低域波形の不一致 | 波形と音量の条件の「低域の波形」を満たさない。 |
+| 11 | 相関不足 | 「全帯域の相関」を満たさない。 |
+| 12 | 音量差 | 「音量比」（全帯域または4000Hz以下）を満たさない。 |
+| 13 | 区間音量差 | 「区間ごとの音量」を満たさない。 |
+
+名前の理由は、その名前の非同等の組の理由のうち順位が最も早いものです。同等でない組がすべて読取り失敗の名前は「読取り失敗」です。
+
+**比較打ち切り**：理由1〜9の組と、両方無音で同等の組（0フレームを含む）は、波形の比較の測定値（相関・音量比・誤差比・区間の最小比）を持ちません（未測定）。理由10〜13の組と、無音でない同等の組は、比較の測定値をすべて持ちます。長さ違いの組で相関は測りません。
+
+**測定値**：測定できなかった値は未測定です。
+
+| 区分 | 測定値 |
+| --- | --- |
+| WAV | 形式（PCM整数／浮動小数点／それ以外は形式タグ。`WAVE_FORMAT_EXTENSIBLE` はサブフォーマットが示す形式、既知でないサブフォーマットは形式タグ 0xFFFE）、ビット深度、サンプルレート、チャンネル数、フレーム数、ファイルサイズ。復号不可のWAVは、`fmt ` チャンクから読めた範囲（形式タグ・ビット深度・レート・チャンネル数）とファイルサイズだけを持つ。 |
+| OGG | サンプルレート、チャンネル数、フレーム数、ファイルサイズ、平均ビットレート（ファイルサイズ×8÷長さ〔秒〕÷1000。kbps。フレーム数が0なら未測定）。復号不可のOGGはファイルサイズだけ。 |
+| 読取り失敗のファイル | ファイルサイズだけ（走査で得た値）。 |
+| 長さ | フレーム差（OGG−WAV。両方を復号できて同じレートのときだけ）。超過分が無音か（同じレートで長さが異なり、許容範囲内として超過分を検査した組だけ。理由7なら偽、検査を通った組なら真）。 |
+| 比較 | 全帯域の相関（`Σwo/√(Σw²·Σo²)`。全チャンネル・全フレームの和）。全帯域の音量比（dB = 20·log10(√(Σo²/Σw²))。個別に見るチャンネルのうち0dBから最も離れた値）。4000Hz以下の音量比（同じくdB。個別に見るチャンネルのうち、WAVの `Σw₄²` が `E` の1000分の1以上のチャンネルだけが対象で、該当がなければ未測定）。低域の波形の誤差比（誤差エネルギー÷その区間の上限。1000Hz以下と4000Hz以下のそれぞれで、全チャンネル・全区間の最大。1を超えると不成立。上限が0の区間は、誤差も0なら比0、誤差が正なら正の無限大）。区間ごとの音量の最小比（dB = 10·log10(min(Ew, Eo)/max(Ew, Eo))。個別に見るチャンネルの、判定が見る区間のうち最小。見る区間がなければ未測定）。個別に見るチャンネルで一方のエネルギーが0なら、音量比は負または正の無限大になる。 |
+
+**音質の目安**：測定値だけから導き、複数が成立し得ます（同等の組でも求めます）。未測定の値がからむ目安は成立しません。読取り失敗の組は持ちません。名前の目安は、同等でない組（読取り失敗を除く）のいずれかで成立した目安の和集合です。並びは次の順です。
+
+1. OGGが低ビットレート：OGGの長さが1秒以上（1秒ちょうどを含む）で、平均ビットレートがステレオ（2チャンネル）で96kbps未満、モノラルで48kbps未満。3チャンネル以上は対象外。
+2. WAVが8ビット
+3. WAVが低サンプルレート：44100Hz未満
+4. OGGのサンプルレートがWAVより低い
+5. WAVだけモノラル：WAVが1チャンネルでOGGが2チャンネル以上
+6. OGGだけモノラル：OGGが1チャンネルでWAVが2チャンネル以上
+
+**STATUSのツールチップの内訳**：診断を持つ確認結果は、同等と判定しなかったWAV・OGGの衝突名について、次の行を出します。統合候補一覧（分裂配置の一覧を含む）では「同名音源の拡張子違い」の節の説明行の次、整理候補一覧では要注意の説明行の次です。同等と判定しなかった名前がなければ出しません。診断を持たない確認結果（同等性検査をオフにした確認、診断なしの値）は、これらの行を出さず、名前の行も理由を添えない従来の書式のままです。
+
+- 「内訳：<理由> <件数>／<理由> <件数>…」：件数は同等と判定しなかった衝突名の数で、理由の順位の順（「読取り失敗」は最後）。0件の理由は出さない。
+- 「音質の目安：<目安> <件数>／…」：目安の並びの順。件数は、その目安が成立する、同等と判定しなかった衝突名の数。成立がなければ行を出さない。
+- 整理候補一覧の名前の列挙（昇順、10件まで、「ほか{n}件」）は、各名前を「- <名前>：<理由>」にする。統合候補一覧の該当ファイルの列挙は従来のまま、理由を添えない。
+
+**検査結果の詳細のコピー**：統合候補一覧と整理候補一覧の右クリックメニューの「検査結果の詳細をコピー」（「このグループを確認」「このフォルダを確認」の次、「エクスプローラーで開く」の前）は、選択行の診断をTSVでクリップボードへコピーします。メニュー項目は常に有効で、分裂配置の一覧の表示中は表示中の一覧を対象にします。対象は、統合候補一覧では選択行が属するグループ（グループごとに一度）、整理候補一覧では選択されたすべてのフォルダ（フォルダごとに一度）です。TSVの文字列の組立てと対象の解決は一覧の管理主体（`BuildInspectionDetailsTsv`）と書式化（`DuplicateMergeAudioDiagnosticPresentation.BuildTsv`）が持ち、画面はクリックの接続、選択行の受渡し、コピーの入口（`CustomTableView.CopyTextToClipboard`。選択行のTSVコピーと同じ書込みと失敗の通知）の呼出し、想定外の例外の通知だけを担います。既存のCtrl+C（選択行の可視列のTSVコピー）は変えません。
+
+- 出力は一組一行で、一行目は見出し。列はTAB、行はCRLFで区切り（末尾の行に改行を付けない）、セル内の制御文字は空白1個へ置き換える（選択行のコピーと同じ正規化）。数値は不変カルチャの書式（小数点はピリオド、負号はASCIIのハイフンマイナス、桁区切りなし）。未測定のセルは空。
+- 行の順は、表の表示順（並べ替え・検索・除外を当てた後）のグループ・フォルダ、その中で衝突名の昇順（大文字小文字を無視）、WAVのフルパス、OGGのフルパスの昇順（大文字小文字を無視）。同等の組・読取り失敗の組も含めて全量を出す。
+- 見出しは表示言語によらない固定の英字で、列の順は次のとおり。
+
+  `FOLDER`、`NAME`、`RESULT`、`REASON`、`QUALITY_HINT`、`WAV_PATH`、`WAV_FORMAT`、`WAV_BITS`、`WAV_RATE`、`WAV_CHANNELS`、`WAV_FRAMES`、`WAV_SECONDS`、`WAV_BYTES`、`OGG_PATH`、`OGG_RATE`、`OGG_CHANNELS`、`OGG_FRAMES`、`OGG_SECONDS`、`OGG_BYTES`、`OGG_KBPS`、`FRAME_DIFF`、`EXCESS_SILENT`、`CORRELATION`、`VOLUME_DB`、`LOW_VOLUME_DB`、`LOW_ERROR_1K`、`LOW_ERROR_4K`、`SEGMENT_MIN_DB`
+
+| 列 | 内容 |
+| --- | --- |
+| FOLDER、NAME | FOLDERは、整理候補一覧ではそのフォルダ、統合候補一覧ではコピー時点のKEEPのフォルダ。NAMEは衝突名。 |
+| RESULT、REASON、QUALITY_HINT | RESULTは同等／非同等／読取り失敗、REASONは理由名（同等と読取り失敗では空）、QUALITY_HINTは成立した目安名を「, 」でつないだもの。いずれも現在の表示言語の表示リソース（ツールチップと同じ文言）。 |
+| WAV_PATH、OGG_PATH | フルパス。 |
+| WAV_FORMAT | `PCM`、`FLOAT`、それ以外は `0x` に続く4桁の大文字16進の形式タグ（例 `0x0002`）。 |
+| 整数の列 | WAV_BITS、WAV_RATE、WAV_CHANNELS、WAV_FRAMES、WAV_BYTES、OGG_RATE、OGG_CHANNELS、OGG_FRAMES、OGG_BYTES、FRAME_DIFF。桁区切りなし。 |
+| 小数の列 | WAV_SECONDS・OGG_SECONDS（フレーム数÷レート）は小数6桁、OGG_KBPSは小数3桁、CORRELATION・LOW_ERROR_1K・LOW_ERROR_4Kは小数4桁、VOLUME_DB・LOW_VOLUME_DB・SEGMENT_MIN_DBは小数3桁。正・負の無限大は `Infinity`・`-Infinity`。 |
+| EXCESS_SILENT | `TRUE`／`FALSE`。 |
+
+対象に組の診断が一件もない場合（選択行なし、未確認、同等性検査オフの確認、衝突名なし、判定へ進まなかった整理不可）は、クリップボードを変更せず、案内を一件出します（「コピーできる検査結果の詳細がありません。先に確認を実行してください（統合候補一覧では「衝突WAV/OGGの同等性を検査」をオンにします）。」）。案内は、ダイアログ窓口を経由する通知で出します。
 
 KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面フォルダ）は、確認時にフォルダ別の事実として保持し、KEEPが変わっても再走査せず、段階と理由を導き直します（SELECTは変えません）。それ以外の理由はKEEPによりません。所持譜面は、既存の索引から対象フォルダの範囲だけを取得し、リソース参照が未取得の譜面は、ロックの外で譜面ファイルを解析して得ます。参照を得られない譜面は解析不能です。
 
@@ -210,7 +285,7 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
   | .bmx/.txtの衝突 | 確認結果が.bmx/.txtの衝突を持つ。 |
 
   代表値の比較は、TITLE列・ARTIST列の表示値を項目別に序数比較し、空欄同士は一致、空欄と値ありは不一致とします。代表値の付記は安全性確認前（未確認）から表示し、KEEPには影響しません。SELECT・KEEP・確認結果を引き継ぐときも、今回の一覧の表示値で決まります。同等と判定した名前が一つ以上ある結果は、段階によらず、ツールチップの末尾に「同名のWAVとOGG {n}組を同等と判定しました。」を出します（nは同等と判定した名前の数）。検索・除外・並べ替えには、付記を含むSTATUSの表示文言を使います。そのため「WAV/OGG同等」と「.bmx/.txtの衝突」の語は、段階によらず付記のあるグループに一致します。
-- STATUSのツールチップは、理由ごとに説明と該当（フォルダのPATH昇順、次に相対パスまたは譜面名の昇順。どちらも大文字小文字を無視）を出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。別内容ファイル衝突と.bmx/.txtの衝突（ファイル名を併記）には、統合したときの扱いを、ツールチップを読む時点の上書きの設定に合わせて添えます（下の表）。設定によって結果が変わることだけを述べる文言は使いません。安全のツールチップは、比較した同名の資源の組の数と比較方法（混在すれば方法ごとの件数）を出します。
+- STATUSのツールチップは、理由ごとに説明と該当（フォルダのPATH昇順、次に相対パスまたは譜面名の昇順。どちらも大文字小文字を無視）を出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。同等性検査の診断を持つ結果の「同名音源の拡張子違い」の節は、説明の次に[内訳と音質の目安](#組の診断と検査結果の詳細)の行を出します。別内容ファイル衝突と.bmx/.txtの衝突（ファイル名を併記）には、統合したときの扱いを、ツールチップを読む時点の上書きの設定に合わせて添えます（下の表）。設定によって結果が変わることだけを述べる文言は使いません。安全のツールチップは、比較した同名の資源の組の数と比較方法（混在すれば方法ごとの件数）を出します。
 
   | 上書きの設定 | 別内容ファイル衝突 | .bmx/.txtの衝突 |
   | --- | --- | --- |
@@ -485,6 +560,8 @@ KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面�
 | WAVとOGGの同等性検査（対象の名前、全組の判定、形式・有限でない値、比べる範囲（同じ長さ・末尾が無音の長さ違い・レート違い）、無音、低域の波形・全帯域の相関・音量比・区間ごとの音量の条件、個別に見るチャンネル、レート違いのOGGの変換、WAVの読取り、復号できない音源、読取りの失敗、該当からの除外、「全衝突が同等」、WAV・OGGの衝突名（検査のオン・オフとKEEPによらない値、同等な名前が部分集合）、オフでは復号しない、確認開始時の値の受渡し） | [`DuplicateMergeAudioEquivalence.Judge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioEquivalence.cs)、[`DuplicateMergeAudioResampler.Convert`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioResampler.cs)、`DuplicateMergeSafetyPolicy` の `Audio` で始まる定数、[`DuplicateMergeWaveReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeWaveReader.cs)、[`DuplicateMergeAudioReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioReader.cs)、`DuplicateMergeSafetyInspector.JudgeAudioEquivalence`、重複音源の確認と共用の [`DuplicateMergeAudioNameJudge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioNameJudge.cs)、`DuplicateMergeVerificationResult` の `EquivalentAudioNames`・`AllAudioCollisionsEquivalent`・`WavOggCollisionNames`、`DuplicateMergeCandidateListOwner.AudioEquivalenceEnabled`、`DuplicateMergeVerificationWorkflowOwner` | [`DuplicateMergeAudioEquivalenceTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeAudioEquivalenceTests.cs) の `Judge_` で始まるケースが、合成したサンプルで次を確認する。形式（チャンネル数の不一致、3チャンネル以上、対象外のレートの組合せ、比べる範囲・超過分・変換するOGGの中の有限でない値）。比べる範囲（長さ違いの+1152・−128の境界と非対称、超過分の0でない値と−0.0、先頭からの比較、44100Hz・48000Hz以外の拒否、0フレーム、レート違いの正例（モノラルと、左右で内容の異なるステレオ。左右を入れ替えたOGGの拒否）、`|147·Nw − 160·No|` の294の境界、1フレームの遅れの拒否）。無音（両方・片方、レート違いを含む）。低域の波形（1000Hz以下と4000Hz以下の上限を、位相のずれで一方の条件だけが分かれる値で確認。区間ごとの判定、全帯域の項と最大の区間の項、チャンネル間で共通の基準と弱いチャンネルを含めること）。全帯域の相関（合算での0.5の境界、反転、チャンネル別・平均・射影との区別）。音量比（全帯域の0.63・1.15と低域の0.84・1.07の境界、低域の比を適用する1000分の1の条件とWAVでの算出、低域のある音の音量変更の拒否）。個別に見るチャンネル（30分の1の境界、大きい方での選択、片チャンネルの欠け）。区間ごとの音量（両側に余裕を取った値での−12dB、最大の区間の100分の1の境界、基準の共通化と弱いチャンネルの除外、途中と末尾の端数の区間の欠け、2048フレームの区間）。フィルタを掛けるサンプルレートの境界（遮断周波数の4倍。16000Hz・16001Hz と 4000Hz・4001Hz）と入力の不変。フィルタと変換の係数の細部、低域の波形の上限と−12dBの境界の開閉、フィルタ後の波形を全長で保持しないこと、定数の一か所集約は自動テストで確認せず、コードレビューで確認する。[`DuplicateMergeWaveReaderTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeWaveReaderTests.cs) は対応形式の正規化、余分なチャンク、申告長の超過、復号できない入力と入出力の失敗の区別を確認する。`DuplicateMergeSafetyInspectorTests.AudioEquivalence_WhenDisabled_DoesNotDecodeAndKeepsTheReason` はオフで復号しないことと、オフでもKEEPによらず衝突名を保つことを、`AudioExtension_WarnsWhenMergingAddsAFormat` は衝突名が拡張子のちょうど `.wav` と `.ogg` の名前だけであることを確認する。[`DuplicateMergeAudioEquivalenceInspectionTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMergeAudioEquivalenceInspectionTests.cs) の `Inspect_` で始まるケースは、実ファイルと実際のOGG復号を未初期化の音声ランタイムから通し、該当からの除外と「全衝突が同等」（KEEPによらない）、同等な名前と同等でない名前の両方を持ち mp3 を含む名前を持たない衝突名、全組の判定、他形式を含む名前を復号しないこと、復号できない音源、読取りの失敗を確認する。同じクラスの `Inspect_RealVorbisConversions_AreEquivalent` は、合成音を品質4で変換した固定のOGG（高域が中心の打音、弱いチャンネルのある雑音の多い打音、48000HzのWAVに対する44100HzのOGG、末尾に無音のあるWAV）が同等になることを、`Inspect_RealVorbisConversionsWithIntentionalDifferences_AreNotEquivalent` は、同じOGGに対する隣接する別音・−3dB・−6dB・末尾の追加音・位置のずれが同等にならないことを、`FixedConversionData_HasTheExpectedFormat` は固定データの形式を確認する。配布規模の実データで品質4の変換の全件が同等になることと検査時間は自動テストで確認せず、判定を変えるときにリポジトリ外の対照データで確かめる（方法は[設計判断](../../decisions/wav-ogg-equivalence.md)）。`DuplicateMergeVerificationWorkflowOwnerTests` の `Verify_PassesQuickCompareAndAudioEquivalenceValuesIndependently` と `Verify_WithoutTouchingTheCheck_PassesTheDisabledDefaultToEveryRequest` は値の受渡しと既定のオフを確認する。音声ランタイムの致命的な失敗が伝わることは自動テストで確認せず、失敗の分類をコードレビューで確認する |
 | WAV・OGGの衝突整理（KEEPで両形式が実在する名前だけ、残す形式がない名前の保護、実在の観測の三分類（存在する／存在しない・ディレクトリ／属性の取得の失敗）と観測の順序、リンクの扱い、個別の削除の失敗、実数、行わない条件、取消、衝突整理の選択の既定と寿命、指定する条件（衝突名による指定、同等性によらないこと）、確認文（同等と判定されていない名前を含むグループの警告の行）と結果の案内） | [`DuplicateBatchAudioCollisionCleanup`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/DuplicateBatchOrganize.cs)、[`LibraryMutationOwner` の `CleanupAudioCollisions`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.BatchOrganize.cs)、重複音源の整理と共用の [`DuplicateAudioCollisionCleaner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/DuplicateAudioCollisionCleaner.cs)、[`DuplicateBatchOrganizePresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateBatchOrganizePresentation.cs) の `CreateAudioCollisionCleanup`・`CreateConfirmationMessage`・`CreateResultMessage`、`DuplicateMergeCandidateListOwner.CollisionCleanupMode` | [`DuplicateBatchOrganizeTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateBatchOrganizeTests.cs) の `OrganizeDuplicateGroups_AudioCollisionCleanup_` で始まるケースが、実ファイル・SQLite・実ライブラリと削除の窓口の代替で確認する。`DeletesDiscardFormatOnlyWhereBothFormsExistInKeep` は残す形式ごとに、統合で揃う名前・サブディレクトリ・元からの両形式・大文字の拡張子を送り、一方だけの名前・存在しない名前・親ディレクトリがない名前・どちらかの形式の名前がディレクトリである名前・一覧にない名前を変えず失敗に数えないことと、音源と譜面の数を別に数えることを、`UnobservableNameCountsAsFailureWithoutDeleteAndContinues` は属性を取得できない名前（NUL文字と予約文字を含む名前）が削除されず削除できなかった数に一件数えられ、同じグループの後続の名前と次のグループの整理が続き、グループが一部完了になることを、`DoesNotTouchAudioWithoutSpecOrMerge` は指定なし・一フォルダ・統合0件・書込み前の拒否・残した移動元を、`DeleteFailureKeepsTheFileCountsItAndContinues` は個別の失敗での一部完了と継続を、`CountKeepsActualDeletesOnCommitFailure` は確定失敗での実数を、`CancelFinishesTheStartedGroupsCleanup` は取消を確認する。アクセス拒否による観測の失敗、観測の順序（残す形式が先）、リンクをリンク自身の属性で判断すること、診断ログ、`OutOfMemoryException` を受けないこと、予期しない物理失敗で止まったグループで整理しないことは自動テストで確認せず、コードレビューで確認する。[`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `OrganizeSelectedGroups_AudioCollisionSpecFollowsCapturedModeAndCollisionNames` は選択ごとの指定の有無・形式・名前（同等と判定していない名前を含む衝突名のすべて、mp3を含む名前の除外）と、確認文の通常の行、警告用の本文の件数の行・同等でない衝突の行・上書きの行の順を、`OrganizeSelectedGroups_ResultShowsTrashedAudioLineOnlyWhenAnyAudioWasTrashed` は結果の案内の行と「削除の失敗」の理由を確認する。`DuplicateMergeCandidateListOwnerTests.CollisionCleanup_DefaultsKeepBothAndKeepsSelectionAcrossLibraryExchange` は既定と寿命を、`DuplicateMaintenanceWorkflowOwnerSplitPlacementTests.Organize_UsesTheSplitPlacementListsCollisionCleanupMode` は分裂配置の一覧の衝突整理と削除の値を使う（重複の一覧の値を使わない）ことを確認する。衝突整理の削除方法は[削除方法](#削除方法)に従い、`DuplicateAudioCollisionCleaner` の削除は要求の削除方法で窓口へ渡る（`DuplicateBatchOrganizeTests` の `OrganizeDuplicateGroups_DeleteMethod_AppliesToEveryKindOfDeletionAndChangesNothingElse` が確認する）。実際の音源の確認から整理までを一続きに通す確認は、画面部品の行が分担する |
 | 同等性検査のチェックと衝突整理・削除の選択の画面部品（既定、一覧ごとの値、案内なし）、簡易チェックのツールチップ、STATUSの補助情報の付記とツールチップの最後の文、`status:` の候補 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)（`duplicateCandidateAudioEquivalenceRow`）、`DuplicateMergeCandidateListOwner`（`AudioEquivalenceEnabled`、`CollisionCleanupMode`、`DeleteMethod`）、[`DuplicateMergeVerificationPresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeVerificationPresentation.cs)（`FormatStatus`、`FormatTooltip`、`GetSearchStatusValues`） | `DuplicateMergeCandidateListOwnerTests` の `StatusText_AppendsAuxiliaryNotesInOneBracketOnEveryStage`（補助情報の一つの括弧・順序・段階によらない付記・全同等でないときと成立なしの扱い）、`StatusTooltip_EndsWithEquivalentAudioCountOnEveryStage`（段階によらず末尾の文・0件は出ない）、`StatusSearchAndExclude_MatchAuxiliaryNotesOnEveryStage`（「WAV/OGG同等」「.bmx/.txtの衝突」の段階によらない検索・除外）、`AudioEquivalence_DefaultsOffAndKeepsEnabledValueAcrossLibraryExchange`。`KeywordSearchPresentationTests` が `status:` の候補の位置を確認する。`MainWindowDuplicateCandidateListWpfTests` の `CandidateList_AudioEquivalenceCheckAndCollisionCleanupCarryRealWavOggFromVerificationToTrash` が、実のWAVとOGGで、チェック・確認・選択・整理・ごみ箱までの操作を、`CandidateList_PresentationFollowsDisplayLanguageRoundTrip` が、共通スタイル・表示言語への追従（簡易チェックのツールチップと、「削除」のアクセシブル名・ツールチップ・選択肢を含む）・選択の保持を確認する。`MainWindowPackageMaintenanceWpfTests` の `SplitPlacementCandidateList_SharedTableFollowsTheDisplayedListAndKeepsBothStatesIndependent` が、「削除」のラベルとコンボボックスが同等性検査の行の末尾にあり分裂配置・重複のどちらでも見えること、選択肢がリソースの文言であること、実際の選択が表示中の一覧の値にだけ届き切替えで案内が増えないことを確認する。`CandidateList_AudioEquivalenceCheckAndCollisionCleanupCarryRealWavOggFromVerificationToTrash` は既定の「ごみ箱へ移動」のまま、削除の窓口へ渡った指定がすべて「ごみ箱へ送る」であることを確認する |
+| 組の診断（理由の順位、比較打ち切り、測定値、音質の目安、全組の判定、確認結果が持つ診断と診断なしの扱い） | [`DuplicateMergeAudioEquivalence.Judge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioEquivalence.cs)、[`DuplicateMergeAudioDiagnostics.cs`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioDiagnostics.cs)（診断の型と `DuplicateMergeAudioQuality`）、[`DuplicateMergeAudioNameJudge`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeAudioNameJudge.cs)、[`DuplicateMergeWaveReader`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeWaveReader.cs)（ヘッダー）、`DuplicateMergeSafetyInspector`、`DuplicateMergeVerificationResult.AudioPairDiagnostics` | [`DuplicateMergeAudioEquivalenceTests.Diagnostics`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeAudioEquivalenceTests.Diagnostics.cs)（理由3〜13と順位、比較打ち切り、測定値を、解析値とテスト側の参照計算で確認）、[`DuplicateMergeAudioQualityTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeAudioQualityTests.cs)（目安の境界）、[`DuplicateMergeWaveReaderTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeWaveReaderTests.cs)（ヘッダーと形式）、[`DuplicateMergeAudioEquivalenceInspectionTests`](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMergeAudioEquivalenceInspectionTests.cs)（実ファイル・実の復号器で全組の判定、復号不可・読取り失敗・実符号化の測定値）、`DuplicateMergeSafetyInspectorTests.AudioEquivalence_WhenDisabled_*`（オフは診断なし） |
+| 診断を持つ結果のツールチップの内訳・音質の目安と、検査結果の詳細のTSV（書式、表示順、KEEP、対象なし） | [`DuplicateMergeAudioDiagnosticPresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeAudioDiagnosticPresentation.cs)、`DuplicateMergeVerificationPresentation.FormatTooltip`、`DuplicateMergeCandidateListOwner.BuildInspectionDetailsTsv`、`MainWindow.DuplicateMergeCandidateList.cs`（`duplicateCandidateContextMenuCopyDetailsClick`）、`CustomTableView.CopyTextToClipboard`、`MainWindow.xaml`（`duplicateCandidateContextMenu`） | `DuplicateMergeCandidateListOwnerTests`（Core。複数の組の名前の理由と目安の和集合、診断なしの従来の形、グループの表示順・KEEP・対象なし）、`AudioDuplicateCandidateListOwnerTests`（Core。共通のTSV書式を網羅）、`MainWindowDuplicateCandidateListWpfTests.CandidateList_VerifyButtonMenuAndQuickCompareCheckActThroughRealFiles`（メニュー項目の接続と案内）。クリップボードへの実際の書込みと失敗の通知は、選択行のコピーと同じ経路の再利用として静的に確認する。 |
 
 ## 関連資料
 

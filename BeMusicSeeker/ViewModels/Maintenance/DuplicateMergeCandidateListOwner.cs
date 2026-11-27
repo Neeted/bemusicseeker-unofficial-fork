@@ -640,6 +640,25 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel, ICandidateList
     }
 
     /// <summary>
+    /// 右クリックメニューの「検査結果の詳細をコピー」の本文です。指定した行が属するグループを、グループごとに一度、表の表示順（並べ替え・検索・除外を当てた後）で対象にし、
+    /// 各グループの確認結果が持つ組の診断をTSVにします。FOLDER列には、コピー時点のKEEPのフォルダを出します。書式は <see cref="DuplicateMergeAudioDiagnosticPresentation.BuildTsv"/> が定めます。
+    /// 現在の状態表にないグループと、未確認・同等性検査をオフにした確認など診断を持たないグループは行を出しません。UIスレッドで呼びます。
+    /// </summary>
+    /// <returns>TSV。対象に組の診断が一件もなければ <c>null</c> で、呼出し側はクリップボードを変えず案内を出します。</returns>
+    internal string BuildInspectionDetailsTsv(IEnumerable<DuplicateMergeCandidateRow> targetRows)
+    {
+        var seen = new HashSet<DuplicateMergeCandidateGroupState>(ReferenceEqualityComparer.Instance);
+        var ordered = new List<DuplicateMergeCandidateRow>();
+        foreach (DuplicateMergeCandidateRow row in targetRows ?? [])
+        {
+            if (IsCurrent(row) && seen.Add(row.State)) { ordered.Add(row); }
+        }
+        return DuplicateMergeAudioDiagnosticPresentation.BuildTsv(
+            ordered.OrderBy(row => row.GroupIndex).ThenBy(row => row.Index)
+                .Select(row => (row.State.KeepFolder, row.State.Verification?.AudioPairDiagnostics)));
+    }
+
+    /// <summary>
     /// 表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無・登録範囲のフォルダを持つ変更不能な対象として、表示順に捕捉します。
     /// 以後の状態の変更は捕捉した値へ影響しません。後続の単位も使う窓口です。
     /// </summary>

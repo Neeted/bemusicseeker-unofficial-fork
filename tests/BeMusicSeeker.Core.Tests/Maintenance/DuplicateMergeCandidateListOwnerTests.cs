@@ -2,6 +2,7 @@ using System.ComponentModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 
@@ -1396,7 +1397,8 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     /// 保証：STATUSのツールチップは、理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略する。
     /// 別内容ファイル衝突は統合したときの扱いを添え、.bmx/.txtの衝突はファイル名と扱いを付記として出す（要注意でも出る）。未確認はツールチップを持たない。
     /// 上書きの設定は一つ（スマート上書きがオフ）に固定し、設定ごとの分岐は <see cref="StatusTooltip_OverwriteNotesFollowTheSettingsAtReadTime"/> が確認する。
-    /// 検出する誤り：件数の省略の誤り（11件目の混入、省略の注記の欠落）、理由の説明の欠落、扱いの説明の欠落、付記の脱落。
+    /// 同等性検査の診断を持たない確認結果（このケースの入力）では、「同名音源の拡張子違い」の節に内訳・音質の目安の行を出さない（診断を持つ場合は別のケースが確認する）。
+    /// 検出する誤り：件数の省略の誤り（11件目の混入、省略の注記の欠落）、理由の説明の欠落、扱いの説明の欠落、付記の脱落、診断を持たない結果への内訳の混入。
     /// </summary>
     [TestMethod]
     public void StatusTooltip_ListsReasonsWithOmissionNoteAndProtectedCollisions()
@@ -1705,5 +1707,137 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Adopt();
         Assert.AreEqual(0, fixture.Owner.Rows.Count, "0件の結果は行0件");
         Assert.IsFalse(fixture.Owner.TryGetState(kept, out _), "0件の結果の採用は通常どおり状態を捨てる");
+    }
+
+    private static string Item(string name, int count) => string.Format(Resources.Duplicate_merge_candidate_audio_count_item_format, name, count);
+
+    private static string Joined(params string[] items) => string.Join(Resources.Duplicate_merge_candidate_audio_list_separator, items);
+
+    private static DuplicateMergeVerificationResult AudioResult(
+        IReadOnlyList<DuplicateMergeAudioPairDiagnostic>? diagnostics, params DuplicateMergeFinding[] findings)
+        => new(
+            DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, findings)],
+            AudioPairDiagnostics: diagnostics);
+
+    /// <summary>
+    /// 保証：診断を持つ確認結果のツールチップは、「同名音源の拡張子違い」の節の説明行の次に、同等と判定しなかったWAV・OGGの衝突名の内訳と音質の目安を、ツールチップと同じ書式で出す。
+    /// 一つの名前に複数の組がある場合、名前の理由は非同等の組のうち順位が最も早いもの（読取り失敗の組は無視。非同等の組がすべて読取り失敗なら読取り失敗）、
+    /// 名前の目安は非同等の組（読取り失敗を除く）の和集合で、すべての組が同等の名前は数えない。該当ファイルの列挙は従来のまま（理由を添えない）で、mp3を含む名前は診断を持たず数えない。
+    /// 検出する誤り：名前の理由の選び方の誤り（先頭の組・最後の組）、読取り失敗の優先、同等の名前の混入、目安の和集合の誤り、列挙への理由の混入。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_WithDiagnostics_SummarizesNonEquivalentNamesAfterTheDescription()
+    {
+        var overwrite = new DuplicateMergeOverwriteSettings(SmartOverwrite: false, KeepProtectedByRenaming: false);
+        const string folder = @"C:\S\a";
+        DuplicateMergeAudioPairDiagnostic[] diagnostics =
+        [
+            // x: 同等・音量差（目安OGG低ビットレート）・低域波形（目安WAV8ビット）。理由は順位の早い低域波形、目安は和集合。
+            DuplicateMergeAudioDiagnosticTestSupport.Equivalent("x", folder),
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("x", folder, DuplicateMergeAudioPairReason.Volume, DuplicateMergeAudioQualityHints.OggLowBitrate),
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("x", folder, DuplicateMergeAudioPairReason.LowBandWaveform, DuplicateMergeAudioQualityHints.Wav8Bit),
+            // y: すべて同等（数えない）。
+            DuplicateMergeAudioDiagnosticTestSupport.Equivalent("y", folder, DuplicateMergeAudioQualityHints.WavOnlyMono),
+            // z: 読取り失敗と相関不足。理由は相関不足。
+            DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("z", folder),
+            DuplicateMergeAudioDiagnosticTestSupport.NonEquivalent("z", folder, DuplicateMergeAudioPairReason.Correlation),
+            // w: 同等でない組がすべて読取り失敗。
+            DuplicateMergeAudioDiagnosticTestSupport.Equivalent("w", folder),
+            DuplicateMergeAudioDiagnosticTestSupport.ReadFailure("w", folder)
+        ];
+        DuplicateMergeFinding[] findings = [new(folder, "x.wav"), new(folder, "x.ogg"), new(folder, "m.mp3")];
+
+        string[] lines = AudioResult(diagnostics, findings).FormatTooltip(overwrite)!.Split(Environment.NewLine);
+
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_reason_audio_extension_description, lines[0]);
+        Assert.AreEqual(
+            string.Format(
+                Resources.Duplicate_merge_candidate_audio_breakdown_format,
+                Joined(
+                    Item(Resources.Duplicate_merge_candidate_audio_reason_low_band_waveform, 1),
+                    Item(Resources.Duplicate_merge_candidate_audio_reason_correlation, 1),
+                    Item(Resources.Duplicate_merge_candidate_audio_result_read_failure, 1))),
+            lines[1]);
+        Assert.AreEqual(
+            string.Format(
+                Resources.Duplicate_merge_candidate_audio_hint_format,
+                Joined(Item(Resources.Duplicate_merge_candidate_audio_hint_ogg_low_bitrate, 1), Item(Resources.Duplicate_merge_candidate_audio_hint_wav_8bit, 1))),
+            lines[2]);
+        CollectionAssert.AreEqual(new[] { @"- C:\S\a\x.wav", @"- C:\S\a\x.ogg", @"- C:\S\a\m.mp3" }, lines[3..], "該当ファイルの列挙は従来のまま、理由を添えません。");
+    }
+
+    /// <summary>
+    /// 保証：診断を持つが、同等と判定しなかったWAV・OGGの衝突名がない（すべて同等。拡張子違いの節は mp3 を含む名前だけで残る）場合は、内訳・音質の目安の行を出さない。
+    /// 診断を持たない確認結果（同等性検査オフ、診断なしのテスト補助）は、従来どおり内訳・音質の目安を出さない（既存の <see cref="StatusTooltip_ListsReasonsWithOmissionNoteAndProtectedCollisions"/> が
+    /// 診断なしの保証）。
+    /// 検出する誤り：該当なしでの空の内訳、診断を持たない結果への内訳の混入。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_WithoutNonEquivalentWavOggNamesOrDiagnostics_HasNoSummaryLines()
+    {
+        var overwrite = new DuplicateMergeOverwriteSettings(SmartOverwrite: false, KeepProtectedByRenaming: false);
+        DuplicateMergeFinding[] findings = [new(@"C:\S\a", "m.mp3")];
+
+        CollectionAssert.AreEqual(
+            new[] { Resources.Duplicate_merge_candidate_reason_audio_extension_description, @"- C:\S\a\m.mp3" },
+            AudioResult([DuplicateMergeAudioDiagnosticTestSupport.Equivalent("x", @"C:\S\a")], findings).FormatTooltip(overwrite)!.Split(Environment.NewLine));
+        CollectionAssert.AreEqual(
+            new[] { Resources.Duplicate_merge_candidate_reason_audio_extension_description, @"- C:\S\a\m.mp3" },
+            AudioResult([], findings).FormatTooltip(overwrite)!.Split(Environment.NewLine));
+        CollectionAssert.AreEqual(
+            new[] { Resources.Duplicate_merge_candidate_reason_audio_extension_description, @"- C:\S\a\m.mp3" },
+            AudioResult(null, findings).FormatTooltip(overwrite)!.Split(Environment.NewLine));
+    }
+
+    /// <summary>
+    /// 保証：統合候補一覧の検査結果の詳細は、選択行が属するグループごとに一度、表の表示順で、FOLDER列にコピー時点のKEEPのフォルダを出す。
+    /// 診断はKEEPを変えても保たれ（FOLDER列だけが新しいKEEPになる）、WAV・OGGのパスは各ファイルのフォルダから組み立てる。
+    /// 行の順は、グループの表示順、衝突名の昇順、WAVのフルパス・OGGのフルパスの昇順。診断を持たない（未確認、同等性検査オフの確認）グループは行を出さず、対象に診断が一件もなければ <c>null</c>。
+    /// 検出する誤り：KEEPの変更後の古いFOLDER、グループの二重出力、選択順の出力、WAV・OGGのフォルダの取り違え、診断のないグループの空行。
+    /// </summary>
+    [TestMethod]
+    public void BuildInspectionDetailsTsv_UsesTheCurrentKeepAndTheGroupDisplayOrder()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup first = Group((@"C:\S\a1", 2), (@"C:\S\a2", 1));
+        DuplicateGroup second = Group(@"C:\S\b1", @"C:\S\b2");
+        DuplicateGroup third = Group(@"C:\S\c1", @"C:\S\c2");
+        fixture.Adopt(first, second, third);
+        DuplicateMergeAudioPairDiagnostic[] diagnostics =
+        [
+            // 一つの名前の複数の組は、WAVとOGGのフルパスの昇順（同じ名前の二組）。
+            DuplicateMergeAudioDiagnosticTestSupport.Pair("n", @"C:\S\a1", DuplicateMergeAudioPairResult.NonEquivalent, DuplicateMergeAudioPairReason.Volume, oggFolder: @"C:\S\a2"),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair("n", @"C:\S\a1", DuplicateMergeAudioPairResult.Equivalent, wavFolder: @"C:\S\a1", oggFolder: @"C:\S\a1"),
+            DuplicateMergeAudioDiagnosticTestSupport.Pair("a", @"C:\S\a1", DuplicateMergeAudioPairResult.Equivalent, wavFolder: @"C:\S\a2", oggFolder: @"C:\S\a1")
+        ];
+        var groupInspection = new DuplicateMergeGroupInspection(
+            new Dictionary<DuplicateMergeVerificationReasonKind, IReadOnlyList<DuplicateMergeFinding>>(),
+            [], DuplicateMergeComparisonSummary.None, new Dictionary<string, DuplicateMergeKeepDependentFacts>(),
+            [], false, [], diagnostics);
+        fixture.Owner.WriteVerifications(
+        [
+            new DuplicateMergeVerificationWrite(first, groupInspection.Evaluate(@"C:\S\a1"), groupInspection),
+            new DuplicateMergeVerificationWrite(third, groupInspection.Evaluate(@"C:\S\c1") with { AudioPairDiagnostics = null })
+        ]);
+        string[] FoldersAndNames(string? tsv) => [.. tsv!.Split("\r\n").Skip(1).Select(line => string.Join("|", line.Split('\t').Take(2)))];
+        string[] WavPaths(string? tsv) => [.. tsv!.Split("\r\n").Skip(1).Select(line => line.Split('\t')[5] + ">" + line.Split('\t')[13])];
+
+        string tsv = fixture.Owner.BuildInspectionDetailsTsv([fixture.Row(@"C:\S\c1"), fixture.Row(@"C:\S\a2"), fixture.Row(@"C:\S\a1"), fixture.Row(@"C:\S\b1")])!;
+
+        CollectionAssert.AreEqual(new[] { @"C:\S\a1|a", @"C:\S\a1|n", @"C:\S\a1|n" }, FoldersAndNames(tsv), "グループは表示順で一度。診断のないグループb・cは行を出しません。");
+        CollectionAssert.AreEqual(
+            new[] { @"C:\S\a2\a.wav>C:\S\a1\a.ogg", @"C:\S\a1\n.wav>C:\S\a1\n.ogg", @"C:\S\a1\n.wav>C:\S\a2\n.ogg" },
+            WavPaths(tsv),
+            "WAV・OGGのフォルダは組ごとの値で、同じ名前の組はWAVとOGGのフルパスの昇順です。");
+
+        Assert.IsTrue(fixture.Owner.SetKeep(fixture.Row(@"C:\S\a2")));
+        CollectionAssert.AreEqual(
+            new[] { @"C:\S\a2|a", @"C:\S\a2|n", @"C:\S\a2|n" },
+            FoldersAndNames(fixture.Owner.BuildInspectionDetailsTsv([fixture.Row(@"C:\S\a1")])),
+            "KEEPを変えた後は、FOLDER列だけが新しいKEEPになり、診断は保たれます。");
+
+        Assert.IsNull(fixture.Owner.BuildInspectionDetailsTsv([fixture.Row(@"C:\S\b1"), fixture.Row(@"C:\S\c1")]), "未確認と診断なしのグループだけなら null です。");
+        Assert.IsNull(fixture.Owner.BuildInspectionDetailsTsv([]), "選択なしは null です。");
     }
 }

@@ -97,6 +97,7 @@ internal static class DuplicateMergeVerificationPresentation
 
     /// <summary>
     /// STATUSのツールチップです。理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。
+    /// 「同名音源の拡張子違い」の節には、同等性検査の診断を持つ確認結果なら説明行の次に、同等と判定しなかったWAV・OGGの衝突名の内訳と音質の目安を出します。
     /// 安全では比較した同名の資源の数と方法を出します。別内容ファイル衝突と.bmx/.txtの衝突（ファイル名を併記）には、統合したときの扱いを添えます。未確認はnullです。
     /// </summary>
     /// <param name="overwrite">読む時点の上書きの設定です。衝突に添える扱いの説明を決めます。</param>
@@ -111,6 +112,12 @@ internal static class DuplicateMergeVerificationPresentation
             if (reason.Kind == DuplicateMergeVerificationReasonKind.ContentConflict)
             {
                 lines.Add(OverwriteNote(overwrite));
+            }
+            if (reason.Kind == DuplicateMergeVerificationReasonKind.AudioExtension && result.AudioPairDiagnostics != null)
+            {
+                // 同等性検査の診断を持つ確認結果だけ、説明行の次に、同等と判定しなかったWAV・OGGの衝突名の内訳と音質の目安を出す（該当の列挙は従来のまま）。
+                lines.AddRange(DuplicateMergeAudioDiagnosticPresentation.FormatSummaryLines(
+                    [.. DuplicateMergeAudioDiagnosticPresentation.SummarizeNonEquivalentNames(result.AudioPairDiagnostics).Values]));
             }
             AppendFindings(lines, reason.Findings.Select(FormatFinding));
             sections.Add(string.Join(Environment.NewLine, lines));

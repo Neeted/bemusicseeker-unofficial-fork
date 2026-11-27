@@ -687,7 +687,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// チェックに触れずに確認すると、サイズと更新日時が同じで内容が異なる資源のグループは要注意になり（既定のオフが検査器へ届く）、そのツールチップは標準構成の上書きの設定に合った扱いを添える。
     /// 衝突を解消して右クリックで再確認すれば安全になるが、SELECTはオフのまま操作できる。
     /// 標準構成の接続は、共通の受付が使用中なら確認がBusyの案内で未開始になることで確かめる。条件の網羅は検査器・管理主体のケースが担当する。
-    /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続、
+    /// 右クリックメニューの「検査結果の詳細をコピー」は、未確認のグループ（診断なし）を選んで押すと案内を一件だけ出す（TSVの内容・順序は管理主体のケースが担当し、クリップボードへの実際の書込みは既存の選択行のコピーと同じ経路の再利用として静的に確認する）。
+    /// 検出する誤り：ボタン・メニュー・チェックの未接続、「検査結果の詳細をコピー」の未接続・案内の欠落、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続、
     /// チェックの既定がオン・起動時の案内、既定の値が検査器へ届かない、ツールチップが構成の設定を読まない。
     /// </summary>
     [TestMethod]
@@ -724,6 +725,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsFalse(quickCompare.IsChecked, "開始時はチェックが外れています。");
             Assert.IsFalse(candidates.QuickCompareEnabled);
             Assert.IsFalse(dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice), "起動から開始までに警告の案内は出ません。");
+
+            // 右クリックメニューの「検査結果の詳細をコピー」は、未確認のグループを選ぶと診断がなく、クリップボードを変えず案内を一件だけ出す（接続の確認）。
+            table.SelectRowsByPredicate(row => row is DuplicateMergeCandidateRow { Index: 0 });
+            MenuItem copyDetails = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Duplicate_merge_candidate_copy_details));
+            AwaitHandler(() => RaiseMenuClick(copyDetails), "copy-details-without-diagnostics");
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "案内は一件です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_copy_details_none, dialogs.Messages[^1].MessageBoxText);
+            messagesBefore = dialogs.Messages.Count;
 
             // 標準構成の受付が使用中なら、確認はBusyの案内で未開始になる。
             Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.TryEnter(out IDisposable? lease));

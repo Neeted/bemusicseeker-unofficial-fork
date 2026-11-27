@@ -29,9 +29,11 @@ internal static class AudioDuplicateCandidateTestSupport
         return new AudioDuplicateFolder(new DuplicateGroup([chart], [folder]) { Header = Path.GetFileName(folder) }, collisionNames.Length == 0 ? new[] { "x" } : collisionNames);
     }
 
-    /// <summary>確認結果を作ります。要注意は同等でない名前を持ち、安全は全名が同等です。</summary>
-    internal static AudioDuplicateFolderInspection Inspection(AudioDuplicateInspectionStage stage, string[] names, string[]? equivalent = null)
-        => new(stage, [], names, equivalent ?? (stage == AudioDuplicateInspectionStage.Safe ? names : []));
+    /// <summary>確認結果を作ります。要注意は同等でない名前を持ち、安全は全名が同等です。組の診断は、指定しなければ持ちません（診断を持たない値）。</summary>
+    internal static AudioDuplicateFolderInspection Inspection(
+        AudioDuplicateInspectionStage stage, string[] names, string[]? equivalent = null,
+        IReadOnlyList<DuplicateMergeAudioPairDiagnostic>? pairDiagnostics = null)
+        => new(stage, [], names, equivalent ?? (stage == AudioDuplicateInspectionStage.Safe ? names : []), pairDiagnostics);
 
     /// <summary>整理不可の確認結果を作ります。</summary>
     internal static AudioDuplicateFolderInspection Unorganizable(DuplicateMergeVerificationReasonKind kind, string folder, string relative = "")

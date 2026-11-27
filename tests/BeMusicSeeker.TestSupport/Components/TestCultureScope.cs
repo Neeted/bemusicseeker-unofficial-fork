@@ -11,6 +11,13 @@ internal static class TestCultureScope
         return new CultureScope(CultureInfo.GetCultureInfo("ja-JP"));
     }
 
+    /// <summary>指定したcultureを適用し、Disposeで保存済みCurrentCultureとCurrentUICultureへ戻すscopeを返します。数値の書式がcultureに依存しないことの確認に使います。</summary>
+    /// <param name="name">cultureの名前（例：<c>sv-SE</c>）。</param>
+    public static IDisposable UseCulture(string name)
+    {
+        return new CultureScope(CultureInfo.GetCultureInfo(name));
+    }
+
     private sealed class CultureScope : IDisposable
     {
         private readonly CultureInfo previousCulture = CultureInfo.CurrentCulture;

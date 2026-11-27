@@ -155,8 +155,10 @@ public sealed class AudioDuplicateFolderInspectionTests
         }
     }
 
-    private static void AssertUnreadable(AudioDuplicateFolderInspection result, string folder, string relative)
+    private static void AssertUnreadable(AudioDuplicateFolderInspection result, string folder, string relative, bool diagnosticsKept = false)
     {
+        if (diagnosticsKept) { Assert.IsNotNull(result.PairDiagnostics, "判定まで進んだ組の診断は保持します。"); }
+        else { Assert.IsNull(result.PairDiagnostics, "判定へ進まなかった整理不可は診断を持ちません。"); }
         Assert.AreEqual(AudioDuplicateInspectionStage.Unorganizable, result.Stage);
         DuplicateMergeVerificationReason reason = result.Reasons.Single();
         Assert.AreEqual(DuplicateMergeVerificationReasonKind.Unreadable, reason.Kind);
@@ -168,7 +170,8 @@ public sealed class AudioDuplicateFolderInspectionTests
     /// <summary>
     /// 保証：段階は、同等でない名前が一つでもあれば要注意、すべての名前が同等なら安全、衝突名が0件でも安全になる。同等な名前と同等でない名前が混在するときは、
     /// 同等の一覧が同等と判定した名前だけを持ち、同等でない名前は衝突名に残る。ファイルは変えない。
-    /// 検出する誤り：混在での安全判定、衝突名0件の要注意、同等でない名前の同等化、検査によるファイルの変更。
+    /// 診断は、判定した全衝突名の組（衝突名の昇順）を持ち、衝突名が0件でも空の一覧を持つ。同等でない組は、同じレート・同じフレーム数の雑音なので、理由は波形と音量の四条件のいずれかで、比較は測定済み。
+    /// 検出する誤り：混在での安全判定、衝突名0件の要注意、同等でない名前の同等化、検査によるファイルの変更、診断の欠落。
     /// </summary>
     [TestMethod]
     public void Inspect_Stages_FollowTheEquivalenceOfEveryCollisionName()
@@ -178,6 +181,7 @@ public sealed class AudioDuplicateFolderInspectionTests
         AudioDuplicateFolderInspection empty = Inspect(none);
         Assert.AreEqual(AudioDuplicateInspectionStage.Safe, empty.Stage);
         Assert.AreEqual(0, empty.CollisionNames.Count);
+        Assert.AreEqual(0, empty.PairDiagnostics!.Count, "衝突名がなくても、判定した結果として空の診断を持ちます。");
 
         string safe = Folder("safe");
         WriteEquivalentWave(Path.Combine(safe, "x.wav"));
@@ -188,6 +192,11 @@ public sealed class AudioDuplicateFolderInspectionTests
         Assert.AreEqual(AudioDuplicateInspectionStage.Safe, safeResult.Stage);
         CollectionAssert.AreEqual(new[] { @"bgm\Y", "x" }, safeResult.CollisionNames.ToArray());
         CollectionAssert.AreEqual(safeResult.CollisionNames.ToArray(), safeResult.EquivalentCollisionNames.ToArray());
+        CollectionAssert.AreEqual(new[] { @"bgm\Y", "x" }, safeResult.PairDiagnostics!.Select(pair => pair.Name).ToArray());
+        Assert.IsTrue(safeResult.PairDiagnostics!.All(pair => pair.Measurement.Result == DuplicateMergeAudioPairResult.Equivalent));
+        Assert.AreEqual(Path.Combine(safe, "x.wav"), safeResult.PairDiagnostics![1].WavPath);
+        Assert.AreEqual(Path.Combine(safe, "x.ogg"), safeResult.PairDiagnostics![1].OggPath);
+        Assert.AreEqual(Path.Combine(safe, "bgm", "Y.WAV"), safeResult.PairDiagnostics![0].WavPath);
 
         string mixed = Folder("mixed");
         WriteEquivalentWave(Path.Combine(mixed, "good.wav"));
@@ -200,6 +209,15 @@ public sealed class AudioDuplicateFolderInspectionTests
         CollectionAssert.AreEqual(new[] { "bad", "good" }, mixedResult.CollisionNames.ToArray());
         CollectionAssert.AreEqual(new[] { "good" }, mixedResult.EquivalentCollisionNames.ToArray());
         CollectionAssert.AreEqual(new[] { "bad" }, mixedResult.NonEquivalentCollisionNames.ToArray());
+        CollectionAssert.AreEqual(new[] { "bad", "good" }, mixedResult.PairDiagnostics!.Select(pair => pair.Name).ToArray());
+        DuplicateMergeAudioPairMeasurement bad = mixedResult.PairDiagnostics![0].Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairResult.NonEquivalent, bad.Result);
+        Assert.IsTrue(
+            bad.Reason is DuplicateMergeAudioPairReason.LowBandWaveform or DuplicateMergeAudioPairReason.Correlation
+                or DuplicateMergeAudioPairReason.Volume or DuplicateMergeAudioPairReason.SegmentVolume,
+            "同じレート・同じフレーム数の雑音の組の理由は、波形と音量の四条件のいずれかです: " + bad.Reason);
+        Assert.IsNotNull(bad.Comparison);
+        Assert.AreEqual(DuplicateMergeAudioPairResult.Equivalent, mixedResult.PairDiagnostics![1].Measurement.Result);
         SortedDictionary<string, byte[]> after = Tree(Workspace.RootDirectory);
         CollectionAssert.AreEqual(before.Keys.ToArray(), after.Keys.ToArray(), "ファイルの集合が変わりました。");
         foreach (KeyValuePair<string, byte[]> item in before)
@@ -211,7 +229,9 @@ public sealed class AudioDuplicateFolderInspectionTests
     /// <summary>
     /// 保証：復号できない音源（空のOGG）を含む名前は同等でなく、解析不能の理由を増やさない（要注意）。
     /// 読取りの入出力の失敗（排他ロックされたWAVまたはOGG）は整理不可（解析不能）で、そのファイルの相対パスを該当に持ち、読めた名前の結果も出さない（一覧は空）。
-    /// 検出する誤り：復号不能の解析不能化、入出力の失敗の握りつぶしと失敗した名前の同等化。
+    /// 診断は、復号できない組の理由（OGG復号不可）を持ち、読取りの入出力の失敗で整理不可になったフォルダも、判定まで進んだ全組の診断（失敗した組は読取り失敗）を保持する。
+    /// 衝突名と同等の一覧は空のままで、リンクや列挙の失敗は診断を持たない。
+    /// 検出する誤り：復号不能の解析不能化、入出力の失敗の握りつぶしと失敗した名前の同等化、整理不可での診断の欠落。
     /// </summary>
     [TestMethod]
     public void Inspect_UndecodableIsNotEquivalent_AndReadFailureIsUnreadable()
@@ -224,6 +244,9 @@ public sealed class AudioDuplicateFolderInspectionTests
         Assert.AreEqual(0, result.Reasons.Count);
         CollectionAssert.AreEqual(new[] { "u" }, result.CollisionNames.ToArray());
         Assert.AreEqual(0, result.EquivalentCollisionNames.Count);
+        DuplicateMergeAudioPairMeasurement undecodablePair = result.PairDiagnostics!.Single().Measurement;
+        Assert.AreEqual(DuplicateMergeAudioPairReason.OggUndecodable, undecodablePair.Reason);
+        Assert.AreEqual(new DuplicateMergeOggInfo(null, null, null, 0), undecodablePair.Ogg);
 
         foreach (string lockedName in new[] { "x.wav", "x.ogg" })
         {
@@ -238,7 +261,11 @@ public sealed class AudioDuplicateFolderInspectionTests
             {
                 locked = Inspect(folder);
             }
-            AssertUnreadable(locked, folder, lockedName);
+            AssertUnreadable(locked, folder, lockedName, diagnosticsKept: true);
+            CollectionAssert.AreEqual(new[] { "x", "y" }, locked.PairDiagnostics!.Select(pair => pair.Name).ToArray());
+            Assert.AreEqual(DuplicateMergeAudioPairResult.ReadFailure, locked.PairDiagnostics![0].Measurement.Result, "読めなかったファイルを含む組です。");
+            Assert.AreEqual(DuplicateMergeAudioPairReason.None, locked.PairDiagnostics![0].Measurement.Reason);
+            Assert.AreEqual(DuplicateMergeAudioPairResult.Equivalent, locked.PairDiagnostics![1].Measurement.Result, "読めた名前の組も判定しています。");
         }
     }
 }

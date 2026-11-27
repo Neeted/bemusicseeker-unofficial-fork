@@ -8,7 +8,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DuplicateMergeWaveReaderTests
 {
-    private static DuplicateMergeAudioSamples? Read(byte[] bytes)
+    private static DuplicateMergeAudioSamples? Read(byte[] bytes) => ReadWithHeader(bytes).Samples;
+
+    private static DuplicateMergeWaveReadResult ReadWithHeader(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes);
         return DuplicateMergeWaveReader.Read(stream);
@@ -129,6 +131,60 @@ public sealed class DuplicateMergeWaveReaderTests
             try { actual = Read(bytes); }
             catch (Exception failure) { Assert.Fail($"{name}: 例外ではなく復号不能（null）を返します: {failure.GetType().Name}"); }
             Assert.IsNull(actual, name);
+        }
+    }
+
+    /// <summary>
+    /// 保証：復号できる入力は、<c>fmt </c> のヘッダー（形式タグ・ビット深度・サンプルレート・チャンネル数）を読んで返し、拡張形式はサブフォーマットが示す形式のタグで表す。
+    /// 復号できない入力は、PCMが null のまま、<c>fmt </c> から読めた範囲のヘッダーだけを返す（ADPCM タグ2、PCM 12ビット、64ビット浮動小数点、チャンネル0、
+    /// 有限でない値を含む浮動小数点、<c>data</c> のない入力、既知でないサブフォーマットは形式タグ 0xFFFE）。RIFFでない入力・ヘッダーの途中で切れた入力は、何も読めない。
+    /// 検出する誤り：復号不可のファイルの診断値の欠落、拡張形式のタグの取り違え、読めていない値を測定値として返す誤り。
+    /// </summary>
+    [TestMethod]
+    public void Read_ReportsTheHeaderReadSoFarAlsoForUndecodableInput()
+    {
+        byte[] valid = Wave(44100, 1, WaveSampleFormat.Pcm16, [0.5f, 0.25f]);
+        byte[] WithFormat(ushort tag, ushort? bits = null, ushort? channels = null)
+        {
+            byte[] bytes = [.. valid];
+            BitConverter.GetBytes(tag).CopyTo(bytes, 20);
+            if (bits.HasValue) { BitConverter.GetBytes(bits.Value).CopyTo(bytes, 34); }
+            if (channels.HasValue) { BitConverter.GetBytes(channels.Value).CopyTo(bytes, 22); }
+            return bytes;
+        }
+        byte[] extensible = Wave(48000, 2, WaveSampleFormat.Pcm24, [0.5f, -0.5f], extensible: true);
+        byte[] extensibleSubFormat(ushort tag) { byte[] bytes = [.. extensible]; BitConverter.GetBytes(tag).CopyTo(bytes, 44); return bytes; }
+        byte[] unknownGuid = [.. extensible];
+        unknownGuid[46] = 0xFF;
+
+        (string Name, byte[] Bytes, bool Decodable, int? Tag, int? Bits, int? Rate, int? Channels)[] cases =
+        [
+            ("16ビットPCM", valid, true, 1, 16, 44100, 1),
+            ("拡張形式の24ビットPCM", extensible, true, 1, 24, 48000, 2),
+            ("拡張形式の32ビット浮動小数点", Wave(44100, 2, WaveSampleFormat.Float32, [0.5f, -0.5f], extensible: true), true, 3, 32, 44100, 2),
+            ("ADPCM", WithFormat(2), false, 2, 16, 44100, 1),
+            ("12ビット整数", WithFormat(1, bits: 12), false, 1, 12, 44100, 1),
+            ("64ビット浮動小数点", WithFormat(3, bits: 64), false, 3, 64, 44100, 1),
+            ("チャンネル0", WithFormat(1, channels: 0), false, 1, 16, 44100, 0),
+            ("拡張形式のADPCM", extensibleSubFormat(2), false, 2, 24, 48000, 2),
+            ("拡張形式で既知でないサブフォーマット", unknownGuid, false, 0xFFFE, 24, 48000, 2),
+            ("拡張形式のタグで本文が短い", WithFormat(0xFFFE), false, 0xFFFE, 16, 44100, 1),
+            ("有限でない値を含む浮動小数点", Wave(44100, 1, WaveSampleFormat.Float32, [0.5f, float.NaN]), false, 3, 32, 44100, 1),
+            ("fmtの直後で終わる（dataなし）", valid[..36], false, 1, 16, 44100, 1),
+            ("RIFFでない", [.. "RIFX"u8, .. valid[4..]], false, null, null, null, null),
+            ("RIFFヘッダーの途中", valid[..10], false, null, null, null, null),
+            ("fmtの途中", valid[..30], false, null, null, null, null),
+        ];
+
+        foreach ((string name, byte[] bytes, bool decodable, int? tag, int? bits, int? rate, int? channels) in cases)
+        {
+            DuplicateMergeWaveReadResult actual = ReadWithHeader(bytes);
+
+            Assert.AreEqual(decodable, actual.Samples != null, name + ": 復号できるか");
+            Assert.AreEqual(tag, actual.Header.FormatTag, name + ": 形式タグ");
+            Assert.AreEqual(bits, actual.Header.BitsPerSample, name + ": ビット深度");
+            Assert.AreEqual(rate, actual.Header.SampleRate, name + ": サンプルレート");
+            Assert.AreEqual(channels, actual.Header.Channels, name + ": チャンネル数");
         }
     }
 
