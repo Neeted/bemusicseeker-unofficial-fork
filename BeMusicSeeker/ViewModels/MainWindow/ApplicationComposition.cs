@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -894,11 +895,14 @@ internal sealed class MainWindowChildComposition
         UpdateDownloadService updateDownloadService = new(
             applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot)),
             updaterProcessGateway ?? throw new ArgumentNullException(nameof(updaterProcessGateway)),
-            restartArguments ?? throw new ArgumentNullException(nameof(restartArguments)));
+            restartArguments ?? throw new ArgumentNullException(nameof(restartArguments)),
+            new HttpClientHandler(),
+            TimeProvider.System,
+            path => LongPathFileSystem.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None));
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
             () => updateCheckService.CheckAsync(updateManifestUrl),
-            updateDownloadService.DownloadAndVerifyAsync,
+            asset => updateDownloadService.DownloadAndVerifyAsync(asset),
             updateDownloadService.PrepareUpdaterLaunch,
             updateDownloadService.CleanupPreviousWorkDirectory,
             packagePath => updateDownloadService.TryDeleteDownloadedPackage(

@@ -4,14 +4,20 @@ using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.Update;
 
 internal sealed class UpdateDownloadService
 {
-    private const int DownloadTimeoutMilliseconds = 300000;
+    /// <summary>応答ヘッダーの受信までと、本文の各読取りに適用する固定の期限です。通信設定には依存しません。</summary>
+    private static readonly TimeSpan NoReceiveTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ProgressTimeInterval = TimeSpan.FromSeconds(1);
+    private const long ProgressByteInterval = 512 * 1024;
+    private const int CopyBufferBytes = 81920;
     private const string UpdateFailureReceiptFileName = "update-failure.txt";
     private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
     private const string TransactionJournalFileName = "update-transaction.json";
@@ -37,6 +43,12 @@ internal sealed class UpdateDownloadService
 
     private readonly IReadOnlyList<string> restartArguments;
 
+    private readonly HttpMessageHandler httpHandler;
+
+    private readonly TimeProvider timeProvider;
+
+    private readonly Func<string, FileStream> openDownloadFile;
+
     /// <summary>更新ZIPの取得と更新ツールの起動準備を担当するサービスを作成します。</summary>
     /// <param name="applicationPathSnapshot">起動時に確定したアプリの配置です。</param>
     /// <param name="updaterProcessGateway">更新ツールの起動窓口です。</param>
@@ -44,11 +56,25 @@ internal sealed class UpdateDownloadService
     /// アプリが起動時に捕捉した再起動引数です。動作モード変更の再起動と同じ値を、更新後の再起動へ引き継ぎます。
     /// 引数なしで起動した場合は空の列を渡します。
     /// </param>
+    /// <param name="httpHandler">
+    /// 取得に使うHTTPハンドラーです。呼出し側が所有し、サービスは破棄しません。省略すると取得ごとに既定のハンドラーを作ります。
+    /// </param>
+    /// <param name="timeProvider">取得の期限と進捗のまとめに使う時計です。省略すると <see cref="TimeProvider.System"/> です。</param>
+    /// <param name="openDownloadFile">
+    /// 一時ファイルを新規作成して書込み用に開く処理です。省略すると長いパスに対応した共有なしの書込みで開きます。
+    /// </param>
     internal UpdateDownloadService(
         ApplicationPathSnapshot applicationPathSnapshot,
         IUpdaterProcessGateway updaterProcessGateway,
-        IReadOnlyList<string> restartArguments)
+        IReadOnlyList<string> restartArguments,
+        HttpMessageHandler httpHandler = null,
+        TimeProvider timeProvider = null,
+        Func<string, FileStream> openDownloadFile = null)
     {
+        this.httpHandler = httpHandler;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.openDownloadFile = openDownloadFile
+            ?? (path => LongPathFileSystem.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None));
         this.restartArguments = restartArguments
             ?? throw new ArgumentNullException(nameof(restartArguments));
         this.applicationPathSnapshot = applicationPathSnapshot
@@ -57,11 +83,36 @@ internal sealed class UpdateDownloadService
             ?? throw new ArgumentNullException(nameof(updaterProcessGateway));
     }
 
-    public async Task<string> DownloadAndVerifyAsync(UpdateAssetInfo asset)
+    /// <summary>
+    /// 更新ZIPを一時ファイルへ逐次書き込み、サイズとSHA-256を同じ読取りで検証してから完成名へ移します。
+    /// </summary>
+    /// <param name="asset">取得する資産です。<see cref="UpdateAssetInfo.SizeBytes"/> と <see cref="UpdateAssetInfo.Sha256"/> が受入条件です。</param>
+    /// <param name="cancellationToken">
+    /// 呼出し側の取消です。ヘッダー待ち・本文読取り・ファイル書込みへ伝わり、<see cref="OperationCanceledException"/> で終わります。
+    /// </param>
+    /// <param name="progress">受信済み量の通知先です。通知は量と経過時間でまとめ、返したTaskの完了後には呼びません。</param>
+    /// <returns><c>downloads/&lt;fileName&gt;</c> のパスです。</returns>
+    /// <remarks>
+    /// 転送全体の時間制限は設けません。応答ヘッダーの受信までと、本文の各読取りに固定の期限だけを適用し、
+    /// ディスク書込みの時間は含めません。期限切れは <see cref="TimeoutException"/> として取消以外の失敗にします。
+    /// 失敗・取消では本文ストリームを閉じてから自分が作った一時ファイルを消し、保留中の実I/Oが終わってから完了します。
+    /// 回収の失敗で元の失敗・取消を置き換えません。
+    /// </remarks>
+    public async Task<string> DownloadAndVerifyAsync(
+        UpdateAssetInfo asset,
+        CancellationToken cancellationToken = default,
+        IProgress<UpdateDownloadProgress> progress = null)
     {
         if (asset == null)
         {
             throw new ArgumentNullException(nameof(asset));
+        }
+
+        // 不正な名前は、HTTP要求・ディレクトリ作成・リパースポイント検査のどれよりも前に拒否する。
+        string fileName = Path.GetFileName(asset.FileName);
+        if (string.IsNullOrWhiteSpace(fileName) || fileName != asset.FileName)
+        {
+            throw new UpdateManifestValidationException("Invalid update package file name.");
         }
 
         string workRoot = GetUpdateWorkRoot();
@@ -75,12 +126,6 @@ internal sealed class UpdateDownloadService
         EnsureNoReparsePointIfPresent(downloadsDirectory);
         LongPathFileSystem.CreateDirectory(downloadsDirectory);
 
-        string fileName = Path.GetFileName(asset.FileName);
-        if (string.IsNullOrWhiteSpace(fileName) || fileName != asset.FileName)
-        {
-            throw new UpdateManifestValidationException("Invalid update package file name.");
-        }
-
         string packagePath = Path.Combine(downloadsDirectory, fileName);
         string temporaryPath = packagePath + ".download";
         if (LongPathFileSystem.FileExists(temporaryPath))
@@ -88,30 +133,215 @@ internal sealed class UpdateDownloadService
             LongPathFileSystem.DeleteFile(temporaryPath);
         }
 
-        using (var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(DownloadTimeoutMilliseconds) })
-        using (HttpResponseMessage response = await httpClient.GetAsync(asset.Url).ConfigureAwait(false))
+        FileStream destination = null;
+        bool temporaryCreated = false;
+        bool completed = false;
+        try
         {
+            using HttpClient httpClient = httpHandler == null ? new HttpClient() : new HttpClient(httpHandler, disposeHandler: false);
+            httpClient.Timeout = Timeout.InfiniteTimeSpan;
+            using HttpResponseMessage response = await SendWithDeadlineAsync(httpClient, asset.Url, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            using Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            using FileStream destination = LongPathFileSystem.Open(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            await source.CopyToAsync(destination).ConfigureAwait(false);
+
+            string actualSha256;
+            Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                destination = openDownloadFile(temporaryPath);
+                temporaryCreated = true;
+                actualSha256 = await CopyAndHashAsync(source, destination, asset.SizeBytes, progress, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                // 本文を閉じてから一時ファイルを閉じて消す順序を保つ。
+                try
+                {
+                    await source.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception closeFailure)
+                {
+                    // 閉じる処理の失敗で、元の失敗・取消を置き換えない。読取りが済んだ後の失敗も診断だけ残す。
+                    WarnCleanupFailure(closeFailure, "update package response body close failed");
+                }
+            }
+
+            await destination.DisposeAsync().ConfigureAwait(false);
+            destination = null;
+            if (!string.Equals(actualSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Downloaded update package SHA-256 does not match update.json.");
+            }
+
+            // 最終通知は完成名への移動の前に行う。通知先が失敗しても完成名を残さず、返したTaskの完了後には通知しない。
+            progress?.Report(new UpdateDownloadProgress(asset.SizeBytes, asset.SizeBytes));
+            cancellationToken.ThrowIfCancellationRequested();
+            LongPathFileSystem.MoveFile(temporaryPath, packagePath, overwrite: true);
+            completed = true;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                ReclaimTemporaryFile(destination, temporaryPath, temporaryCreated);
+            }
         }
 
-        if (LongPathFileSystem.GetFileMetadata(temporaryPath).Length != asset.SizeBytes)
+        return packagePath;
+    }
+
+    /// <summary>応答ヘッダーを受信するまでを固定期限で待ちます。期限切れは取消以外の失敗にします。</summary>
+    private async Task<HttpResponseMessage> SendWithDeadlineAsync(HttpClient httpClient, string url, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(NoReceiveTimeout, timeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        HttpResponseMessage response = null;
+        try
         {
-            LongPathFileSystem.DeleteFile(temporaryPath);
+            response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
+            ThrowIfExpired(deadline, cancellationToken, null);
+            return response;
+        }
+        catch (OperationCanceledException exception) when (IsExpired(deadline, cancellationToken))
+        {
+            response?.Dispose();
+            throw CreateTimeout(exception);
+        }
+        catch
+        {
+            response?.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 本文を読み、受信量とSHA-256を同じ読取りで更新しながら一時ファイルへ書きます。
+    /// 受信量が期待サイズを超えた時点で失敗にし、EOFでサイズが一致しなければ失敗にします。
+    /// </summary>
+    private async Task<string> CopyAndHashAsync(
+        Stream source,
+        FileStream destination,
+        long expectedBytes,
+        IProgress<UpdateDownloadProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = new byte[CopyBufferBytes];
+        long received = 0;
+        long reported = 0;
+        long lastReportTimestamp = timeProvider.GetTimestamp();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = await ReadWithDeadlineAsync(source, buffer, cancellationToken).ConfigureAwait(false);
+            if (count <= 0)
+            {
+                break;
+            }
+
+            received += count;
+            if (received > expectedBytes)
+            {
+                throw new InvalidOperationException("Downloaded update package size does not match update.json.");
+            }
+
+            hash.AppendData(buffer, 0, count);
+            await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+            if (progress != null && ShouldReport(received - reported, lastReportTimestamp))
+            {
+                reported = received;
+                lastReportTimestamp = timeProvider.GetTimestamp();
+                progress.Report(new UpdateDownloadProgress(received, expectedBytes));
+            }
+        }
+
+        if (received != expectedBytes)
+        {
             throw new InvalidOperationException("Downloaded update package size does not match update.json.");
         }
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
 
-        string actualSha256 = ComputeSha256(temporaryPath);
-        if (!string.Equals(actualSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase))
+    private bool ShouldReport(long unreportedBytes, long lastReportTimestamp)
+    {
+        return unreportedBytes >= ProgressByteInterval
+            || timeProvider.GetElapsedTime(lastReportTimestamp) >= ProgressTimeInterval;
+    }
+
+    /// <summary>本文の1回の読取りを固定期限で待ちます。期限は読取りの開始前に設定し、書込みの時間を含めません。</summary>
+    private async Task<int> ReadWithDeadlineAsync(Stream source, byte[] buffer, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(NoReceiveTimeout, timeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        try
         {
-            LongPathFileSystem.DeleteFile(temporaryPath);
-            throw new InvalidOperationException("Downloaded update package SHA-256 does not match update.json.");
+            int count = await source.ReadAsync(buffer.AsMemory(), linked.Token).ConfigureAwait(false);
+            // 取消を無視して読取りが完了した場合も、呼出し側の取消を優先し、次に期限切れを失敗にする。
+            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfExpired(deadline, cancellationToken, null);
+            return count;
+        }
+        catch (OperationCanceledException exception) when (IsExpired(deadline, cancellationToken))
+        {
+            throw CreateTimeout(exception);
+        }
+    }
+
+    private static bool IsExpired(CancellationTokenSource deadline, CancellationToken cancellationToken)
+        => !cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested;
+
+    private static void ThrowIfExpired(CancellationTokenSource deadline, CancellationToken cancellationToken, Exception inner)
+    {
+        if (IsExpired(deadline, cancellationToken))
+        {
+            throw CreateTimeout(inner);
+        }
+    }
+
+    private static TimeoutException CreateTimeout(Exception inner)
+        => new("The update package download received no data within the allowed time.", inner);
+
+    /// <summary>
+    /// 失敗・取消の後に、自分が作った一時ファイルを閉じて消します。回収の失敗は元の失敗・取消を置き換えないため、警告として記録して伝えません。
+    /// 残った一時ファイルは次回の取得開始時に消します。
+    /// </summary>
+    private static void ReclaimTemporaryFile(FileStream destination, string temporaryPath, bool temporaryCreated)
+    {
+        try
+        {
+            destination?.Dispose();
+        }
+        catch (Exception closeFailure)
+        {
+            WarnCleanupFailure(closeFailure, "update package temporary file close failed");
         }
 
-        LongPathFileSystem.MoveFile(temporaryPath, packagePath, overwrite: true);
-        return packagePath;
+        if (!temporaryCreated)
+        {
+            return;
+        }
+        try
+        {
+            if (LongPathFileSystem.FileExists(temporaryPath))
+            {
+                LongPathFileSystem.DeleteFile(temporaryPath);
+            }
+        }
+        catch (Exception deleteFailure)
+        {
+            WarnCleanupFailure(deleteFailure, "update package temporary file delete failed: " + temporaryPath);
+        }
+    }
+
+    /// <summary>後片付けの二次的な失敗を警告として記録します。記録の失敗も、元の失敗・取消を置き換えません。</summary>
+    private static void WarnCleanupFailure(Exception failure, string message)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(failure, message);
+        }
+        catch (Exception)
+        {
+        }
     }
 
     public IPreparedUpdaterLaunch PrepareUpdaterLaunch(string packagePath)
@@ -396,12 +626,4 @@ internal sealed class UpdateDownloadService
             warningReporter?.Invoke(exception);
         }
     }
-
-    private static string ComputeSha256(string path)
-    {
-        using var sha256 = SHA256.Create();
-        using FileStream stream = LongPathFileSystem.OpenRead(path);
-        return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", string.Empty).ToLowerInvariant();
-    }
-
 }
