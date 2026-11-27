@@ -1243,8 +1243,45 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>OFF</td>
 <td>Retrieves LR2IR score information and detects unsent state from differences with local scores.</td>
 </tr>
+<tr>
+<td>Network</td>
+<td>Simultaneous external table downloads</td>
+<td>32 tables</td>
+<td>How many external difficulty tables are fetched at the same time when registering or reloading. Enter <code>1</code> to <code>64</code>.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Maximum size per chart or archive file</td>
+<td>512 MiB</td>
+<td>Upper limit for one chart or archive file downloaded from a URL. Larger files are not downloaded. Enter <code>1</code> to <code>16384</code>.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Download wait time</td>
+<td>30 seconds</td>
+<td>For file downloads from a URL, how long to wait for a response to start, and for more data after the transfer stalls. While data keeps arriving, the download continues beyond this time. Enter <code>5</code> to <code>600</code>.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>External table fetch time limit</td>
+<td>300 seconds</td>
+<td>Time allowed for each HTML, header, or data request of an external table, from sending the request until the whole body is read. Enter <code>10</code> to <code>3600</code>.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>External table HTML size limit</td>
+<td>10 MiB</td>
+<td>Upper limit for the size of an external table's HTML after decompression. Enter <code>1</code> to <code>512</code>.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>External table JSON size limit</td>
+<td>100 MiB</td>
+<td>Upper limit for the size of an external table's header and data JSON after decompression. Enter <code>1</code> to <code>512</code>.</td>
+</tr>
 </tbody>
 </table></div>
+<p>Enter whole numbers in the <code>Network</code> fields. A value is saved when you press Enter or move to another field. Out-of-range values and non-integers are not saved, and the allowed range appears below the field. A changed value applies to downloads started afterward.</p>
 <h4 id="startup-sort-cache-preparation">Startup Sort Cache Preparation</h4>
 <p>In <code>Advanced</code> → <code>Initialization</code>, use <code>Startup sort cache preparation</code> to choose how much sorting to prepare in advance for the regular library list after startup. The results are cached for use when you select a prepared column. The default is <code>Basic only</code>, and changes apply from the next application start.</p>
 <p>Both ascending and descending orders are prepared. <code>Standard</code> includes every column in <code>Basic only</code>, and <code>All</code> includes every column in <code>Standard</code>, adding the columns shown below.</p>
@@ -1337,7 +1374,9 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p><img alt="Automatic Update" src="img/auto_update_dialog.png"/></p>
 <p>When a newer version is found at startup, the automatic update dialog is shown. Pressing <code>Update</code> downloads the selected update package, verifies it, closes the app, and lets the updater replace the files. After the update completes, the app restarts automatically.</p>
 <p>The dialog may offer both an app-only package and a package bundled with analyzed metadata. The app-only package updates only the application files. The metadata bundle also includes the latest analyzed metadata, making it easier to show metadata in playlists even for charts you do not currently have.</p>
-<p>The update may wait for initialization or file operations to finish. Do not force-close the app while the update is running.</p>
+<p>You can press <code>Update</code> before startup initialization finishes. The download starts immediately, and the status bar shows <code>Downloading update</code> with the amount received. If the download finishes first, the status bar shows <code>Update downloaded; waiting for startup to finish</code>, and the update proceeds after initialization and the startup notices are done. While data keeps arriving, the download does not time out even on a slow connection.</p>
+<p>Use the cancel button in the status bar to cancel the update. Closing the app during the download or while it waits for startup also cancels the update and exits. A canceled update is offered again the next time you start the app.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>After file replacement has started, do not force-close the app or the updater until the update finishes.</p></div>
 <p>If automatic update fails, or if you prefer to inspect the release manually, press <code>Release Page</code> to open the GitHub release page, download the ZIP, and overwrite the files.</p>
 <h3 id="progress-display">Progress Display</h3>
 <p>The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Chart information completion and playlist, score, and maintenance loading may continue after the application becomes usable.</p>
@@ -1636,7 +1675,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Base candidates are an estimate. An unowned chart has no file on your computer, so the only information available is the playlist's <code>TITLE</code> and <code>ARTIST</code>. A candidate may be missing even though you own the main package, and a different work with the same title may be listed. Loosening the conditions reduces misses but adds wrong candidates, so the current conditions are a balance between the two. Before installing an additional chart, open the folder from <code>Base candidates</code> and check it.</p><p>Preparing data that records the correct main package for each chart hash is another possible approach, but it cannot cover newly released charts, so there are no plans to adopt it.</p></div>
 <h4 id="importing-multiple-urls">Importing Multiple URLs</h4>
 <p>Select several rows and choose <code>Import selected main URLs</code> / <code>Import selected diff URLs</code> from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.</p>
-<p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. Automatic downloads are limited to <code>512 MiB</code> per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>
+<p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. By default, automatic downloads are limited to <code>512 MiB</code> per file. You can change the limit and the wait time under <code>Advanced</code> → <code>Network</code> (see <a href="#advanced-settings-reference">Advanced Settings Reference</a>). Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>
 <p>See <a href="#where-are-downloaded-files-and-temporary-extraction-files-stored">Temporary Download Storage</a> for download and extraction locations.</p>
 <h4 id="finding-sources-through-external-apis">Finding Sources through External APIs</h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Queries send the selected chart's MD5 to external APIs. Candidates may not be official sources, and redistribution may not be authorized. Prefer the author's official distribution and read the confirmation shown each time before proceeding.</p></div>
@@ -1696,7 +1735,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Turning a playlist's <code>BMT OUTPUT</code> OFF removes its managed <code>.bmt</code> and registered URL at the next output. Before disabling output globally, enable <code>Keep existing .bmt files when output is disabled</code> if you want to preserve them.</p></div>
 <p>With the keep-existing-files option enabled, disabling global output stops automatic re-export while retaining the existing <code>.bmt</code> files and registered URLs.</p>
 <h3 id="import-external-playlist">Import External Playlist</h3>
-<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>. External table HTML is limited to <code>10 MiB</code>; header and chart-data JSON are each limited to <code>100 MiB</code>. Compressed responses are measured after decompression.</p>
+<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>. By default, external table HTML is limited to <code>10 MiB</code>; header and chart-data JSON are each limited to <code>100 MiB</code>. Compressed responses are measured after decompression. You can change the limits, the fetch time limit, and the number of tables fetched at the same time under <code>Advanced</code> → <code>Network</code> (see <a href="#advanced-settings-reference">Advanced Settings Reference</a>).</p>
 <p><img alt="Import playlists" src="img/プレイリストをインポート.png"/></p>
 <div class="table-scroll"><table>
 <thead>

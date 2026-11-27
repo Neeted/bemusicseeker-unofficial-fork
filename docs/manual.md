@@ -436,6 +436,14 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data from existing local XML files after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
 | LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
+| Network | Simultaneous external table downloads | 32 tables | How many external difficulty tables are fetched at the same time when registering or reloading. Enter `1` to `64`. |
+| Network | Maximum size per chart or archive file | 512 MiB | Upper limit for one chart or archive file downloaded from a URL. Larger files are not downloaded. Enter `1` to `16384`. |
+| Network | Download wait time | 30 seconds | For file downloads from a URL, how long to wait for a response to start, and for more data after the transfer stalls. While data keeps arriving, the download continues beyond this time. Enter `5` to `600`. |
+| Network | External table fetch time limit | 300 seconds | Time allowed for each HTML, header, or data request of an external table, from sending the request until the whole body is read. Enter `10` to `3600`. |
+| Network | External table HTML size limit | 10 MiB | Upper limit for the size of an external table's HTML after decompression. Enter `1` to `512`. |
+| Network | External table JSON size limit | 100 MiB | Upper limit for the size of an external table's header and data JSON after decompression. Enter `1` to `512`. |
+
+Enter whole numbers in the `Network` fields. A value is saved when you press Enter or move to another field. Out-of-range values and non-integers are not saved, and the allowed range appears below the field. A changed value applies to downloads started afterward.
 
 #### Startup Sort Cache Preparation
 
@@ -489,7 +497,12 @@ When a newer version is found at startup, the automatic update dialog is shown. 
 
 The dialog may offer both an app-only package and a package bundled with analyzed metadata. The app-only package updates only the application files. The metadata bundle also includes the latest analyzed metadata, making it easier to show metadata in playlists even for charts you do not currently have.
 
-The update may wait for initialization or file operations to finish. Do not force-close the app while the update is running.
+You can press `Update` before startup initialization finishes. The download starts immediately, and the status bar shows `Downloading update` with the amount received. If the download finishes first, the status bar shows `Update downloaded; waiting for startup to finish`, and the update proceeds after initialization and the startup notices are done. While data keeps arriving, the download does not time out even on a slow connection.
+
+Use the cancel button in the status bar to cancel the update. Closing the app during the download or while it waits for startup also cancels the update and exits. A canceled update is offered again the next time you start the app.
+
+> [!CAUTION]
+> After file replacement has started, do not force-close the app or the updater until the update finishes.
 
 If automatic update fails, or if you prefer to inspect the release manually, press `Release Page` to open the GitHub release page, download the ZIP, and overwrite the files.
 
@@ -856,7 +869,7 @@ Candidates are found by comparing the `TITLE` and `ARTIST` written in the playli
 
 Select several rows and choose `Import selected main URLs` / `Import selected diff URLs` from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.
 
-Supported charts are `.bme`, `.bms`, `.bml`, `.pms`, and `.bmson`; archives are `.zip`, `.7z`, `.rar`, and `.lzh`. Automatic downloads are limited to `512 MiB` per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and [install by drag and drop](#installation-steps).
+Supported charts are `.bme`, `.bms`, `.bml`, `.pms`, and `.bmson`; archives are `.zip`, `.7z`, `.rar`, and `.lzh`. By default, automatic downloads are limited to `512 MiB` per file. You can change the limit and the wait time under `Advanced` → `Network` (see [Advanced Settings Reference](#advanced-settings-reference)). Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and [install by drag and drop](#installation-steps).
 
 See [Temporary Download Storage](#where-are-downloaded-files-and-temporary-extraction-files-stored) for download and extraction locations.
 
@@ -934,7 +947,7 @@ With the keep-existing-files option enabled, disabling global output stops autom
 
 ### Import External Playlist
 
-Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose `Import playlists`. External table HTML is limited to `10 MiB`; header and chart-data JSON are each limited to `100 MiB`. Compressed responses are measured after decompression.
+Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose `Import playlists`. By default, external table HTML is limited to `10 MiB`; header and chart-data JSON are each limited to `100 MiB`. Compressed responses are measured after decompression. You can change the limits, the fetch time limit, and the number of tables fetched at the same time under `Advanced` → `Network` (see [Advanced Settings Reference](#advanced-settings-reference)).
 
 ![Import playlists](img/プレイリストをインポート.png)
 

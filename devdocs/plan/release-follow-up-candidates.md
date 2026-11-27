@@ -315,17 +315,9 @@ BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess
 
 ## 初期化失敗後の更新開始
 
-外付けドライブ不在等で初期化が失敗すると、失敗表示の `StartupProgress.IsActive` が維持され、後処理完了後も `CanStartUpdate` がfalseとなる。実操作の終端と失敗表示の寿命の混同が原因である。
+更新ダイアログは初期化中でも更新を選べるが、更新プログラムの起動は初期化の成功を条件とする。外付けドライブ不在等で初期化が成功しなかった場合は、更新を選んでも取得を始めず、取得中なら取り消す。更新側からの案内は出さず、更新確認は次回の起動まで行わない。条件と順序は[ポータブル更新仕様](../spec/integration/portable-update.md)に従う。この状態では、初期化の失敗を直す版への更新を、アプリからは適用できない。
 
-将来採用時は実操作・終了準備の既存状態へ開始可否を接続する。現在の `IsOperationActive` も同じ `IsActive` を含むため、参照を置き換えるだけでは解消しない。通常初期化中・ファイル変更中・失敗後処理中は抑止し、後処理完了後に開始可能なことを確認する。失敗表示を強制的に隠す回避や新しい永続状態は追加しない。Updaterのファイル整理修正とは別の未採用課題である。
-
-## 更新ZIP取得中の通常終了の応答性
-
-更新ZIPを正常に取得している間にアプリを閉じると、要求の世代は失効するがHTTP取得は続き、通常終了はその実完了を待つ。HTTPの期限は300秒である。[終了契約](../spec/runtime/shutdown.md)は取消完了または実完了待ちを許容しており、今回は現在の完了待ちを維持する。
-
-再検討する場合は、正常な低速取得中に終了を早める必要性を確認する。採用時は、今回の取得が所有する取消をHTTPとコピーへ渡し、ストリーム・一時ファイルを含む実Taskの終端まで待つ。更新プログラムが適用を始めた後の強制停止へ広げない。
-
-根拠は [StartupUpdateWorkflowOwner](../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) の `NotifyClosing` と `ExecuteAsync`、[UpdateDownloadService](../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `DownloadAndVerifyAsync`、[ShellShutdownWorkflowOwner](../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) の `CompleteWindowCloseAsync`。採用時には、長い正常本文の取得中に閉じたときの取消・解放・通常終了と、通常取得成功を対にして確認する。
+将来採用する場合は、初期化の失敗後処理が終わった後に更新を適用できる条件を、実操作・終了準備の既存状態から決める。通常初期化中・ファイル変更中・失敗後処理中は適用へ進まないことと、後処理完了後に適用できることを確認する。失敗表示を強制的に隠す回避や新しい永続状態は追加しない。打ち切ったことを利用者へ案内するかどうかも、同じ機会に判断する。Updaterのファイル整理修正とは別の未採用課題である。
 
 ## アプリ全体のキーボード操作の要求整理
 
