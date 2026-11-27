@@ -236,6 +236,118 @@ public sealed class ApplicationCompositionDialogRoutingTests
     }
 
     /// <summary>
+    /// 条件：共通の窓口だけを記録用窓口にし、専用引数（ファイル/DB変更・プレイリスト・設定・再起動失敗・ライブラリ）へ別の記録用窓口を渡した構成で、実際の MainWindowViewModel へ
+    /// ライブラリが公開した壊れた履歴DBの取得組（beatoraja の scorelog.db が壊れている状態）を渡し、期間選択（本番のハンドラーと同じ入力）で履歴を開きます。
+    /// 続けて検索キーワードを変えて、同じ失敗を再び採用させます。
+    /// 期待結果：期間選択の失敗は共通の窓口へ、本文 <c>Play_history_read_failed</c>・見出し <c>Error</c>・OK のエラーとしてちょうど1件届き、専用の窓口へは何も届きません。
+    /// 行とカードは失敗の表示へ退役します。キーワード変更で失敗を再び採用しても、通知は1件のままです。
+    /// 検出する誤り：失敗の通知が専用の窓口などへ届く、窓口が接続されず届かない、または期間選択以外の入口でも通知します。
+    /// 待ち合わせの根拠：開始した履歴の読込みTaskは ViewRefreshStarted で捕まえ、UI上で終端まで待ってから背景の消化後に表明します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void MainWindowViewModel_PlayHistoryReadFailure_NotifiesCommonDialogServiceOnlyForPeriodSelection()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            string directory = Path.Combine(workspace.RootDirectory, "play-history-failure-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string scoreDbPath = Path.Combine(directory, "score.db");
+            string songDbPath = Path.Combine(directory, "song.db");
+            var common = new RecordingRootDialogService();
+            var others = new RecordingRootDialogService();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaScoreDbPath = scoreDbPath;
+            });
+            var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                settingsEditSession: new NoOpSettingsEditSession(settings),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                playlistWorkspaceDialogService: others,
+                fileDbMutationDialogService: others,
+                restartFailureDialogs: others,
+                settingsDialogService: others,
+                libraryDialogService: others,
+                dialogService: common);
+            MainWindowViewModel vm = composition.CreateMainWindowViewModelForTest();
+            using SettingsDialogViewModel settingsLifetime = vm.SettingDialog;
+            using (SQLiteConnectionEx db = composition.DatabaseScope.OpenProviderConnection(scoreDbPath))
+            {
+                db.Execute("CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
+            }
+            File.WriteAllText(Path.Combine(directory, "scorelog.db"), "not a SQLite database");
+            using (LR2SongDBExtended initialize = composition.DatabaseScope.OpenSongWrite(songDbPath)) { }
+            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(composition.DatabaseScope, songDbPath, settings, vm);
+            try
+            {
+                library.InitializeScoresOnly(null);
+                ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
+                // 取得組の公開に伴う保留中のライブラリ更新を先に配送し終える。残したままだと、期間選択の後に配送が履歴の要求を
+                // 期間選択以外のモードで置き換え、置換後の実行が失敗を採用して通知が出なくなる（契約上、置換では通知しない）。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    vm.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "pending library changes delivered");
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                Assert.IsNull(vm.PlayHistory.SnapshotActiveRequest());
+
+                PlayHistoryViewRequest? selected = null;
+                AwaitStartedPlayHistoryRefreshes(vm, () => selected = vm.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), vm.ChartFilters.KeywordFilter));
+                Assert.IsTrue(vm.PlayHistory.IsCurrentRequest(selected!.RequestId), "期間選択の要求が置換されずに終端まで進んだ。");
+
+                Assert.AreEqual(0, vm.MainChartList.Rows.Count);
+                Assert.AreEqual(0, vm.PlayHistory.SummaryCards.Count);
+                Assert.AreEqual(1, common.MessageRequests.Count);
+                UiMessageRequest request = common.MessageRequests[0];
+                Assert.AreEqual(Resources.Play_history_read_failed, request.MessageBoxText);
+                Assert.AreEqual(Resources.Error, request.Caption);
+                Assert.AreEqual(System.Windows.MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(0, common.ConfirmationCount);
+                Assert.AreEqual(0, others.MessageCount);
+                Assert.AreEqual(0, others.ConfirmationCount);
+
+                AwaitStartedPlayHistoryRefreshes(vm, () => vm.ChartFilters.KeywordFilter = "keyword");
+
+                Assert.AreEqual("keyword", vm.PlayHistory.CurrentKeywordIdentity);
+                Assert.IsNull(vm.PlayHistory.PresentationState.CurrentView, "失敗の終端のままで、正常な表示を採用していない。");
+                Assert.AreEqual(0, vm.PlayHistory.SummaryCards.Count);
+                Assert.AreEqual(1, common.MessageRequests.Count, "キーワード変更後も通知は増えない（入口ごとの失敗の再採用はCoreの `WorkflowOwner_ReadFailureDialogOnlyForPeriodSelection` が確認する）。");
+                Assert.AreEqual(0, others.MessageCount);
+            }
+            finally
+            {
+                library.RequestShutdown("play-history-dialog-routing-test");
+            }
+
+        });
+    }
+
+    /// <summary>開始した履歴の読込みTaskを開始通知で捕まえ、UI上で終端と待ち行列の消化まで待ってから背景の予約を消化します。</summary>
+    private static void AwaitStartedPlayHistoryRefreshes(MainWindowViewModel viewModel, Action trigger)
+    {
+        var refreshes = new List<Task>();
+        Action<long, long, Task> started = (_, _, task) => { lock (refreshes) { refreshes.Add(task); } };
+        viewModel.PlayHistory.ViewRefreshStarted += started;
+        try
+        {
+            trigger();
+        }
+        finally
+        {
+            viewModel.PlayHistory.ViewRefreshStarted -= started;
+        }
+        Task[] captured;
+        lock (refreshes) { captured = [.. refreshes]; }
+        Assert.IsTrue(captured.Length > 0, "履歴の読込みが開始される。");
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(captured), "play-history refresh terminals");
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlayHistory.WaitForRefreshQueuesIdleAsync(), "play-history refresh queues idle");
+        TestUiDispatcherHost.ProcessQueuedBackground();
+    }
+
+    /// <summary>
     /// 条件：構成から作ったライブラリへ終了の要求を出した後に、背景の警告を投函します。
     /// 期待結果：共通の窓口へは通知も確認も届かず、見送りがログに一件残ります。
     /// 検出する誤り：終了の要求の後も背景の警告を表示する、または見送りをログに残さず黙って捨てます。

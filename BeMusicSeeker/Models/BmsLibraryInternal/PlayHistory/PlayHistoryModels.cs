@@ -12,7 +12,6 @@ internal enum PlayHistoryProvider
 
 internal enum PlayHistoryDiagnosticSeverity
 {
-    Info,
     Warning,
     Error
 }
@@ -20,6 +19,13 @@ internal enum PlayHistoryDiagnosticSeverity
 internal sealed class PlayHistoryDiagnostic
 {
     internal PlayHistoryProvider Provider { get; set; }
+
+    /// <summary>
+    /// 例外を捕捉して診断へ変換した想定外の取得失敗であることを示します。
+    /// 設定・ファイル・スキーマの状態による利用不可（スコアDBなし、スキーマ未導入など）は含めません。
+    /// 履歴表示は、この印がある診断を失敗として採用し、利用者へ通知します。
+    /// </summary>
+    internal bool IsUnexpectedFailure { get; set; }
 
     internal string Stage { get; set; } = string.Empty;
 

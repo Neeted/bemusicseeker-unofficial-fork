@@ -85,7 +85,7 @@ internal sealed class BeatorajaPlayHistoryReader
         catch (Exception ex)
         {
             PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "read", request.ScoreLogDbPath);
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath));
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath, unexpectedFailure: true));
             return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable, playerSnapshots, playerSnapshotsAvailable);
         }
     }
@@ -269,10 +269,11 @@ internal sealed class BeatorajaPlayHistoryReader
         return record;
     }
 
-    private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
+    private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath, bool unexpectedFailure = false)
     {
         return new PlayHistoryDiagnostic
         {
+            IsUnexpectedFailure = unexpectedFailure,
             Provider = PlayHistoryProvider.Beatoraja,
             Stage = "read",
             Severity = severity,

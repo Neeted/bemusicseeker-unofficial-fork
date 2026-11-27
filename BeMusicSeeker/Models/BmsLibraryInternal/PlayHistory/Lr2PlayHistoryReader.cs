@@ -62,7 +62,7 @@ internal sealed class Lr2PlayHistoryReader
         catch (Exception ex)
         {
             PlayHistoryReadDiagnostics.Report(ex, "LR2", "read", request.ScoreDbPath);
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_read_failed", ex.Message, request.ScoreDbPath));
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_read_failed", ex.Message, request.ScoreDbPath, unexpectedFailure: true));
             return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
     }
@@ -80,16 +80,19 @@ internal sealed class Lr2PlayHistoryReader
                 request.ScoreDbPath));
             return false;
         }
+        // LR2連携外のプロファイルは対象外であり、診断を載せません。
         if (schema.Status == Lr2PlayHistorySchemaStatus.SkippedProfile)
         {
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_skipped_profile", schema.Message, request.ScoreDbPath));
             return false;
         }
         if (schema.Status == Lr2PlayHistorySchemaStatus.Unreadable
             || schema.Status == Lr2PlayHistorySchemaStatus.NotInstalled
             || schema.Status == Lr2PlayHistorySchemaStatus.ManualRepairRequired)
         {
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, GetSchemaDiagnosticCode(schema.Status), schema.Message, request.ScoreDbPath));
+            // パス未設定・ファイルなしは利用不可の状態であり、検査中の例外（Diagnostic）だけが想定外の失敗です。
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, GetSchemaDiagnosticCode(schema.Status), schema.Message, request.ScoreDbPath,
+                unexpectedFailure: schema.Status == Lr2PlayHistorySchemaStatus.Unreadable
+                    && schema.Reason == Lr2PlayHistorySchemaReason.Diagnostic));
             return false;
         }
         if (schema.Status == Lr2PlayHistorySchemaStatus.Repairable)
@@ -154,10 +157,11 @@ internal sealed class Lr2PlayHistoryReader
         return sql;
     }
 
-    private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
+    private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath, bool unexpectedFailure = false)
     {
         return new PlayHistoryDiagnostic
         {
+            IsUnexpectedFailure = unexpectedFailure,
             Provider = PlayHistoryProvider.Lr2,
             Stage = "read",
             Severity = severity,

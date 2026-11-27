@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.PlayHistoryReadModelTestFixture;
@@ -21,7 +22,7 @@ public sealed class PlayHistoryReadModelTests
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>
-    /// playlist summary選択の実構成は履歴集計と診断を消し、archive日付面を保持する。画面切替の残留表示を検出する。
+    /// playlist summary選択の実構成は履歴集計を消し、archive日付面を保持する。画面切替の残留表示を検出する。
     /// </summary>
     /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
     // 実shell構成または共有設定providerへの接続を使うため直列化する。
@@ -34,7 +35,6 @@ public sealed class PlayHistoryReadModelTests
         PlayHistoryPeriodTreeItem[] archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
         viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(archive);
         viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
-        viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
         viewModel.PlaylistWorkspace.RequestSummarySelection();
         TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -43,7 +43,6 @@ public sealed class PlayHistoryReadModelTests
         TestUiDispatcherHost.ProcessQueuedPresentation();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
-        Assert.AreEqual(string.Empty, viewModel.PlayHistory.SummaryDiagnosticText);
         Assert.AreSame(archive, viewModel.PlayHistory.ArchivePeriodTree);
     }
 
@@ -422,7 +421,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 正常な表示の後でも許可取得の失敗を表示し、行・カード・選択を退役する。期間操作では失敗を保持し、次の許可取得で正常0件を採用する。
+    /// 正常な表示の後でも許可取得の失敗を表示し、行・カード・選択を退役してダイアログで知らせる。期間の再選択では失敗を保持して再び知らせ、次の許可取得で正常0件を採用すると通知を増やさない。
     /// </summary>
     /// <remarks>実モデル取得のschema検査後のSELECT故障から、実MainChartList/Workspaceの失敗表示と次の許可取得による復帰まで接続する。</remarks>
     [TestMethod]
@@ -438,10 +437,12 @@ public sealed class PlayHistoryReadModelTests
             }
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
-                () => historySource, library: CreateHistoryLibrary(databaseScope, scoreDbPath));
+                () => historySource, library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
+            Assert.AreEqual(0, dialogs.Messages.Count);
             Assert.AreEqual(1, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             dependencies.MainChartList.SelectedIndex = 0;
@@ -461,13 +462,16 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(-1, dependencies.MainChartList.SelectedIndex);
             Assert.AreEqual(0, owner.SummaryCards.Count);
             Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
-            Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.AreEqual(Resources.Play_history_read_failed, dialogs.Messages[0].MessageBoxText);
             Assert.IsTrue(owner.IsViewActive);
             AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: true);
 
             File.Delete(scoreDbPath);
             CreateInstalledScoreDb(databaseScope, scoreDbPath);
+            // 同じ取得組への期間の再選択は失敗を保持したまま再読取りせず、利用者の操作ごとに知らせる。
             Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, ExecuteHistoryRead(owner, dependencies).Status);
+            Assert.AreEqual(2, dialogs.Messages.Count);
             historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             PlayHistoryViewExecutionResult recovered = ExecuteHistoryRead(owner, dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, recovered.Status);
@@ -475,7 +479,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
-            Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
+            Assert.AreEqual(2, dialogs.Messages.Count);
             AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: false);
         });
     }
@@ -496,7 +500,6 @@ public sealed class PlayHistoryReadModelTests
                 {
                     Assert.AreEqual(string.Empty, chartList.SummaryText);
                     Assert.AreEqual(0, owner.SummaryCards.Count);
-                    Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
                 }
                 else
                 {

@@ -153,8 +153,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     public IReadOnlyList<PlayHistorySummaryCard> SummaryCards => PresentationState.SummaryCards;
 
-    public string SummaryDiagnosticText => PresentationState.DiagnosticText;
-
     /// <summary>
     /// Captures a local wall-clock PlayedAt range for an aggregate Play Log selection.
     /// </summary>
@@ -430,22 +428,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     internal void ClearSummaryPresentation()
     {
         bool cardsChanged;
-        bool diagnosticChanged;
         lock (PresentationState.SyncRoot)
         {
             selectedSummaryFilterKeys.Clear();
             PresentationState.AdoptedSummary = null;
             cardsChanged = PresentationState.SetSummaryCards([]);
-            diagnosticChanged = PresentationState.SetDiagnosticText(string.Empty);
         }
         if (cardsChanged)
         {
             RaisePropertyChanged(nameof(SummaryCards));
-        }
-
-        if (diagnosticChanged)
-        {
-            RaisePropertyChanged(nameof(SummaryDiagnosticText));
         }
     }
 
@@ -567,14 +558,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 presentation: null);
         }
 
-        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
-        // 非連携の適用外スキップは読取り失敗ではなく、DB照会なしの空行と情報診断を表示する。
-        if ((!canReadPeriodIndex && schemaStatus != Lr2PlayHistorySchemaStatus.SkippedProfile)
-            || lr2ReadResult?.HasErrors == true || beatorajaReadResult?.HasErrors == true)
+        // 失敗とするのは、例外を捕捉して診断へ変換した取得だけです。連携外・パスやファイルなし・スキーマ未導入・
+        // 取得組の未公開などの利用不可の状態は、DBを照会せず正常0件と同じ空の表示として採用します。
+        if (readDiagnostics?.Any(diagnostic => diagnostic?.IsUnexpectedFailure == true) == true)
         {
             return new PlayHistoryReadWorkflowResult(false, string.Empty, readMs,
                 readStage, periodStage, projectionStage, presentation: null, failedStage: "read", readDiagnostics);
         }
+        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable
+            && lr2ReadResult?.HasErrors != true && beatorajaReadResult?.HasErrors != true;
 
         IReadOnlyList<long> periodIndexPlayedAt = [];
         IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
@@ -966,7 +958,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             MainChartListColumnSelection columnSelection = mainChartList.ResolveColumnSettingForViewUpdate(
                 request.Mode,
                 request.ColumnFilterMode);
-            string diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
             IReadOnlyList<PlayHistorySummaryCard> summaryCards = PlayHistoryPresentationState.CreateSummaryCards(
                 summary,
                 state.Provider,
@@ -976,11 +967,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 {
                     ViewState = state,
                     PeriodSummary = summary,
-                    SummaryDiagnostics = diagnostics,
                     ColumnSelection = columnSelection,
                     ArchivePeriodTree = request.ArchivePeriodTree,
                     SummaryCards = summaryCards,
-                    DiagnosticText = diagnosticSummaryText,
                     DetailSourceRetirement = request.DetailSourceRetirement,
                     MainRowsRequest = new MainChartListRowsApplyRequest
                     {
@@ -1489,10 +1478,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         if (result.SummaryCardsChanged)
         {
             TryPublish(() => RaisePropertyChanged(nameof(SummaryCards)), publishExceptions);
-        }
-        if (result.DiagnosticTextChanged)
-        {
-            TryPublish(() => RaisePropertyChanged(nameof(SummaryDiagnosticText)), publishExceptions);
         }
         if (publishExceptions.Count > 0)
         {

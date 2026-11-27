@@ -28,22 +28,17 @@ public sealed partial class PlayHistoryWorkflowOwner
     {
         RefreshDisplayTargetLabels();
         bool cardsChanged = false;
-        bool diagnosticChanged = false;
         lock (PresentationState.SyncRoot)
         {
             PlayHistoryAdoptedSummary adopted = PresentationState.AdoptedSummary;
             if (adopted != null)
             {
-                string diagnostic = adopted.Failed ? BeMusicSeeker.Properties.Resources.Play_history_read_failed
-                    : PlayHistoryPresentationState.FormatDiagnosticSummary(adopted.Diagnostics);
                 cardsChanged = PresentationState.SetSummaryCards(adopted.Failed ? []
                     : PlayHistoryPresentationState.CreateSummaryCards(adopted.Summary, adopted.Provider,
                         SnapshotSummaryFilterKeys(adopted.Provider)));
-                diagnosticChanged = PresentationState.SetDiagnosticText(diagnostic);
             }
         }
         if (cardsChanged) { RaisePropertyChanged(nameof(SummaryCards)); }
-        if (diagnosticChanged) { RaisePropertyChanged(nameof(SummaryDiagnosticText)); }
     }
 
     private void RefreshDisplayTargetLabels()

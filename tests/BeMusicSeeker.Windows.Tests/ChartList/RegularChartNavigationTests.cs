@@ -211,7 +211,7 @@ public sealed partial class RegularChartNavigationTests
             { PlayHistorySnapshot = new ScorePlayHistorySnapshot(ActiveScoreSource.Lr2, "owned-score.db", raw), SourceGeneration = 1 };
             vm.PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(() => fixture.Library, () => fixture.Playlist,
                 () => PlayHistoryReadSourceContext.FromSnapshot(snapshot), action => { TestUiDispatcherHost.Dispatcher.Invoke(action); return true; },
-                (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace));
+                (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace, UndeclaredDialogs.Create()));
             AwaitHistoryRows(vm, () => vm.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), string.Empty));
             CollectionAssert.AreEquivalent(new long[] { 1, 2 }, vm.MainChartList.Rows.Cast<PlayHistoryRow>().Select(row => row.HistoryId).ToArray());
             const string keyword = "title:target";
@@ -395,8 +395,10 @@ public sealed partial class RegularChartNavigationTests
                     Assert.AreEqual(historyTargetIdentity, vm.PlayHistory.CurrentDisplayTargetIdentity);
                     Assert.AreEqual(vm.PlayHistory.DisplayTargetRevision, current.DisplayTargetRevision);
                     Assert.AreEqual(string.Empty, vm.MainChartList.SummaryText);
-                    Assert.AreEqual(Resources.Play_history_read_failed, vm.PlayHistory.SummaryDiagnosticText);
-                    Assert.AreEqual(0, vm.PlayHistory.SummaryCards.Count);
+                    // 取得組が未公開の状態は利用不可であり、失敗ではなく正常0件と同じ集計カードを採用する。
+                    Assert.IsTrue(PlayHistoryPresentationState.AreSameSummaryCards(
+                        PlayHistoryPresentationState.CreateSummaryCards(PlayHistoryPeriodSummary.FromRows([]), PlayHistoryProvider.Lr2),
+                        vm.PlayHistory.SummaryCards));
                     Assert.AreEqual(0, vm.MainChartList.Rows.Count);
                 }
                 else if (destination == "detail")

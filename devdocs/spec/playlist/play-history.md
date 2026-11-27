@@ -14,7 +14,7 @@ LR2の導入後のプレイ履歴と、beatorajaのスコア更新履歴を、�
 
 通常成績の取得操作が選んだ取得元を履歴・集計にも使います。`UseBeatorajaScoreDb` が有効ならbeatoraja、それ以外はLR2です。通常成績が失敗しても別の情報源へ代替せず、通常成績と履歴の利用可否を独立して保持します。取得後の外部ファイル移動・消失で表示時の取得元を変更せず、同じ画面で両者を合算しません。
 
-LR2は現在の連携プロファイルのスコアDBを読みます。非連携は `SkippedProfile`、パス未設定・欠落・読取不能は `Unreadable` です。履歴の記録構造と明示的な導入・修復は[LR2履歴スキーマ](lr2-history-schema.md)に従います。導入前のスコアから日時を推測して履歴を作りません。ハッシュ長が32の単曲行だけを読み、未所持の単曲も残します。両取得元とも16進文字の追加検査はせず、元DBのコース記録や構造は変更しません。
+LR2は現在の連携プロファイルのスコアDBを読みます。非連携は診断を載せず `SkippedProfile` で表し、パス未設定・欠落・読取不能は `Unreadable` です。履歴の記録構造と明示的な導入・修復は[LR2履歴スキーマ](lr2-history-schema.md)に従います。導入前のスコアから日時を推測して履歴を作りません。ハッシュ長が32の単曲行だけを読み、未所持の単曲も残します。両取得元とも16進文字の追加検査はせず、元DBのコース記録や構造は変更しません。
 
 beatorajaは選択プレイヤーの `scorelog.db` を読み取り専用で使います。これはベスト更新ログで、全プレイ履歴ではありません。通常譜面は `mode=0` かつSHA-256の長さが64の行だけとし、コース等を混ぜません。`scoredatalog.db` はハッシュとモードに対する最新詳細で、追記履歴として使いません。取得失敗を `score.date` 等へ置き換えません。
 
@@ -24,9 +24,9 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 スキーマ検査を先に行い、読めない状態では行を問い合わせず診断を返します。`AllowRepairableIndexRead` が`false` なら不足・不一致の索引で停止し、`true` なら警告付きで読めます。通常履歴・期間索引の投影は索引不備で停止します。取得操作は通常履歴とランプの用途和集合として `AllowRepairableIndexRead=true`、`RequireCompleteHistoryTriggers=false` で一度読み、捕捉した同じスキーマ検査結果へ各用途の条件を適用します。`RequireCompleteHistoryTriggers` は独立した条件で、`true` ならトリガー不足・不一致で行照会前に停止します。読込み中に修復しません。
 
-期間索引は同じ取得結果の単曲行による日別の代表時刻で、コース行しかない日を候補に残しません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaでは「未確定／診断」期間の履歴行は空で、通常の更新履歴を未確定扱いにしません。この期間の扱いは、取得失敗の診断表示を抑止する意味ではありません。
+期間索引は同じ取得結果の単曲行による日別の代表時刻で、コース行しかない日を候補に残しません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaでは「未確定／診断」期間の履歴行は空で、通常の更新履歴を未確定扱いにしません。
 
-履歴行の読取りと、全履歴からの期間索引・過去日付ツリーの生成は採否を分けます。索引・ツリーだけが失敗しても、正常な選択期間の行・集計は表示します。過去日付の項目を外して利用不可にし、索引の取得失敗を示します。旧日付ツリーの保存・取得元照合は行わず、固定期間の選択は続けられます。
+履歴行の読取りと、全履歴からの期間索引・過去日付ツリーの生成は採否を分けます。索引・ツリーだけが失敗しても、正常な選択期間の行・集計は表示します。過去日付の項目を外して利用不可にするだけで、失敗の表示や通知はせず、ログに残します。旧日付ツリーの保存・取得元照合は行わず、固定期間の選択は続けられます。
 
 ### キャッシュと表示用変換
 
@@ -34,7 +34,15 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 次の操作は、通常成績と取得済みの生の記録を保持します。期間の初回表示・再選択・変更、検索、整列、カード、表示対象、言語、ファイル差分、所属変更、同じライブラリの全再初期化です。全再初期化そのものでは通常成績と履歴の外部DBを再取得しませんが、設定で有効な既存のIR・順位に続く成績更新は維持します。再取得しないのは意図した挙動です。全再初期化はライブラリのDBとファイルから目録を作り直す操作であり、プレイヤー側で更新される外部の成績DBの取得とは目的を分けます。新しいプレイ結果は、次回の起動など上記の取得の契機で反映します。これらの表示用の `Version` だけを進める更新では、同じ履歴参照と `SourceGeneration` を引き継ぎます。同値のスコア設定の確定では保存も再取得も行いません。現在のLR2プロファイルと一致する検査結果は設定の状態表示へ共有しますが、設定画面を開くためにDBへ問い合わせません。
 
-正常0件、利用不可、読取り失敗を区別し、失敗結果も今回の取得組に保持します。期間操作では再読取りせず、次の許可された取得の後にだけ新しい結果へ更新します。beatorajaのプレイヤー時系列だけが利用不可なら、正常な `scorelog` の行は維持します。取得時点の生の行・プレイヤー時系列・ノーツ・スキーマ診断は、後の成績値や外部DBから再計算しません。
+表示要求に対する取得結果は、正常、利用不可、想定外の失敗に分けます。失敗とするのは、例外を捕捉して結果へ変換したもの（スキーマ検査の例外、行・beatorajaの読取り例外、投影用索引の失敗、表示生成の例外）だけです。
+
+利用不可は失敗ではなく、LR2連携外のプロファイル、LR2スコアDBのパス未設定・ファイルなし・履歴スキーマ未導入・手動修復が必要・表示に必要な索引の修復が必要、beatorajaの `scorelog.db` なし・スコアDBのパス未設定、取得組が未公開の状態です。利用不可は、DBの行照会もDBファイルの作成もせず、正常0件と同じ採用結果にします。行は空で選択もなく、集計カードは同じ取得元の正常0件と同じで、過去日付ツリーは空、一覧の件数表示は空文字列です。ダイアログは出しません。
+
+失敗は、現在要求の結果領域から旧行・選択・集計カードを外します。カードは0件で、正常0件の値0のカードとは区別します。取消し・旧世代の結果は適用しません。失敗結果も今回の取得組に保持し、期間操作では再読取りせず、次の許可された取得の後にだけ新しい結果へ更新します。
+
+利用者の期間選択を起点とする実行で採用した失敗1件につき、メッセージダイアログを1回依頼します。本文は表示リソース `Play_history_read_failed`、題名は既存のエラー用の題名、ボタンはOKで、例外本文・パス・内部コードを含めません。詳細はログに残します。キーワード・カード選択・表示対象・整列・ライブラリ更新による要求の置換・期間選択以外のモードでの同じ要求の再実行では、同じ失敗を採用しても通知しません。適用しなかった失敗（取消し・旧世代・画面を離れた後）も通知しません。依頼は失敗の終端と同じ実行の中で行い、表示の完了を待ちません。窓口が未完了のTask・同期例外・失敗したTaskを返しても、失敗の終端は変わらず、呼出元へ例外を出さず、ログだけに残します。重複抑止の状態や再試行は持ちません。
+
+期間索引だけの失敗・整列の失敗・beatorajaのプレイヤー時系列だけの利用不可は部分的な不備であり、行を採用し、通知せずログだけに残します。beatorajaのプレイヤー時系列だけが利用不可なら、正常な `scorelog` の行は維持します。取得時点の生の行・プレイヤー時系列・ノーツ・スキーマ診断は、後の成績値や外部DBから再計算しません。
 
 期間・確定状態・日索引の投影は、DB接続、取得元の選択、生の記録の所有、読取りの待機、取得世代を持ちません。同じ取得組の期間変更では、最新一件の日索引結果だけを再利用し、全記録から日索引を毎回作り直しません。期間投影は同じ生の記録への参照を返し、全範囲・全確定状態では生の記録の一覧をそのまま再利用します。取消しは表示の投影を止めるだけで、共有する取得組を破棄しません。
 
@@ -70,7 +78,7 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。これらは表示書式の規則であり、演奏時間などの集計範囲は以下の取得元別の規則に従います。書式変更で元の成績値やカード検索の集合は変えません。
 
-表示言語の変更では、採用済みの終端の小さな集計だけを保持して、カード・可視診断・相対期間ラベル・表示対象ラベルを再整形します。未採用の候補を含む表示状態は、再整形の入力にしません。行、日時境界、キーワード、カード選択、表示対象、一覧の選択と要求の版は保ち、DB取得・検索は実行しません。正常0件・失敗・クリアも採用状態に反映します。通常一覧の件数は採用時の数値へ正規化し、保持の指定で保持し、明示した文言で解除します。履歴の成功・正常0件・失敗では、共通の一覧要約へ明示的な空文字列を渡し、直前の通常件数を解除します。失敗は可視診断に表示します。言語の購読は、メインウィンドウの画面接続・解除の寿命に従います。
+表示言語の変更では、採用済みの終端の小さな集計だけを保持して、カード・相対期間ラベル・表示対象ラベルを再整形します。失敗を採用した状態ではカードを空のまま保ちます。未採用の候補を含む表示状態は、再整形の入力にしません。行、日時境界、キーワード、カード選択、表示対象、一覧の選択と要求の版は保ち、DB取得・検索は実行しません。正常0件・失敗・クリアも採用状態に反映します。通常一覧の件数は採用時の数値へ正規化し、保持の指定で保持し、明示した文言で解除します。履歴の成功・正常0件・失敗では、共通の一覧要約へ明示的な空文字列を渡し、直前の通常件数を解除します。言語の購読は、メインウィンドウの画面接続・解除の寿命に従います。
 
 一覧とは別の集計帯に判定数、プレイ数、演奏時間、スコア/BP/COMBO/CLEAR更新数とクリア更新内訳を表示します。beatorajaだけEXH内訳を加えます。更新カードの複数選択はOR、キーワードとはANDで絞ります。カード選択を検索文字列や履歴へ書き込みません。
 
@@ -147,7 +155,7 @@ SCORE・BP・COMBO・CLEAR更新とクリア内訳は、所持・metadata解決�
 
 メニュー入力の捕捉は履歴行なら成功し、項目の表示は設定Web操作、各ローカル能力、複数選択の日付snapshotで判断します。コピー項目の有無で未解決行のWeb操作を拒否しません。表示メニューの先頭・末尾・連続に不要なseparatorを残しません。
 
-診断は取得元、段階、重大度、コード、説明、パスを持ち、集約テキストとログへ出します。`play_history_lr2_schema_*` と `play_history_projection_*` を区別し、未導入や失敗をスコア・回数から代用しません。最終プレイ順の固定SQL出力は[LR2出力](lr2-custom-folders.md)に従います。
+診断は取得元、段階、重大度、コード、説明、パスを持ち、ログへ出します。画面には表示しません。`play_history_lr2_schema_*` と `play_history_projection_*` を区別し、未導入や失敗をスコア・回数から代用しません。最終プレイ順の固定SQL出力は[LR2出力](lr2-custom-folders.md)に従います。
 
 DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ変換する場所では、元例外と取得元・段階・対象パスを既存ログへ渡します。ランプビューアも同じ読取り境界の診断を使い、結果へ元例外を保存・再送出しません。通常のログ出力失敗は元の読取り結果を変えません。
 
@@ -163,8 +171,9 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | beatoraja旧新BPの未記録値と更新種別 | `BeatorajaPlayHistoryReader`、[`ScoreValueCalculator.NormalizeMinBp`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Score/ScoreValueCalculator.cs)、`PlayHistoryRow` | `PlayHistoryReadModelTests.BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed` で実scorelogの旧特殊値→実績10と旧新特殊値のクリア更新を読み、reader・表示行のnull、初回BP表示、BP更新なしとクリア更新の保持を確認する。 |
 | 日付境界の通常・欠落・重複・丸日欠落、相対期間と過去日付ツリー | [`LocalDateBoundary`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/LocalDateBoundary.cs)、[`PlayHistoryPeriodRequest`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodRequest.cs)、[`PlayHistoryPeriodTreeItem`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodTreeItem.cs) | `PlayHistoryReadModelTests.PlayHistoryPeriodRequest_DayBoundaryTransitionsShareAdjacentUtcEndpoints` は `CreateDay` から固定UTC期待値と隣接境界を確認する。`PlayHistoryPeriodRequest_RelativePeriodsUseMissingMidnightBoundary` は今日・昨日・最近7日／30日、`PlayHistoryPeriodTreeItem_TransitionDatesBuildOneDayWithUsableRequests` は実UTC行から年・月・日requestと同日重複の統合を確認する。既存のUTC・UTC+09・年月・表示名・確定条件とreader/cacheの半開範囲検査を維持する。 |
 | FC内訳・カードのMAX更新、SCORE単独更新の除外、PF/MAX個別検索 | [`PlayHistoryPeriodSummary`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodSummary.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | `PlayHistoryReadModelTests.BeatorajaSummaryIncludesMaxClearUpdatesInFullComboCard`は実scorelogから投影・集計・カード検索を接続し、9→10・8→10と既存FC/PFの4行、SCORE単独更新とEXHの除外、元値と個別検索を確認する。既存カード指標・選択条件の対応とLR2変換は同テスト群、カードOR・キーワードANDは`GridKeywordSearchQueryTests`、実カード表示とコマンド接続は`MainWindowPlayHistoryWpfTests`が分担する。 |
-| 取得失敗の表示・正常空との区別・次の成功へ復帰 | [`PlayHistoryWorkflowOwner.ViewExecution`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.ViewExecution.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)で実DBの照会失敗から一覧・カード・選択の退役と失敗表示、次の正常0件の採用まで確認する。投影DB故障、条件が一周した古い失敗の拒否、通常画面移動後の非上書きも同テスト群で分担する。 |
-| 索引だけの失敗・正常行と集計の採用 | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs)、`PlayHistoryWorkflowOwner.BuildReadPresentation` | `PlayHistoryReadModelTests`で期間外の不正日時と正常な現在期間を使い、更新後の行・非ゼロ集計・過去日項目の除去・固定期間の継続を確認する。player表だけの障害は同テスト群で正常一覧と3実績の利用不可、次の許可取得後の復帰を確認する。 |
+| 利用不可・想定外の失敗・正常の分類と、失敗の表示・次の成功へ復帰 | [`PlayHistoryWorkflowOwner`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.cs)の `BuildReadView`、[`PlayHistoryWorkflowOwner.ViewExecution`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.ViewExecution.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)の `WorkflowOwner_ReadOutcomeClassification` が各利用不可の状態を、正常0件と同じ採用（行・選択・カード・ツリー・件数表示・ファイル未作成）と通知なしで、壊れたDBの実読取りを、退役した結果と通知1件で確認する。[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)の `WorkflowOwner_ReadFailureShowsFailureAndNextEmptySuccessRecovers` が、一覧・カード・選択の退役、期間の再選択ごとの通知、次の正常0件への復帰、言語変更でカードが空のままであることを確認する。投影DB故障、条件が一周した古い失敗の拒否、通常画面移動後の非上書きも同テスト群で分担する。 |
+| 失敗の通知の起点と窓口の扱い | `PlayHistoryWorkflowOwner.ViewExecution`、`MainWindowViewModel` の共通の窓口（`DialogService`）の接続 | `WorkflowOwner_ReadFailureDialogOnlyForPeriodSelection` が期間選択以外の入口（キーワード・表示対象・ライブラリ更新・同じ現在要求）で失敗が採用されても通知が増えないことを、`WorkflowOwner_ReadFailureDialogDoesNotBlockOrChangeTerminal` が窓口の未完了・同期例外・失敗でも失敗の終端で戻ることを確認する。[`ApplicationCompositionDialogRoutingTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ApplicationCompositionDialogRoutingTests.cs) の `MainWindowViewModel_PlayHistoryReadFailure_NotifiesCommonDialogServiceOnlyForPeriodSelection` が、実際のMainWindowViewModelの期間選択で共通の窓口へ1件、専用の窓口（ファイル/DB変更など）へ0件届き、キーワード変更で増えないことを確認する。窓口の表示失敗のログは静的に確認する。 |
+| 索引だけの失敗・正常行と集計の採用 | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs)、`PlayHistoryWorkflowOwner.BuildReadPresentation` | `PlayHistoryReadModelTests`で期間外の不正日時と正常な現在期間を使い、更新後の行・非ゼロ集計・過去日項目の除去・固定期間の継続を確認する。player表だけの障害は同テスト群で正常一覧と3実績の利用不可、次の許可取得後の復帰を確認する。いずれも通知は出さない。 |
 | 読取り失敗の一次診断 | 両reader、[`Lr2PlayHistorySchemaService.Check`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs)、[`PlayHistoryReadDiagnostics`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/PlayHistoryReadDiagnostics.cs) | 上記reader・スキーマの実DB失敗テストを回帰実行し、元例外・取得元・段階・パスの局所ログ接続は静的に確認する。例外の表示用輸送やログ故障の組合せを保証に加えない。 |
 | 検索構文・日時範囲・表示フィルター | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs) | [`GridKeywordSearchQueryTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`ChartListFilterViewModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/ChartListFilterViewModelTests.cs) |
 | 表単体・両プリセットの所属大小文字・重複一致・元データ不変 | [`PlayHistoryDisplayTargetIndex`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryDisplayTarget.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)の `PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder` はMD5優先・SHA256単独の両条件でA/a各一回を確認する。`PlayHistoryDisplayTargetIndex_TargetSetFiltersRowsAndUsesOrgSymbolLevel` と `PlayHistoryDisplayTargetIndex_TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder` はSATA/SATa各一回と非対象行の除外／保持・空欄化、全条件でentry捕捉値と元行FOLDERの不変を確認する。ハッシュの小文字正規化と、所属重複排除のOrdinal比較は静的レビューで分担する。ID限定・全件fastpath・旧要求拒否・MD5優先は同テスト群の既存ケースを維持する。 |

@@ -55,7 +55,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 vm.PlayHistory.SelectedDisplayTargetIdentity = usePreset ? "set:SAVED" : "playlist:42";
                 vm.PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(() => library, () => playlist,
                     () => PlayHistoryReadSourceContext.FromSnapshot(snapshot), action => { TestUiDispatcherHost.Dispatcher.Invoke(action); return true; },
-                    (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace));
+                    (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace, UndeclaredDialogs.Create()));
                 TaskCompletionSource<PlayHistoryViewExecutionResult>? refreshCompletion = null;
                 vm.PlayHistory.ConfigureViewRefreshScheduler(() => false, _ =>
                 {
@@ -458,13 +458,13 @@ public sealed class MainWindowPlayHistoryWpfTests
         }
     }
 
-    /// <summary>履歴の有効化で指定カードと診断を実表へ表示し、カード操作で対応フィルターを選ぶことを確認し、履歴専用表示や操作接続の欠落を検出します。</summary>
+    /// <summary>履歴の有効化で指定カードを実表へ表示し、カード操作で対応フィルターを選ぶことを確認し、履歴専用表示や操作接続の欠落を検出します。</summary>
     /// <remarks>
     /// 構築前に有効化した履歴は、ライブラリのルートの実選択（ツリーの選択から一覧所有者への移動）で解除します。
     /// 初期選択は構築時ではなくContentRendered後に行い一覧を再要求しないため、構築時の選択による解除へは頼らず、ルートを明示的に選びます。
     /// </remarks>
     [TestMethod]
-    public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
+    public void PlayHistoryMainTable_ShowsDedicatedSummaryCards()
     {
         PlayHistoryWorkflowOwner? startupPlayHistory = null;
         PropertyChangedEventHandler? startupDeactivateHandler = null;
@@ -521,13 +521,9 @@ public sealed class MainWindowPlayHistoryWpfTests
                         TestUiDispatcherHost.ProcessQueuedPresentation();
 
                         ItemsControl cards = FindVisualChildren<ItemsControl>(summaryBar).Single();
-                        TextBlock diagnostic = FindVisualChildren<TextBlock>(summaryBar)
-                            .Single(textBlock => textBlock.Text == "diagnostic");
 
                         Assert.AreEqual(Visibility.Visible, summaryBar.Visibility);
                         Assert.AreEqual(2, cards.Items.Count);
-                        Assert.AreEqual("diagnostic", diagnostic.Text);
-                        Assert.AreEqual(Visibility.Visible, diagnostic.Visibility);
 
                         Button filterButton = FindVisualChildren<Button>(cards)
                             .Single(button => (button.DataContext as PlayHistorySummaryCard)?.FilterKey == "clear");
@@ -550,7 +546,6 @@ public sealed class MainWindowPlayHistoryWpfTests
                         new PlayHistorySummaryCard("All", "2"),
                         new PlayHistorySummaryCard("Clear", "1", filterKey: "clear", filterText: "clear")
                     ]);
-                    viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
                     PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
                     startupPlayHistory = playHistory;

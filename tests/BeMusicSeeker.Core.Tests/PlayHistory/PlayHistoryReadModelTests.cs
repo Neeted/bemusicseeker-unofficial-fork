@@ -10,6 +10,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Newtonsoft.Json.Linq;
 using SQLite;
 using static BeMusicSeeker.TestSupport.Components.PlayHistoryReadModelTestFixture;
@@ -668,7 +669,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 非連携・パスなし・元表不足・trigger不足をそれぞれ情報/エラー/警告へ分類し、許可されたtrigger不備だけは行を読む。
+    /// 非連携は診断なし、パスなし・元表不足はエラー、trigger不足は警告へ分類し、許可されたtrigger不備だけは行を読む。
     /// </summary>
     /// <remarks>非連携・未設定入力と実SQLiteのschema不備をreaderへ渡し、各診断と履歴件数を確認する。</remarks>
     [TestMethod]
@@ -685,7 +686,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, skipped.SchemaStatus);
         Assert.IsFalse(skipped.HasErrors);
         Assert.AreEqual(0, skipped.Rows.Count);
-        AssertSingleDiagnostic(skipped, PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_skipped_profile", "missing.db");
+        Assert.AreEqual(0, skipped.Diagnostics.Count);
 
         Lr2PlayHistoryReadResult unreadable = reader.Read(new Lr2PlayHistoryReadRequest
         {
@@ -1267,39 +1268,6 @@ public sealed class PlayHistoryReadModelTests
                     }),
                 library,
                 playlist));
-        });
-    }
-
-    /// <summary>
-    /// 読取不能は正常な空表示を構築せず、期間操作では失敗を保持し、次の許可取得後に正常0件を表示する。
-    /// </summary>
-    [TestMethod]
-    public void BuildReadView_UnreadablePersistsUntilNextAcquisition()
-    {
-        WithScoreDb(scoreDbPath =>
-        {
-            var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
-            var owner = new PlayHistoryWorkflowOwner();
-            PlayHistoryReadWorkflowResult Read()
-            {
-                PlayHistoryViewRequest request = owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
-                    PlayHistoryDisplayTargetItem.All.Identity, owner.DisplayTargetRevision);
-                return owner.BuildReadView(new PlayHistoryReadWorkflowRequest(request,
-                    historySource, string.Empty,
-                    PlayHistoryDisplayTargetItem.All, summaryFilterTexts: null), library: null, playlist: null);
-            }
-
-            PlayHistoryReadWorkflowResult failed = Read();
-            Assert.IsFalse(failed.Built, "読取不能を正常な0件表示へ採用しない。");
-            Assert.IsNull(failed.Presentation);
-            Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.NotStarted, failed.PeriodIndex.Status);
-            CreateInstalledScoreDb(databaseScope, scoreDbPath);
-            Assert.IsFalse(Read().Built, "期間再要求だけでは失敗した取得組を読み直さない。");
-            historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
-            PlayHistoryReadWorkflowResult recovered = Read();
-            Assert.IsTrue(recovered.Built);
-            Assert.IsTrue(recovered.Read.CacheHit);
-            Assert.AreEqual(0, recovered.Presentation.SortedRows.Count);
         });
     }
 
@@ -1950,30 +1918,6 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 可視の履歴診断へ診断code・詳細・対象DBを含め、利用者が原因と対象を識別できる。
-    /// </summary>
-    [TestMethod]
-    public void SummaryDiagnosticIncludesDetailAndSourcePath()
-    {
-        string text = PlayHistoryPresentationState.FormatDiagnosticSummary(
-            [
-                new PlayHistoryDiagnostic
-                {
-                    Provider = PlayHistoryProvider.Lr2,
-                    Stage = "read",
-                    Severity = PlayHistoryDiagnosticSeverity.Error,
-                    Code = "play_history_lr2_schema_unreadable",
-                    Message = "Score DB file does not exist.",
-                    SourcePath = "C:\\LR2\\Score\\player.db"
-                }
-            ]);
-
-        StringAssert.Contains(text, "play_history_lr2_schema_unreadable");
-        StringAssert.Contains(text, "Score DB file does not exist.");
-        StringAssert.Contains(text, "C:\\LR2\\Score\\player.db");
-    }
-
-    /// <summary>
     /// 異文化でも履歴の4桁判定数を桁区切りなしでカードへ渡し、プレイ数・時間・各更新内訳と検索条件を保つ。LR2へEXHを混ぜない。
     /// </summary>
     [TestMethod]
@@ -2042,10 +1986,10 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 選択したscore/FCだけをカードと検索条件へ反映し、集約診断はwarningよりerror詳細を先に示す。
+    /// 選択したscore/FCだけをカードと検索条件へ反映する。
     /// </summary>
     [TestMethod]
-    public void PresentationOwnerMapsSelectedSummaryFiltersAndDiagnosticPriority()
+    public void PresentationOwnerMapsSelectedSummaryFilters()
     {
         var selectedKeys = new HashSet<string>(StringComparer.Ordinal) { "score", "fc" };
         var summary = PlayHistoryPeriodSummary.FromRows([]);
@@ -2055,19 +1999,11 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryProvider.Lr2,
             selectedKeys);
         IReadOnlyList<string> filterTexts = PlayHistoryPresentationState.GetSummaryFilterTexts(selectedKeys);
-        string diagnostic = PlayHistoryPresentationState.FormatDiagnosticSummary(
-        [
-            null,
-            new PlayHistoryDiagnostic { Severity = PlayHistoryDiagnosticSeverity.Warning, Code = "warning" },
-            new PlayHistoryDiagnostic { Severity = PlayHistoryDiagnosticSeverity.Error, Code = "error", Message = "detail" }
-        ]);
 
         Assert.IsTrue(cards.Single(card => card.FilterKey == "score").IsSelected);
         Assert.IsTrue(cards.Single(card => card.FilterKey == "fc").IsSelected);
         Assert.IsFalse(cards.Single(card => card.FilterKey == "bp").IsSelected);
         CollectionAssert.AreEquivalent(cards.Where(card => card.IsSelected).Select(card => card.FilterText).ToArray(), filterTexts.ToArray());
-        StringAssert.StartsWith(diagnostic, "Error error: detail");
-        Assert.AreEqual(string.Empty, PlayHistoryPresentationState.FormatDiagnosticSummary([null]));
     }
 
     /// <summary>
@@ -2858,12 +2794,14 @@ public sealed class PlayHistoryReadModelTests
 
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath, beatoraja: true));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
                 () => historySource,
-                library: CreateHistoryLibrary(databaseScope, scoreDbPath));
+                library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
             Assert.AreEqual(1, dependencies.MainChartList.Rows.Count);
+            Assert.AreEqual(0, dialogs.Messages.Count, "player集計だけの利用不可は行を採用し、ログのみで通知しない。");
             foreach (string label in new[] { Resources.Play_history_summary_play_count, Resources.Play_history_summary_judge_count, Resources.Play_history_summary_playtime })
             {
                 Assert.AreEqual("-", owner.SummaryCards.Single(card => card.Label == label).Value);
@@ -3691,7 +3629,8 @@ public sealed class PlayHistoryReadModelTests
             gateway.UpsertSongs([chart]);
             library.BmsCharts = [chart];
             var owner = new PlayHistoryWorkflowOwner();
-            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope, () => source, library: library);
+            var dialogs = new FileDbReportRecordingDialogs();
+            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope, () => source, library: library, failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
             PlayHistoryViewRequest previous = owner.SnapshotActiveRequest();
@@ -3739,6 +3678,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsTrue(currentView.SharesSelectionIdentityScope(scope));
             Assert.AreSame(firstIdentity, currentView.GetSelectionIdentity(0));
             Assert.AreEqual(1, currentView.IndexOfSelectionIdentity(secondIdentity));
+            // 外部DBが壊れた再取得は、取得組の入れ替えに伴う自動置換でも失敗として採用する。
+            File.WriteAllText(path, "not a SQLite database");
             source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, path));
             Assert.IsTrue(owner.ApplyLibraryChanges(new NormalLibraryRefreshNotificationBatch(3, 1,
                 LibraryChartRefreshEffects.None, [], false, scoreChanges: [new ScoreSnapshotChange(1, 2, [], [])])));
@@ -3747,6 +3688,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual(0, owner.SummaryCards.Count);
             Assert.IsTrue(owner.IsViewActive);
+            // 期間選択を起点としない自動置換の失敗では通知しない。
+            Assert.AreEqual(0, dialogs.Messages.Count);
 
             PlayHistoryViewExecutionResult Execute(PlayHistoryViewRequest request) => owner.ExecuteView(
                 new PlayHistoryViewExecutionRequest(MainViewUpdateMode.TreeViewFilterNotChanged,
@@ -4417,57 +4360,8 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
     }
 
-    /// <summary>非連携プロファイルはDBを開かない情報スキップとして表示し、連携プロファイルの実読取り不能と区別する。</summary>
-    /// <remarks>実reader/cacheから実owner終端まで接続し、非連携のwarmキャッシュと、同じ欠落パスで連携判定を変えた読取り失敗を確認する。</remarks>
-    [TestMethod]
-    [DoNotParallelize]
-    public void WorkflowOwner_NonLinkedProfileShowsInformationalSkipInsteadOfReadFailure()
-    {
-        WithScoreDb(scoreDbPath =>
-        {
-            bool isLinkedProfile = false;
-            var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath, isLr2LinkedProfile: isLinkedProfile));
-            var owner = new PlayHistoryWorkflowOwner();
-            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
-                () => historySource);
-            owner.ConfigureViewExecution(dependencies);
-            PlayHistoryViewExecutionResult skipped = ExecuteHistoryRead(owner, dependencies);
-            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, skipped.Status);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, skipped.ReadResult.Read.SchemaStatus);
-            Assert.IsTrue(skipped.ReadResult.Read.CacheHit);
-            Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.SkippedSchemaUnavailable, skipped.ReadResult.PeriodIndex.Status);
-            Assert.IsFalse(skipped.ReadResult.PeriodIndex.CacheHit);
-            Assert.AreEqual(0, skipped.ReadResult.PeriodIndex.DiagnosticCount);
-            Assert.AreEqual(PlayHistoryDiagnosticSeverity.Info, skipped.ReadResult.Presentation.State.Diagnostics.Single().Severity);
-            StringAssert.Contains(owner.SummaryDiagnosticText, "play_history_lr2_skipped_profile");
-            Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
-            Assert.AreEqual(0, owner.ArchivePeriodTree.Count);
-            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
-            Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
-            Assert.IsFalse(File.Exists(scoreDbPath));
-
-            PlayHistoryViewExecutionResult warm = ExecuteHistoryRead(owner, dependencies);
-            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, warm.Status);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, warm.ReadResult.Read.SchemaStatus);
-            Assert.IsTrue(warm.ReadResult.Read.CacheHit);
-            Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.SkippedSchemaUnavailable, warm.ReadResult.PeriodIndex.Status);
-            Assert.IsFalse(warm.ReadResult.PeriodIndex.CacheHit);
-            Assert.AreEqual(PlayHistoryDiagnosticSeverity.Info, warm.ReadResult.Presentation.State.Diagnostics.Single().Severity);
-            StringAssert.Contains(owner.SummaryDiagnosticText, "play_history_lr2_skipped_profile");
-
-            isLinkedProfile = true;
-            historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
-            PlayHistoryViewExecutionResult unreadable = ExecuteHistoryRead(owner, dependencies);
-            Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, unreadable.Status);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, unreadable.ReadResult.Read.SchemaStatus);
-            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
-            Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
-            Assert.IsFalse(File.Exists(scoreDbPath));
-        });
-    }
-
     /// <summary>
-    /// keyword/表示対象のA→B→Aは同じ期間要求IDでも版で区別し、正常な最新Aへ古いAの失敗案内や未取得終端を適用しない。
+    /// keyword/表示対象のA→B→Aは同じ期間要求IDでも版で区別し、正常な最新Aへ古いAの失敗終端や失敗通知を適用しない。
     /// </summary>
     /// <remarks>実readerの失敗から表示dispatchまで進め、その直前に実ownerのrefresh受付と正常Aの採用を接続して順序を固定する。</remarks>
     [TestMethod]
@@ -4478,10 +4372,12 @@ public sealed class PlayHistoryReadModelTests
     {
         WithScoreDb(scoreDbPath =>
         {
+            // 初回の取得組は壊れたDBの失敗を保持する。
+            File.WriteAllText(scoreDbPath, "not a SQLite database");
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             bool advanceBeforeApply = false;
-            string? latestDiagnostic = null;
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
                 () => historySource,
                 apply =>
@@ -4518,6 +4414,7 @@ public sealed class PlayHistoryReadModelTests
                             try
                             {
                                 Assert.AreEqual(requestId, back.RequestId);
+                                File.Delete(scoreDbPath);
                                 CreateInstalledScoreDb(databaseScope, scoreDbPath);
                                 using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
                                 {
@@ -4528,7 +4425,6 @@ public sealed class PlayHistoryReadModelTests
                                     MainViewUpdateMode.PlayHistorySelected, MainViewUpdateMode.KeywordFilterUpdated,
                                     null, Stopwatch.StartNew(), back, string.Empty, PlayHistoryDisplayTargetItem.All));
                                 Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, latest.Status);
-                                latestDiagnostic = owner.SummaryDiagnosticText;
                             }
                             finally
                             {
@@ -4543,13 +4439,13 @@ public sealed class PlayHistoryReadModelTests
                     apply();
                     return true;
                 },
-                library: CreateHistoryLibrary(databaseScope, scoreDbPath));
+                library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
-            // 初回の取得組はDB不在の失敗を保持し、表示dispatch前に次の許可取得で正常な最新Aを採用する。
+            // 表示dispatch前に次の許可取得で正常な最新Aを採用する。古い失敗は採用されず、通知もしない。
             advanceBeforeApply = true;
             PlayHistoryViewExecutionResult stale = ExecuteHistoryRead(owner, dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, stale.Status);
-            Assert.AreEqual(latestDiagnostic, owner.SummaryDiagnosticText);
+            Assert.AreEqual(0, dialogs.Messages.Count);
             Assert.AreEqual(2L, dependencies.MainChartList.Rows.Cast<PlayHistoryRow>().Single().HistoryId);
             Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             Assert.IsTrue(owner.WaitForRefreshQueuesIdleAsync().IsCompletedSuccessfully);
@@ -4574,8 +4470,9 @@ public sealed class PlayHistoryReadModelTests
             }
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
-                () => historySource, library: CreateHistoryLibrary(databaseScope, scoreDbPath));
+                () => historySource, library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
             var period = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies, period).Status);
@@ -4591,7 +4488,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.Failed, result.ReadResult.PeriodIndex.Status);
             CollectionAssert.AreEqual(new long[] { 2, 1 }, dependencies.MainChartList.Rows.Cast<PlayHistoryRow>().Select(row => row.HistoryId).ToArray());
             Assert.AreEqual("2", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-            StringAssert.Contains(owner.SummaryDiagnosticText, "play_history_period_index_failed");
+            Assert.AreEqual(0, dialogs.Messages.Count, "期間索引だけの失敗は行を採用し、ログのみで通知しない。");
             Assert.AreEqual(0, owner.ArchivePeriodTree.Count);
             var fixedPeriod = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Today,
                 new DateTimeOffset(2026, 1, 2, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc);
@@ -4608,8 +4505,10 @@ public sealed class PlayHistoryReadModelTests
     {
         WithScoreDb(scoreDbPath =>
         {
+            File.WriteAllText(scoreDbPath, "not a SQLite database");
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             Action changeView = () => throw new AssertFailedException("画面遷移fixtureが未設定です。");
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
                 () => historySource,
@@ -4618,7 +4517,8 @@ public sealed class PlayHistoryReadModelTests
                     changeView();
                     apply();
                     return true;
-                });
+                },
+                failureDialogs: dialogs);
             var normalRow = LibraryChartRow.FromChartFile(ChartSongStorageMapping.FromBmsRow(
                 new LR2SongDB.song { hash = HashA, title = "Normal", path = "normal.bms" }));
             string normalSummary = string.Empty;
@@ -4639,7 +4539,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(normalSummary, dependencies.MainChartList.SummaryText);
             Assert.AreEqual(MainViewOperationSection.Library, dependencies.MainChartList.CurrentOperationContext.OperationSection);
             Assert.IsFalse(owner.IsViewActive);
-            Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
+            Assert.AreEqual(0, dialogs.Messages.Count, "画面を離れた後の失敗は採用されず、通知もしない。");
         });
     }
 
@@ -4661,12 +4561,15 @@ public sealed class PlayHistoryReadModelTests
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db"), "not a SQLite database");
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
             PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
-                () => historySource, library: library);
+                () => historySource, library: library, failureDialogs: dialogs);
             owner.ConfigureViewExecution(dependencies);
             PlayHistoryViewExecutionResult failed = ExecuteHistoryRead(owner, dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, failed.Status);
             Assert.AreEqual("projection", failed.ReadResult.FailedStage);
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.AreEqual(Resources.Play_history_read_failed, dialogs.Messages.Single().MessageBoxText);
             Assert.IsNull(failed.ReadResult.Presentation);
             Assert.IsNull(owner.PresentationState.CurrentView);
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
@@ -4674,9 +4577,329 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
-    /// <summary>beatoraja履歴の失敗も同じ取得組に保持し、scorelogが現れても期間要求では変わらず、次の許可取得後に正常0件へ戻る。</summary>
+    private const string NotSqliteText = "not a SQLite database";
+
+    /// <summary>失敗の通知本文が、例外本文・DBパスを含まず、既存の本文・OK・エラー表示で依頼されたことを表明します。</summary>
+    private static void AssertReadFailureDialog(FileDbReportRecordingDialogs dialogs, int expectedCount, params string?[] forbiddenTexts)
+    {
+        Assert.AreEqual(expectedCount, dialogs.Messages.Count);
+        var standard = UiMessageRequest.CreateError(string.Empty, string.Empty);
+        foreach (UiMessageRequest message in dialogs.Messages)
+        {
+            Assert.AreEqual(Resources.Play_history_read_failed, message.MessageBoxText);
+            Assert.AreEqual(Resources.Error, message.Caption);
+            Assert.AreEqual(System.Windows.MessageBoxButton.OK, message.Button);
+            Assert.AreEqual(standard.Icon, message.Icon);
+            foreach (string forbidden in forbiddenTexts.OfType<string>().Where(text => text.Length > 0))
+            {
+                Assert.IsFalse(message.MessageBoxText.Contains(forbidden, StringComparison.OrdinalIgnoreCase), forbidden);
+                Assert.IsFalse(message.Caption.Contains(forbidden, StringComparison.OrdinalIgnoreCase), forbidden);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 取得結果を利用不可・想定外の失敗・正常に分け、利用不可は正常0件と同じ空表示で通知せず、例外の捕捉結果だけを失敗として通知する。
+    /// </summary>
+    /// <remarks>
+    /// 正常な行とカードを採用済みの実ownerへ、各状態の実取得組を渡す。利用不可は同じownerで実取得した正常0件のカードと比較し、
+    /// 失敗は壊れたDBの実読取りで作る。利用不可の状態でDBファイルが作られないことも確認する。
+    /// </remarks>
     [TestMethod]
-    public void ReadCache_BeatorajaFailurePersistsUntilNextAcquisition()
+    [DoNotParallelize]
+    [DataRow("lr2-non-linked", false)]
+    [DataRow("lr2-path-not-configured", false)]
+    [DataRow("lr2-file-missing", false)]
+    [DataRow("lr2-not-installed", false)]
+    [DataRow("lr2-manual-repair", false)]
+    [DataRow("lr2-index-repair", false)]
+    [DataRow("beatoraja-scorelog-missing", false)]
+    [DataRow("beatoraja-score-path-unset", false)]
+    [DataRow("snapshot-unpublished", false)]
+    [DataRow("lr2-broken-db", true)]
+    [DataRow("beatoraja-broken-scorelog", true)]
+    public void WorkflowOwner_ReadOutcomeClassification(string scenario, bool failure)
+    {
+        WithScoreDb(lr2Path => WithBeatorajaPlayerDb((beatorajaScorePath, beatorajaLogPath) =>
+        {
+            string directory = Path.GetDirectoryName(lr2Path)!;
+            string missingPath = Path.Combine(directory, "missing-score.db");
+            string scenarioPath = Path.Combine(directory, "scenario-score.db");
+            string referencePath = Path.Combine(directory, "reference-score.db");
+            CreateInstalledScoreDb(databaseScope, lr2Path);
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(lr2Path))
+            {
+                InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
+            }
+            var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, lr2Path));
+            var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
+            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
+                () => source, library: CreateHistoryLibrary(databaseScope, lr2Path), failureDialogs: dialogs);
+            owner.ConfigureViewExecution(dependencies);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
+            Assert.AreEqual(1, dependencies.MainChartList.Rows.Count);
+            dependencies.MainChartList.SelectedIndex = 0;
+            Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+
+            // 状態ごとの取得組と、利用不可のときに比較する同じ取得元の正常0件の取得組を用意する。
+            PlayHistoryReadSourceContext? reference = null;
+            string? absentPath = null;
+            string? failureDetail = null;
+            switch (scenario)
+            {
+                case "lr2-non-linked":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, missingPath, isLr2LinkedProfile: false));
+                    absentPath = missingPath;
+                    break;
+                case "lr2-path-not-configured":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, string.Empty));
+                    break;
+                case "lr2-file-missing":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, missingPath));
+                    absentPath = missingPath;
+                    break;
+                case "lr2-not-installed":
+                    CreateBaseScoreDb(databaseScope, scenarioPath);
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scenarioPath));
+                    break;
+                case "lr2-manual-repair":
+                    using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scenarioPath))
+                    {
+                        db.Execute("CREATE TABLE unrelated (id INTEGER);");
+                    }
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scenarioPath));
+                    break;
+                case "lr2-index-repair":
+                    CreateInstalledScoreDb(databaseScope, scenarioPath);
+                    using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scenarioPath))
+                    {
+                        InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
+                        db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
+                    }
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scenarioPath));
+                    break;
+                case "beatoraja-scorelog-missing":
+                    CreateBeatorajaPlayerDb(beatorajaScorePath);
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, beatorajaScorePath, beatoraja: true));
+                    absentPath = beatorajaLogPath;
+                    break;
+                case "beatoraja-score-path-unset":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, string.Empty, beatoraja: true));
+                    break;
+                case "snapshot-unpublished":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(null);
+                    break;
+                case "lr2-broken-db":
+                    File.WriteAllText(scenarioPath, NotSqliteText);
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scenarioPath));
+                    failureDetail = scenarioPath;
+                    break;
+                case "beatoraja-broken-scorelog":
+                    CreateBeatorajaPlayerDb(beatorajaScorePath);
+                    File.WriteAllText(beatorajaLogPath, NotSqliteText);
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, beatorajaScorePath, beatoraja: true));
+                    failureDetail = beatorajaLogPath;
+                    break;
+                default:
+                    throw new AssertFailedException(scenario);
+            }
+            if (!failure)
+            {
+                CreateInstalledScoreDb(databaseScope, referencePath);
+            }
+
+            PlayHistoryViewExecutionResult result = ExecuteHistoryRead(owner, dependencies);
+            Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
+            Assert.AreEqual(-1, dependencies.MainChartList.SelectedIndex);
+            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
+            Assert.AreEqual(0, owner.ArchivePeriodTree.Count);
+            if (failure)
+            {
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, result.Status);
+                Assert.AreEqual(0, owner.SummaryCards.Count);
+                string diagnosticMessage = result.ReadResult.Diagnostics.Single(diagnostic => diagnostic.IsUnexpectedFailure).Message;
+                AssertReadFailureDialog(dialogs, 1, failureDetail, diagnosticMessage);
+                return;
+            }
+
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, result.Status);
+            Assert.AreEqual(string.Empty, result.ReadResult.FailedStage);
+            Assert.AreEqual(0, dialogs.Messages.Count);
+            if (scenario == "lr2-non-linked")
+            {
+                Assert.AreEqual(0, result.ReadResult.Presentation.State.Diagnostics.Count, "非連携は診断を載せない。");
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, result.ReadResult.Read.SchemaStatus);
+                // 同じ取得組への2回目の実行（キャッシュ済み）も、利用不可のままでDBを作らず通知しない。
+                PlayHistoryViewExecutionResult warm = ExecuteHistoryRead(owner, dependencies);
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, warm.Status);
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, warm.ReadResult.Read.SchemaStatus);
+                Assert.IsTrue(warm.ReadResult.Read.CacheHit);
+                Assert.AreEqual(0, warm.ReadResult.Presentation.State.Diagnostics.Count);
+                Assert.IsFalse(File.Exists(missingPath));
+                Assert.AreEqual(0, dialogs.Messages.Count);
+            }
+            if (absentPath != null)
+            {
+                Assert.IsFalse(File.Exists(absentPath), "利用不可の状態でDBを作らない。");
+            }
+            IReadOnlyList<PlayHistorySummaryCard> unavailableCards = owner.SummaryCards;
+            owner.RefreshLanguagePresentation();
+            Assert.IsTrue(PlayHistoryPresentationState.AreSameSummaryCards(unavailableCards, owner.SummaryCards));
+
+            // 同じ取得元の正常0件を同じownerで実取得し、カードのラベル・値・選択状態まで一致することを確認する。
+            if (scenario == "beatoraja-scorelog-missing")
+            {
+                CreateBeatorajaScoreLogDb(beatorajaLogPath);
+                reference = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, beatorajaScorePath, beatoraja: true));
+            }
+            else if (source.Provider == PlayHistoryProvider.Lr2)
+            {
+                reference = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, referencePath));
+            }
+            IReadOnlyList<PlayHistorySummaryCard> expectedCards;
+            if (reference != null)
+            {
+                source = reference;
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
+                expectedCards = owner.SummaryCards;
+            }
+            else
+            {
+                expectedCards = PlayHistoryPresentationState.CreateSummaryCards(
+                    PlayHistoryPeriodSummary.FromRows([], new PlayHistoryPeriodSummaryOverride(null, null, null)), source.Provider);
+            }
+            Assert.IsTrue(PlayHistoryPresentationState.AreSameSummaryCards(expectedCards, unavailableCards));
+            Assert.AreEqual(0, dialogs.Messages.Count);
+        }));
+    }
+
+    /// <summary>
+    /// 採用した失敗の通知は期間選択だけで出し、キーワード・表示対象・ライブラリ更新による置換・同じ現在要求の期間選択以外の再実行では、失敗が採用されても増やさない。
+    /// </summary>
+    /// <remarks>期間選択の失敗を先に一件採用してから、本番の派生要求の生成（キーワード・表示対象・ライブラリ変更・現在要求の捕捉）を通す。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("keyword")]
+    [DataRow("display-target")]
+    [DataRow("library-replacement")]
+    [DataRow("same-request")]
+    public void WorkflowOwner_ReadFailureDialogOnlyForPeriodSelection(string entry)
+    {
+        WithScoreDb(scoreDbPath =>
+        {
+            File.WriteAllText(scoreDbPath, NotSqliteText);
+            var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
+            var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
+            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
+                () => source, library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
+            owner.ConfigureViewExecution(dependencies);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, ExecuteHistoryRead(owner, dependencies).Status);
+            AssertReadFailureDialog(dialogs, 1);
+
+            PlayHistoryViewExecutionResult derived;
+            switch (entry)
+            {
+                case "keyword":
+                    Assert.IsTrue(owner.TryBeginKeywordRefresh("keyword", true, out PlayHistoryViewRequest keywordRequest));
+                    try
+                    {
+                        derived = owner.ExecuteView(new PlayHistoryViewExecutionRequest(MainViewUpdateMode.KeywordFilterUpdated,
+                            MainViewUpdateMode.KeywordFilterUpdated, null, Stopwatch.StartNew(), keywordRequest, "keyword", PlayHistoryDisplayTargetItem.All));
+                    }
+                    finally { owner.CompleteKeywordRefresh(keywordRequest.KeywordFilterRevision); }
+                    break;
+                case "display-target":
+                    Assert.IsTrue(owner.TryBeginDisplayTargetRefresh(PlayHistoryDisplayTargetItem.All.Identity, true, out PlayHistoryViewRequest targetRequest));
+                    try
+                    {
+                        derived = owner.ExecuteView(new PlayHistoryViewExecutionRequest(MainViewUpdateMode.KeywordFilterUpdated,
+                            MainViewUpdateMode.KeywordFilterUpdated, null, Stopwatch.StartNew(), targetRequest, string.Empty, PlayHistoryDisplayTargetItem.All));
+                    }
+                    finally { owner.CompleteDisplayTargetRefresh(targetRequest.DisplayTargetRevision); }
+                    break;
+                case "library-replacement":
+                    source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
+                    Assert.IsTrue(owner.ApplyLibraryChanges(new NormalLibraryRefreshNotificationBatch(2, 1,
+                        LibraryChartRefreshEffects.None, [], false, scoreChanges: [new ScoreSnapshotChange(1, 2, [], [])])));
+                    derived = ExecuteCurrentRequest();
+                    break;
+                case "same-request":
+                    derived = ExecuteCurrentRequest();
+                    break;
+                default:
+                    throw new AssertFailedException(entry);
+            }
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, derived.Status, "失敗が実際に採用されたことを確認する。");
+            Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
+            Assert.AreEqual(0, owner.SummaryCards.Count);
+            AssertReadFailureDialog(dialogs, 1);
+
+            PlayHistoryViewExecutionResult ExecuteCurrentRequest() => owner.ExecuteView(
+                new PlayHistoryViewExecutionRequest(MainViewUpdateMode.PlayHistorySelected, MainViewUpdateMode.TreeViewFilterNotChanged,
+                    null, Stopwatch.StartNew(), owner.SnapshotActiveRequest(), string.Empty, PlayHistoryDisplayTargetItem.All));
+        });
+    }
+
+    /// <summary>
+    /// 通知の窓口が未完了・同期例外・失敗のTaskのいずれを返しても、実行は失敗の終端で戻り、未完了の表示完了を待たず、例外を呼出元へ出さない。
+    /// </summary>
+    /// <remarks>pendingは別スレッドの実行が窓口の完了前に戻ることを期限付きで確認し、最後に完了させて回収する。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("pending")]
+    [DataRow("throw")]
+    [DataRow("faulted")]
+    public void WorkflowOwner_ReadFailureDialogDoesNotBlockOrChangeTerminal(string behavior)
+    {
+        WithScoreDb(scoreDbPath =>
+        {
+            File.WriteAllText(scoreDbPath, NotSqliteText);
+            var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(databaseScope, scoreDbPath));
+            var owner = new PlayHistoryWorkflowOwner();
+            var dialogs = new FileDbReportRecordingDialogs();
+            var pending = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            switch (behavior)
+            {
+                case "pending":
+                    dialogs.MessageHandler = _ => pending.Task;
+                    break;
+                case "throw":
+                    dialogs.MessageFailure = new InvalidOperationException("dialog route failed");
+                    break;
+                default:
+                    dialogs.MessageHandler = _ => Task.FromException<UiDialogResult>(new InvalidOperationException("dialog display failed"));
+                    break;
+            }
+            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(databaseScope,
+                () => source, library: CreateHistoryLibrary(databaseScope, scoreDbPath), failureDialogs: dialogs);
+            owner.ConfigureViewExecution(dependencies);
+            Task<PlayHistoryViewExecutionResult> run = Task.Run(() => ExecuteHistoryRead(owner, dependencies));
+            try
+            {
+                if (behavior == "pending")
+                {
+                    ConcurrencyProbe.AssertCompletesWhileHeld(run, "play-history read failure returns before the dialog completes", pending.Task);
+                    Assert.IsFalse(pending.Task.IsCompleted);
+                }
+                PlayHistoryViewExecutionResult result = run.GetAwaiter().GetResult();
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, result.Status);
+                Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+            }
+            finally
+            {
+                pending.TrySetResult(UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
+                try { run.GetAwaiter().GetResult(); }
+                catch (Exception) when (behavior != "pending") { }
+            }
+        });
+    }
+
+    /// <summary>beatorajaのscorelog欠落（利用不可）も同じ取得組に保持し、scorelogが現れても期間要求では変わらず、次の許可取得後に正常0件へ戻る。</summary>
+    [TestMethod]
+    public void ReadCache_BeatorajaUnavailableScoreLogPersistsUntilNextAcquisition()
     {
         WithBeatorajaPlayerDb((scoreDbPath, scoreLogDbPath) =>
         {

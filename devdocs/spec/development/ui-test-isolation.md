@@ -228,7 +228,7 @@ Createの専用引数で差し替えられない経路（ライブラリ、再�
 
 `PlaylistWorkspaceViewModel` と `SettingsDialogViewModel` は、ダイアログ窓口（`playlistWorkspaceDialogService`・`schemaDialogs`）を必須の引数とし、null を受け付けません。窓口を宣言しないテストは `UndeclaredDialogs.Create()` の結果を渡します。観測の境界が有効なmoduleでは `UndeclaredUiDialogService` を返し、境界がないCoreでは、記録が消費されず黙って通ることを避けるため、全メンバーで例外を投げる `TestUiDialogService` を返します。
 
-共有の生成補助のうち、窓口の引数を省略（null）できるものは、省略されたとき同じ補助の結果へ解決します。窓口の引数を持たない補助（`BmsPlaylistTestSupport`・`RegularChartListOwnerTestSupport`・`PlayHistoryReadModelTestFixture`・`PlaylistWorkspaceFixtureFactory` など）は、常に補助の結果を渡します。
+共有の生成補助のうち、窓口の引数を省略（null）できるもの（`PlayHistoryReadModelTestFixture.CreateViewExecutionDependencies` の `failureDialogs` など）は、省略されたとき同じ補助の結果へ解決します。窓口の引数を持たない補助（`BmsPlaylistTestSupport`・`RegularChartListOwnerTestSupport`・`PlaylistWorkspaceFixtureFactory` など）は、常に補助の結果を渡します。履歴の失敗通知の有無を表明するケースは、記録用の窓口を `failureDialogs` へ明示的に渡します。
 
 #### `SettingsDialogHarness` の既定の窓口
 

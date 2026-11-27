@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -219,7 +222,6 @@ public sealed partial class PlayHistoryWorkflowOwner
         bool applied = false;
         bool invoked = dependencies.InvokePresentationSynchronously(() =>
         {
-            string diagnosticText = BeMusicSeeker.Properties.Resources.Play_history_read_failed;
             lock (PresentationState.SyncRoot)
             {
                 if (!IsCurrentRequestUnsafe(request.ViewRequest.RequestId)
@@ -241,7 +243,6 @@ public sealed partial class PlayHistoryWorkflowOwner
                 ColumnSelection = columns,
                 ArchivePeriodTree = [],
                 SummaryCards = [],
-                DiagnosticText = diagnosticText,
                 DetailSourceRetirement = request.ViewRequest.DetailSourceRetirement,
                 MainRowsRequest = new MainChartListRowsApplyRequest
                 {
@@ -255,9 +256,62 @@ public sealed partial class PlayHistoryWorkflowOwner
             }, dependencies.MainChartList, dependencies.PlaylistWorkspace);
             applied = terminal.Applied;
         });
-        return invoked && applied
-            ? PlayHistoryViewExecutionResult.ReadFailed(request, readResult)
-            : PlayHistoryViewExecutionResult.Stale(request, readResult, null, fromSortOnly: false);
+        if (!invoked || !applied)
+        {
+            return PlayHistoryViewExecutionResult.Stale(request, readResult, null, fromSortOnly: false);
+        }
+        // 利用者の期間選択で採用された失敗だけを通知します。キーワード・表示対象・整列・ライブラリ更新による再実行では出しません。
+        if (request.RequestedMode == MainViewUpdateMode.PlayHistorySelected)
+        {
+            RequestReadFailureDialog(dependencies.FailureDialogs);
+        }
+        return PlayHistoryViewExecutionResult.ReadFailed(request, readResult);
+    }
+
+    /// <summary>
+    /// 採用した取得失敗を、表示の完了を待たずに一度だけ利用者へ依頼します。
+    /// 窓口の同期例外・失敗・未表示は診断ログだけへ残し、失敗の採用結果を変えません。
+    /// </summary>
+    private static void RequestReadFailureDialog(IUiDialogService dialogs)
+    {
+        try
+        {
+            Task<UiDialogResult> shown = dialogs.ShowMessageAsync(UiMessageRequest.CreateError(
+                BeMusicSeeker.Properties.Resources.Play_history_read_failed,
+                BeMusicSeeker.Properties.Resources.Error));
+            if (shown == null)
+            {
+                LogReadFailureNotification(new InvalidOperationException("The play-history failure dialog returned no task."));
+                return;
+            }
+            shown.ContinueWith(
+                completed =>
+                {
+                    if (completed.IsFaulted)
+                    {
+                        LogReadFailureNotification(completed.Exception.GetBaseException());
+                    }
+                    else if (completed.IsCompletedSuccessfully
+                        && (completed.Result == null
+                            || completed.Result.Status is UiDialogStatus.NotShown or UiDialogStatus.OwnerUnavailable
+                                or UiDialogStatus.DispatcherUnavailable or UiDialogStatus.Failed))
+                    {
+                        LogReadFailureNotification(completed.Result?.Exception
+                            ?? new InvalidOperationException("The play-history failure dialog was not displayed."));
+                    }
+                },
+                TaskScheduler.Default);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            LogReadFailureNotification(failure);
+        }
+    }
+
+    private static void LogReadFailureNotification(Exception failure)
+    {
+        try { NLogWrapper.FileLogger?.Warn(failure, "play_history_read_failure_notification_failed"); }
+        catch { /* 診断先の失敗を採用済みの失敗終端へ合成しません。 */ }
     }
 
     private static PlayHistorySourceProfile ResolveSourceProfile(PlayHistoryReadSourceContext source)
@@ -386,8 +440,10 @@ internal sealed class PlayHistoryViewExecutionDependencies
         Action<PlayHistoryViewRequest, PlayHistoryReadWorkflowProgress> reportProgress,
         Func<MainViewUpdateMode> resolveColumnFilterMode,
         MainChartListViewModel mainChartList,
-        PlaylistWorkspaceViewModel playlistWorkspace)
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        IUiDialogService failureDialogs)
     {
+        FailureDialogs = failureDialogs ?? throw new ArgumentNullException(nameof(failureDialogs));
         LibraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         PlaylistProvider = playlistProvider ?? throw new ArgumentNullException(nameof(playlistProvider));
         SourceResolver = sourceResolver ?? throw new ArgumentNullException(nameof(sourceResolver));
@@ -406,6 +462,8 @@ internal sealed class PlayHistoryViewExecutionDependencies
     internal Func<MainViewUpdateMode> ResolveColumnFilterMode { get; }
     internal MainChartListViewModel MainChartList { get; }
     internal PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
+    /// <summary>期間選択で採用した想定外の取得失敗を、表示の完了を待たずに依頼する窓口です。</summary>
+    internal IUiDialogService FailureDialogs { get; }
 }
 
 internal sealed class PlayHistoryViewExecutionRequest

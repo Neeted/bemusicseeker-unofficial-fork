@@ -1570,7 +1570,7 @@ Multiple selected cards are combined with OR, and the card filter is combined wi
 
 For LR2, playtime and judge count are calculated from eligible records remaining in the filtered list. For example, filtering 60-second and 120-second records down to the 60-second record changes playtime from 3:00 to 1:00.
 
-For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box, summary cards, or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as `-`. For loading problems, check the summary diagnostic and [logs](#logs--bug-reports).
+For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box, summary cards, or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as `-`. For loading problems, check the [logs](#logs--bug-reports).
 
 ### Reading Rows
 

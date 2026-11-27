@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using SQLite;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -123,7 +124,8 @@ internal static class PlayHistoryReadModelTestFixture
     internal static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(ApplicationDatabaseScope databaseScope,
         Func<PlayHistoryReadSourceContext>? sourceResolver = null,
         Func<Action, bool>? invokePresentation = null,
-        BMSLibrary? library = null)
+        BMSLibrary? library = null,
+        IUiDialogService? failureDialogs = null)
     {
         return new PlayHistoryViewExecutionDependencies(
             () => library,
@@ -172,7 +174,8 @@ internal static class PlayHistoryReadModelTestFixture
                 () => { },
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-                UndeclaredDialogs.Create()));
+                UndeclaredDialogs.Create()),
+            failureDialogs ?? UndeclaredDialogs.Create());
     }
 
     /// <remarks>CoreとWindowsのcaseで同じ入力準備・観測を共用します。渡されたモデルや媒体の寿命と回収は呼出元が所有し、既存の戻り値・失敗伝播を維持します。</remarks>

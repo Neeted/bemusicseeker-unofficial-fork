@@ -1837,7 +1837,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
     }
 
-    /// <summary>履歴期間通知失敗後にもsummaryと診断の通知を続け、新状態を保持して最初の例外による公開停止を検出します。</summary>
+    /// <summary>過去日付ツリーの通知失敗後にもカードの通知を続け、新状態を保持して最初の例外による公開停止を検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_OwnerNotificationFailureDoesNotSuppressLaterNotifications()
     {
@@ -1861,7 +1861,6 @@ public sealed class ChartListVirtualViewTests
             requestId: 1);
         request.ArchivePeriodTree = [new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All())];
         request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
-        request.DiagnosticText = "diagnostic";
 
         PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(request));
@@ -1872,13 +1871,11 @@ public sealed class ChartListVirtualViewTests
             new[]
             {
                 nameof(PlayHistoryWorkflowOwner.ArchivePeriodTree),
-                nameof(PlayHistoryWorkflowOwner.SummaryCards),
-                nameof(PlayHistoryWorkflowOwner.SummaryDiagnosticText)
+                nameof(PlayHistoryWorkflowOwner.SummaryCards)
             },
             propertyNames);
         Assert.AreSame(request.ArchivePeriodTree, state.ArchivePeriodTree);
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
-        Assert.AreEqual("diagnostic", state.DiagnosticText);
     }
 
     /// <summary>table適用前失敗の復旧へ退役receiptを渡すとsource保持診断を実公開し、復旧時にsource処理を忘れる誤りを検出します。</summary>
@@ -3693,7 +3690,6 @@ public sealed class ChartListVirtualViewTests
             ViewState = viewState,
             ColumnSelection = columnSelection,
             SummaryCards = [],
-            DiagnosticText = string.Empty,
             MainRowsRequest = new MainChartListRowsApplyRequest
             {
                 Rows = rows,
