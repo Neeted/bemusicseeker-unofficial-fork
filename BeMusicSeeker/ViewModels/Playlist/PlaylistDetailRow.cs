@@ -22,6 +22,44 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// <summary>現在の再生ownerをstatus getterだけへ接続し、Chartと編集値を変更しません。</summary>
     internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
+    private Func<string, string, System.Collections.Generic.IReadOnlyList<BaseCandidate>> baseCandidateProvider;
+    private string baseCandidateRawTitle;
+    private string baseCandidateRawArtist;
+    private (string Title, string Artist)? baseCandidateItemKey;
+    private bool hasBaseCandidateItemKey;
+
+    /// <summary>本体候補の現在の索引の読取り口を接続します。行は項目側の比較キーだけを保持し、候補の結果は保持しません。</summary>
+    internal void SetBaseCandidateProvider(Func<string, string, System.Collections.Generic.IReadOnlyList<BaseCandidate>> provider) => baseCandidateProvider = provider;
+
+    /// <summary>
+    /// 未所持の項目について、その曲の本体フォルダと推定できる所持フォルダを現在の索引から最大5件返します。
+    /// 所持行・題名キーが空の項目・未構築の索引では空です。URL2の有無には依存しません。
+    /// </summary>
+    internal System.Collections.Generic.IReadOnlyList<BaseCandidate> GetBaseCandidates()
+    {
+        if (IsOwned || baseCandidateProvider == null) { return []; }
+        PlaylistEntryValue value = source.EntryValue;
+        // 項目の題名・作者は編集されないが、差し替えられた入力でも古い比較キーを使わないよう、元の文字列で照合する。
+        if (!hasBaseCandidateItemKey || !ReferenceEquals(baseCandidateRawTitle, value.Title) || !ReferenceEquals(baseCandidateRawArtist, value.Artist))
+        {
+            baseCandidateRawTitle = value.Title;
+            baseCandidateRawArtist = value.Artist;
+            baseCandidateItemKey = InstallEstimationMetadataNormalizer.BuildPairKey(value.Title, value.Artist);
+            hasBaseCandidateItemKey = true;
+        }
+        return baseCandidateItemKey is (string title, string artist) ? baseCandidateProvider(title, artist) : [];
+    }
+
+    /// <summary>
+    /// URL1列を本体候補の色で示すかです。未所持で、URL2が絶対URI（実行時のURL補完を反映した実効値）で、候補が1件以上のときだけ true です。
+    /// 安い判定を先に行い、候補は現在の索引から毎回引きます。
+    /// </summary>
+    public bool HasBaseCandidateUrl1Highlight
+        => !IsOwned && Url_diff is { IsAbsoluteUri: true } && GetBaseCandidates().Count > 0;
+
+    /// <summary>索引の変化を受けて、本体候補に依存する表示だけの再評価を求めます。</summary>
+    internal void NotifyBaseCandidatesChanged() => RaisePropertyChanged(nameof(HasBaseCandidateUrl1Highlight));
+
     /// <summary>
     /// 元の playlist エントリです。
     /// </summary>

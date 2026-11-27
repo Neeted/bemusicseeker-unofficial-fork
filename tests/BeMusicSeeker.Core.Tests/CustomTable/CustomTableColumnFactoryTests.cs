@@ -742,6 +742,35 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
+    /// <summary>
+    /// URL1列の文字色は、行の本体候補の判定が真のときだけ専用色になり、偽のときは従来の色になる。
+    /// 列幅が40のアイコン表示でも41以上の文字表示でも同じで、他の列の色は変わらない。
+    /// </summary>
+    [TestMethod]
+    public void CreateMainColumns_Url1ForegroundFollowsBaseCandidateHighlight()
+    {
+        var settings = new CustomTableColumnSettings();
+        settings.Url1.Visibility = Visibility.Visible;
+        settings.Url2.Visibility = Visibility.Visible;
+        BMSTableEntry CreateEntry() => new() { title = "Song", artist = "abc", Url_diff = new Uri("https://example.test/diff") };
+        PlaylistDetailRow highlighted = new PlaylistDetailSourceRow(CreateEntry(), resolvedChart: null).CreateViewRow();
+        highlighted.SetBaseCandidateProvider((_, _) => [new BaseCandidate(@"C:\Lib\a", 1)]);
+        PlaylistDetailRow plain = new PlaylistDetailSourceRow(CreateEntry(), resolvedChart: null).CreateViewRow();
+        plain.SetBaseCandidateProvider((_, _) => []);
+        Assert.IsTrue(highlighted.HasBaseCandidateUrl1Highlight);
+        Assert.IsFalse(plain.HasBaseCandidateUrl1Highlight);
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        Assert.AreNotSame(CustomTablePalette.Current.DefaultForeground, CustomTablePalette.Current.BaseCandidateForeground);
+
+        foreach (int width in new[] { 40, 41, 260, 40 })
+        {
+            columns["Url1"].Layout.Width = width;
+            Assert.AreSame(CustomTablePalette.Current.BaseCandidateForeground, columns["Url1"].GetForeground(highlighted), "幅" + width);
+            Assert.AreSame(CustomTablePalette.Current.DefaultForeground, columns["Url1"].GetForeground(plain), "幅" + width);
+            Assert.AreSame(CustomTablePalette.Current.DefaultForeground, columns["Url2"].GetForeground(highlighted), "URL2列の色は変えない。");
+        }
+    }
+
     /// <summary>一度生成した両URL列を40→41→広幅→40へ変え、空値も含め種別・配置・再クリック・tooltipが現在幅に追随し、編集・セルコピー・TSVは元URLを保つことを確認します。</summary>
     [TestMethod]
     [DataRow(false)]

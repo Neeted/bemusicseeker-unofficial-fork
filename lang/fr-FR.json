@@ -1588,5 +1588,6 @@
   "Audio_duplicate_organize_acknowledgment": "Poursuivre le nettoyage des dossiers à surveiller",
   "Audio_duplicate_organize_result_format": "{0} dossiers nettoyés. Terminés {1} / Partiellement terminés {2} / Ignorés {3} / Non traités {4}.",
   "Audio_duplicate_organize_result_trashed_format": "{0} fichier(s) audio WAV/OGG envoyé(s) à la Corbeille.",
-  "Audio_duplicate_organize_result_more_format": "Consultez le journal pour les {0} autres dossiers."
+  "Audio_duplicate_organize_result_more_format": "Consultez le journal pour les {0} autres dossiers.",
+  "Playlist_base_candidates": "Candidats du dossier de base"
 }

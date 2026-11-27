@@ -1588,5 +1588,6 @@
   "Audio_duplicate_organize_acknowledgment": "Continue organizing folders marked as caution",
   "Audio_duplicate_organize_result_format": "Organized {0} folders. Completed {1} / Partially completed {2} / Skipped {3} / Not processed {4}.",
   "Audio_duplicate_organize_result_trashed_format": "Sent {0} WAV/OGG audio files to the Recycle Bin.",
-  "Audio_duplicate_organize_result_more_format": "Check the log for the other {0} folders."
+  "Audio_duplicate_organize_result_more_format": "Check the log for the other {0} folders.",
+  "Playlist_base_candidates": "Base candidates"
 }

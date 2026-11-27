@@ -205,6 +205,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowPlaylistWorkspaceTerminals playlistWorkspaceTerminals;
 
+    private readonly MainWindowPlaylistBaseCandidateTerminal playlistBaseCandidateTerminal;
+
     private readonly PlaylistLampViewerWindowManager playlistLampViewerWindowManager;
 
     private readonly ChartPropertiesWindowManager chartPropertiesWindowManager;
@@ -540,7 +542,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
         Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
         Func<IntPtr>? readPlaybackForegroundWindow = null,
-        Action<IInputElement>? requestPlaybackKeyboardFocus = null)
+        Action<IInputElement>? requestPlaybackKeyboardFocus = null,
+        MainWindowPlaylistBaseCandidateTerminal? playlistBaseCandidateTerminal = null)
     {
         if (viewModel == null)
         {
@@ -577,6 +580,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ?? MainWindowPlaylistWorkspaceTerminals.Create(
                 viewModel,
                 () => newlyInstalledTreeViewItem.IsExpanded = true);
+        this.playlistBaseCandidateTerminal = playlistBaseCandidateTerminal
+            ?? MainWindowPlaylistBaseCandidateTerminal.Create(viewModel);
         this.progressStatusBarTerminals = progressStatusBarTerminals
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
         dialogService = viewModel.DialogService;
@@ -7044,6 +7049,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = entry != null;
                     break;
+                case "tableContextMenuItemBaseCandidates":
+                    if (item is MenuItem baseCandidatesMenuItem)
+                    {
+                        ApplyBaseCandidatesMenuItem(baseCandidatesMenuItem, playlistBaseCandidateTerminal.Capture(row));
+                    }
+                    break;
                 case "tableContextMenuItemRegisterScore":
                     if (item is MenuItem scoreViewerMenuItem)
                     {
@@ -7054,6 +7065,33 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         CollapseRedundantTableContextMenuSeparators(contextMenu);
         NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " scoreViewerMode=" + scoreViewerMode);
+    }
+
+    /// <summary>
+    /// メニューを開いた行の本体候補を、フォルダのフルパスの見出しで並べます。候補がなければサブメニューを表示しません。
+    /// 見出しの「_」はアクセスキーにせずそのまま表示し、選んだ項目はメニューを開いた時点の候補のパスを開きます。
+    /// </summary>
+    private void ApplyBaseCandidatesMenuItem(MenuItem parent, IReadOnlyList<BaseCandidate> candidates)
+    {
+        parent.Items.Clear();
+        foreach (BaseCandidate candidate in candidates)
+        {
+            var item = new MenuItem { Header = candidate.Folder, HeaderTemplate = LiteralMenuHeader.Template, Tag = candidate.Folder };
+            item.Click += tableContextMenuItemBaseCandidateClick;
+            parent.Items.Add(item);
+        }
+        bool any = parent.Items.Count > 0;
+        parent.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+        parent.IsEnabled = any;
+    }
+
+    private void tableContextMenuItemBaseCandidateClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: string path })
+        {
+            playlistBaseCandidateTerminal.OpenFolder(path);
+            e.Handled = true;
+        }
     }
 
     /// <summary>現在表示する譜面メニューの先頭・連続・末尾に不要な区切り線を残しません。</summary>

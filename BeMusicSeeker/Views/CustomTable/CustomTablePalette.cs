@@ -22,6 +22,7 @@ internal sealed class CustomTablePalette
         Brush defaultForeground,
         Brush selectedForeground,
         Brush subtleForeground,
+        Brush baseCandidateForeground,
         Brush undefinedCellBackground,
         Pen cellBorder,
         Pen headerBorder,
@@ -44,6 +45,7 @@ internal sealed class CustomTablePalette
         DefaultForeground = defaultForeground;
         SelectedForeground = selectedForeground;
         SubtleForeground = subtleForeground;
+        BaseCandidateForeground = baseCandidateForeground;
         UndefinedCellBackground = undefinedCellBackground;
         CellBorder = cellBorder;
         HeaderBorder = headerBorder;
@@ -93,6 +95,9 @@ internal sealed class CustomTablePalette
 
     internal Brush SubtleForeground { get; }
 
+    /// <summary>未所持行のURL1列で、差分だけ入手すればよい（本体フォルダを所持していると推定できる）ことを示す文字色です。</summary>
+    internal Brush BaseCandidateForeground { get; }
+
     internal Brush UndefinedCellBackground { get; }
 
     internal Pen CellBorder { get; }
@@ -132,6 +137,7 @@ internal sealed class CustomTablePalette
         Brush defaultForeground = FindBrush("Table.TextBrush", Colors.Black);
         Brush selectedForeground = FindBrush("Table.SelectedTextBrush", Colors.White);
         Brush subtleForeground = FindBrush("Table.SubtleTextBrush", Colors.Gray);
+        Brush baseCandidateForeground = FindBrush("Table.BaseCandidateTextBrush", Color.FromRgb(0x00, 0x7A, 0x5E));
         Brush undefinedCellBackground = FindBrush("Table.UndefinedCellBackgroundBrush", Color.FromRgb(0xFF, 0xF6, 0xD5));
 
         return new CustomTablePalette(
@@ -148,6 +154,7 @@ internal sealed class CustomTablePalette
             defaultForeground,
             selectedForeground,
             subtleForeground,
+            baseCandidateForeground,
             undefinedCellBackground,
             CreatePen(FindBrush("Table.GridLineBrush", Color.FromRgb(0xE7, 0xE9, 0xEC)), 1d),
             CreatePen(FindBrush("Table.HeaderGridLineBrush", Color.FromRgb(0xC8, 0xCC, 0xD1)), 1d),

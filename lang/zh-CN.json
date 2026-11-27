@@ -1588,5 +1588,6 @@
   "Audio_duplicate_organize_acknowledgment": "继续整理需注意的文件夹",
   "Audio_duplicate_organize_result_format": "已整理 {0} 个文件夹。完成 {1}／部分完成 {2}／跳过 {3}／未处理 {4}。",
   "Audio_duplicate_organize_result_trashed_format": "已将{0}个WAV/OGG音源移至回收站。",
-  "Audio_duplicate_organize_result_more_format": "其余 {0} 个文件夹请查看日志。"
+  "Audio_duplicate_organize_result_more_format": "其余 {0} 个文件夹请查看日志。",
+  "Playlist_base_candidates": "本体候选"
 }

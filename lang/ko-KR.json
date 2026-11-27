@@ -1588,5 +1588,6 @@
   "Audio_duplicate_organize_acknowledgment": "주의가 필요한 폴더의 정리 계속",
   "Audio_duplicate_organize_result_format": "{0}개 폴더를 정리했습니다. 완료 {1}／일부 완료 {2}／건너뜀 {3}／미처리 {4}.",
   "Audio_duplicate_organize_result_trashed_format": "WAV/OGG 음원 {0}개를 휴지통으로 보냈습니다.",
-  "Audio_duplicate_organize_result_more_format": "그 외 {0}개 폴더는 로그를 확인해 주세요."
+  "Audio_duplicate_organize_result_more_format": "그 외 {0}개 폴더는 로그를 확인해 주세요.",
+  "Playlist_base_candidates": "본체 후보"
 }

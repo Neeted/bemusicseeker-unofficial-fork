@@ -302,7 +302,7 @@ LR2互換性警告の画面は、LR2連携モードと単独動作モードの�
 | --- | --- | ---: | ---: | --- | --- | --- |
 | Status | `♬` | 18 | 18 | false | false | 固定アイコン列 |
 | Mode | `KEYS` | 50 | 50 | false | true | 幅固定 |
-| Url1 | `URL1` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
+| Url1 | `URL1` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル。プレイリストの未所持行は、本体候補があり差分URLが絶対URIのとき、専用色（`Table.BaseCandidateTextBrush`）で描く（[未所持行の本体候補](../playlist/base-candidates.md#画面)） |
 | Url2 | `URL2` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
 | Hash | `MD5 HASH` | 40 | 240 | true | true | 最大幅のみ制限 |
 | Sha256 | `SHA256 HASH` | 40 | 480 | true | true | 最大幅のみ制限 |

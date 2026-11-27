@@ -164,6 +164,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
                 CatalogCommitReceipt receipt;
                 try
                 {
+                    // 本体候補の索引は、確定結果の登録より前に、この確定の変更を同じ排他の中で反映する。
+                    UpdateBaseCandidateIndex(actual, isFullReplacement);
                     ApplyCommitIndexes(actual, candidateOrderKeyCharts, isFullReplacement, revision);
                     UpdateSpecializedDependencies(actual, isFullReplacement);
                     receipt = new CatalogCommitReceipt(baseRevision, revision, actual, isFullReplacement, CaptureSnapshot(revision: revision),
@@ -221,22 +223,18 @@ internal sealed partial class CatalogOwnedCollectionOwner
         lock (MetadataProfileGate)
         {
             if (isFullReplacement) { MetadataProfiles.Clear(); return; }
-            string[] paths = [.. changes.Where(change => change.Before == null || change.After == null
-                || change.Before.Path != change.After.Path || change.Before.RawTitle != change.After.RawTitle
-                || (change.Before.Kind == ChartFileKind.Bms ? change.Before.RawArtist != change.After.RawArtist : change.Before.Artist != change.After.Artist))
+            string[] paths = [.. changes.Where(CatalogMetadataDependency.Affects)
                 .SelectMany(change => new[] { change.Before?.Path, change.After?.Path }).Where(path => !string.IsNullOrWhiteSpace(path))];
             foreach (string path in paths)
             {
-                string directory;
-                try { directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)); }
-                catch (Exception exception) when (exception is ArgumentException or NotSupportedException or System.IO.PathTooLongException)
+                if (!CatalogMetadataDependency.TryGetContainingDirectory(path, out string directory))
                 {
                     // 物理パスへ正規化できない保存値に対応するprofile keyは作られません。既存の受理範囲を狭めません。
                     continue;
                 }
                 while (!string.IsNullOrWhiteSpace(directory))
                 {
-                    MetadataProfiles.Remove(BeMusicSeeker.Models.Utils.LongPathFileSystem.TrimTrailingDirectorySeparators(directory));
+                    MetadataProfiles.Remove(CatalogMetadataDependency.ToFolderKey(directory));
                     string parent = System.IO.Path.GetDirectoryName(directory);
                     if (parent == directory)
                     {

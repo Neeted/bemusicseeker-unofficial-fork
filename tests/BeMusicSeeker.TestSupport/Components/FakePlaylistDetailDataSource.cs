@@ -23,6 +23,21 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal Action? ResolveIndexAction { get; set; }
 
+    /// <summary>索引の準備に関わる呼出しの順序です。参照解決索引は "resolve_index"、本体候補は "base_candidates" を記録します。</summary>
+    internal List<string> PrepareCallOrder { get; } = [];
+
+    internal int BaseCandidatePrepareCallCount { get; private set; }
+
+    /// <summary>本体候補の構築の最中に実行する処理です。取消の観測や構築の停止に使います。</summary>
+    internal Action? PrepareBaseCandidateAction { get; set; }
+
+    internal BaseCandidateIndexPrepareResult BaseCandidatePrepareResult { get; set; } = BaseCandidateIndexPrepareResult.Cached;
+
+    internal CancellationToken LastBaseCandidateCancellationToken { get; private set; }
+
+    /// <summary>本体候補の問合せの結果です。未指定なら常に空です。</summary>
+    internal Func<string, string, IReadOnlyList<BaseCandidate>>? BaseCandidateLookup { get; set; }
+
     internal CancellationToken LastResolveIndexCancellationToken { get; private set; }
 
     internal int CurrentChartInfoIndexVersion { get; set; } = 1;
@@ -67,6 +82,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         out int staleRetryCount)
     {
         ResolveIndexCallCount++;
+        PrepareCallOrder.Add("resolve_index");
         LastResolveIndexCancellationToken = cancellationToken;
         ResolveIndexAction?.Invoke();
         cacheHit = true;
@@ -78,6 +94,19 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
     {
         return RuntimeState;
     }
+
+    public BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken)
+    {
+        BaseCandidatePrepareCallCount++;
+        PrepareCallOrder.Add("base_candidates");
+        LastBaseCandidateCancellationToken = cancellationToken;
+        PrepareBaseCandidateAction?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
+        return BaseCandidatePrepareResult;
+    }
+
+    public IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
+        => BaseCandidateLookup?.Invoke(titleKey, artistKey) ?? [];
 
     public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {

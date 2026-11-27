@@ -1783,6 +1783,76 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         }
     }
 
+    /// <summary>
+    /// 未所持行の右クリックメニューは、メニューを開いた行（選択中の別の行ではない）の本体候補を、フォルダのフルパスの見出しで並べる。
+    /// 見出しの「_」はアクセスキーにせずそのまま表示し、選んだ項目は注入された起動の関数へそのパスのまま渡して一度だけ開く。
+    /// </summary>
+    [TestMethod]
+    public void MissingPlaylistBaseCandidateSubmenu_ListsCandidatesAndOpensClickedFolder()
+    {
+        BaseCandidate[] candidates = [new(@"C:\Lib\a_b", 2), new(@"C:\Lib\Song", 1)];
+        var captured = new List<object?>();
+        var opened = new List<string>();
+        var terminal = new MainWindowPlaylistBaseCandidateTerminal(
+            row => { captured.Add(row); return candidates; },
+            _ => true,
+            path =>
+            {
+                opened.Add(path);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory, RequestedPath = path, OpenedPath = path };
+            });
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            PlaylistDetailRow missing = CreateMissingPlaylistRow(new string('d', 32));
+            LibraryChartRow other = CreateChartRow(ChartFileKind.Bms, new string('e', 32), @"C:\Other\chart.bms");
+            table.ItemsSource = new List<object> { missing, other };
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, other));
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+
+            MenuItem submenu = FindMenuItem(menu, "tableContextMenuItemBaseCandidates");
+            Assert.AreEqual(Visibility.Visible, submenu.Visibility);
+            Assert.AreSame(missing, captured.Single(), "メニューを開いた行の候補を求める。");
+            Assert.AreEqual(Resources.Playlist_base_candidates, submenu.Header);
+            MenuItem[] items = [.. submenu.Items.OfType<MenuItem>()];
+            CollectionAssert.AreEqual(new[] { @"C:\Lib\a_b", @"C:\Lib\Song" }, items.Select(item => item.Header).ToArray());
+            Assert.IsTrue(items.All(item => ReferenceEquals(item.HeaderTemplate, LiteralMenuHeader.Template)), "「_」をアクセスキーにしない。");
+
+            Assert.IsTrue(RaiseMenuClick(items[0]).Handled);
+            CollectionAssert.AreEqual(new[] { @"C:\Lib\a_b" }, opened);
+            Assert.IsTrue(RaiseMenuClick(items[1]).Handled);
+            CollectionAssert.AreEqual(new[] { @"C:\Lib\a_b", @"C:\Lib\Song" }, opened);
+        }, playlistBaseCandidateTerminal: terminal, selectedChartContextMenuTerminals: CreateTerminals());
+    }
+
+    /// <summary>候補が0件（索引が未構築の場合を含む）なら、未所持行のメニューに「本体候補」を表示しない。</summary>
+    [TestMethod]
+    public void MissingPlaylistBaseCandidateSubmenu_HiddenWithoutCandidates()
+    {
+        var terminal = new MainWindowPlaylistBaseCandidateTerminal(
+            _ => [],
+            _ => throw new AssertFailedException("候補がなければフォルダを確認しない。"),
+            _ => throw new AssertFailedException("候補がなければフォルダを開かない。"));
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            PlaylistDetailRow missing = CreateMissingPlaylistRow(new string('d', 32));
+            table.ItemsSource = new List<object> { missing };
+            table.SelectRowsByPredicate(_ => true);
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+
+            MenuItem submenu = FindMenuItem(menu, "tableContextMenuItemBaseCandidates");
+            Assert.AreEqual(Visibility.Collapsed, submenu.Visibility);
+            Assert.AreEqual(0, submenu.Items.Count);
+        }, playlistBaseCandidateTerminal: terminal, selectedChartContextMenuTerminals: CreateTerminals());
+    }
+
     private static TaskCompletionSource<T> NewCompletion<T>()
         => new(TaskCreationOptions.RunContinuationsAsynchronously);
 

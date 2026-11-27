@@ -1325,6 +1325,83 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(12L, readiness.BuildElapsedMs);
     }
 
+    /// <summary>
+    /// 既存の索引準備の同じ仕事の中で、参照解決索引の後に本体候補の索引を構築する。新しい予約は増やさない。
+    /// 設置した場合だけ、画面の再評価を一度依頼し、構築済みなら依頼しない。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_BuildsBaseCandidatesAfterResolveIndexInSameWork()
+    {
+        var queuedWork = new List<Func<Task>>();
+        int uiRequests = 0;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, work) =>
+        {
+            queuedWork.Add(work);
+            return true;
+        }, restoreUiApplyScheduler: _ =>
+        {
+            uiRequests++;
+            return Task.CompletedTask;
+        });
+        dataSource.BaseCandidatePrepareResult = BaseCandidateIndexPrepareResult.Installed;
+
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+
+        Assert.AreEqual(1, queuedWork.Count);
+        Assert.AreEqual(0, dataSource.BaseCandidatePrepareCallCount);
+        await queuedWork[0]().ConfigureAwait(false);
+        CollectionAssert.AreEqual(new[] { "resolve_index", "base_candidates" }, dataSource.PrepareCallOrder);
+        Assert.AreEqual(1, queuedWork.Count);
+        Assert.AreEqual(1, uiRequests);
+
+        dataSource.BaseCandidatePrepareResult = BaseCandidateIndexPrepareResult.Cached;
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+        await queuedWork[1]().ConfigureAwait(false);
+        Assert.AreEqual(2, dataSource.BaseCandidatePrepareCallCount);
+        Assert.AreEqual(1, uiRequests, "構築済みなら再評価を依頼しない。");
+    }
+
+    /// <summary>
+    /// データ元の交換で取り消された準備は、参照解決索引の取得中なら本体候補の構築を始めず、本体候補の構築中なら設置せず、画面の再評価も依頼しない。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_CancelledWorkDoesNotBuildBaseCandidates()
+    {
+        int uiRequests = 0;
+        foreach (bool cancelDuringBaseCandidates in new[] { false, true })
+        {
+            var jobs = new List<Func<Task>>();
+            using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource oldSource, (_, job) =>
+            { jobs.Add(job); return true; }, restoreUiApplyScheduler: _ =>
+            {
+                uiRequests++;
+                return Task.CompletedTask;
+            });
+            oldSource.BaseCandidatePrepareResult = BaseCandidateIndexPrepareResult.Installed;
+            using var release = new ManualResetEventSlim();
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Action blocker = () => { entered.TrySetResult(); release.Wait(); };
+            if (cancelDuringBaseCandidates) { oldSource.PrepareBaseCandidateAction = blocker; }
+            else { oldSource.ResolveIndexAction = blocker; }
+            workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            Task oldWork = jobs[0]();
+            bool cancelled = false;
+            try
+            {
+                await entered.Task;
+                workspace.SetDetailDataSource(new FakePlaylistDetailDataSource());
+            }
+            finally
+            {
+                release.Set();
+                try { await oldWork; } catch (OperationCanceledException) { cancelled = true; }
+            }
+            Assert.IsTrue(cancelled, "取り消された準備を成功扱いしません。");
+            Assert.AreEqual(cancelDuringBaseCandidates ? 1 : 0, oldSource.BaseCandidatePrepareCallCount);
+        }
+        Assert.AreEqual(0, uiRequests);
+    }
+
     /// <summary>旧sourceで予約したcold jobは交換後に読み取らず、同じ新sourceの予約だけを実行します。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_QueuedOldSourceIsSkippedAfterReplacement()

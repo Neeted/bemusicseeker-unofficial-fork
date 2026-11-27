@@ -10,6 +10,7 @@
 | [プレイリストのLR2カスタムフォルダ出力](lr2-custom-folders.md) | プレイリストから `.lr2folder` と対応するLR2のフォルダ行を生成する契約を定めます。 |
 | [beatoraja向けBMT出力](bmt-export.md) | プレイリストのBMTファイル、管理台帳、beatorajaのTable URL登録を定めます。 |
 | [beatorajaのTable URL取込み](table-url-import.md) | beatorajaに登録した難易度表URLを、プレイリストとBMT出力の管理へ取り込む契約を定めます。 |
+| [未所持行の本体候補](base-candidates.md) | プレイリスト詳細の未所持行で、題名・作者から本体フォルダを所持していると推定し、URL1列の色と右クリックメニューで示す契約を定めます。 |
 | [URL・外部APIからの取得と導入引渡し](downloads.md) | プレイリスト詳細の本体・差分URL、または譜面MD5からファイルを取得し、一回の導入要求へ渡す契約を定めます。 |
 | [プレイ履歴と更新履歴の表示](play-history.md) | LR2の導入後のプレイ履歴と、beatorajaのスコア更新履歴を、現在のライブラリ・プレイリストに関連付けて表示する契約を定めます。 |
 | [LR2プレイ履歴スキーマ](lr2-history-schema.md) | LR2のプレイヤー別スコアDBに追加する表・索引・トリガーと、明示的な導入・修復・削除を定めます。 |

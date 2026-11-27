@@ -585,7 +585,7 @@ DB確定前の読取り・DBの失敗は `PendingPackageRestoreException` が元
 | 区分 | 並列と依存 |
 | --- | --- |
 | 上限 | スケジューラー全体の並列上限は4、起動後の追加処理は3。 |
-| 独立したレーン | 難易度表リストのHTTP取得 `external_table_catalog`、プレイリスト索引の準備 `playlist_library_index_prewarm`、譜面一覧の索引・ソートキャッシュの準備 `playlist_virtual_order_prewarm` は、それぞれ上限1の独立したレーンを使い、同時に実行できる。開始時は難易度表リストの取得を先に選び、他の独立した仕事で開始を待たせない。索引準備の内部段階は分割せず、既存の読取りレーンの上限2も維持する。 |
+| 独立したレーン | 難易度表リストのHTTP取得 `external_table_catalog`、プレイリスト索引の準備 `playlist_library_index_prewarm`、譜面一覧の索引・ソートキャッシュの準備 `playlist_virtual_order_prewarm` は、それぞれ上限1の独立したレーンを使い、同時に実行できる。開始時は難易度表リストの取得を先に選び、他の独立した仕事で開始を待たせない。索引準備の内部段階は分割せず、未所持行の本体候補の構築は、同じ仕事の中で参照解決索引の準備に続けて実行し（[未所持行の本体候補](../playlist/base-candidates.md#全構築)）、既存の読取りレーンの上限2も維持する。 |
 | プレイリストの後続 | `playlist_url_completion`・`playlist_ref_apply`・`external_playlist_sync` は、共通の `playlist_followup` レーンで直列化する。 |
 | 保守 | メンテナンス情報の更新はLとPの実際の受付とSQLiteの変更の排他を維持する。`installable_maintenance` は、譜面情報の補完・メンテナンス情報の読込みへの明示的な依存を保つ。 |
 | GC | `post_initialize_gc` は、一括登録の閉鎖後、起動由来の並列の仕事と索引準備が実終端してから開始する。 |

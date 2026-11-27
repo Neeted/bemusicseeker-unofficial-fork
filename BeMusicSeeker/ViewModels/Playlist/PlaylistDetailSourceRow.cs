@@ -394,11 +394,15 @@ internal sealed class PlaylistDetailSourceRow
     /// <summary>表示行生成時にstatus読取りへ渡す、現在の再生状態のdelegateです。</summary>
     internal Func<ChartFile, ChartFileStatus> PlaybackStatusProvider { get; set; }
 
-    /// <summary>UI表示用の行を生成し、再生状態の読取り口へ接続します。</summary>
+    /// <summary>表示行生成時に本体候補の問合せへ渡す、現在の索引の読取り口です。題名・作者の比較キーから所持フォルダを返します。</summary>
+    internal Func<string, string, System.Collections.Generic.IReadOnlyList<BaseCandidate>> BaseCandidateProvider { get; set; }
+
+    /// <summary>UI表示用の行を生成し、再生状態と本体候補の読取り口へ接続します。</summary>
     internal PlaylistDetailRow CreateViewRow()
     {
         var row = new PlaylistDetailRow(this);
         row.SetPlaybackStatusProvider(PlaybackStatusProvider);
+        row.SetBaseCandidateProvider(BaseCandidateProvider);
         return row;
     }
 

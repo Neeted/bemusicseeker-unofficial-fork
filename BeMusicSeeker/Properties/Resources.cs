@@ -3672,4 +3672,6 @@ public class Resources
     public static string Audio_duplicate_organize_result_trashed_format => ResourceManager.GetString("Audio_duplicate_organize_result_trashed_format", resourceCulture);
     /// <summary>整理候補一覧からの整理の結果の案内で、詳細を省略したフォルダ数の書式です。{0}は省略した数です。</summary>
     public static string Audio_duplicate_organize_result_more_format => ResourceManager.GetString("Audio_duplicate_organize_result_more_format", resourceCulture);
+    /// <summary>プレイリストの未所持行の右クリックメニューで、その曲の本体フォルダと推定した所持フォルダを並べるサブメニューの見出しです。</summary>
+    public static string Playlist_base_candidates => ResourceManager.GetString("Playlist_base_candidates", resourceCulture);
 }

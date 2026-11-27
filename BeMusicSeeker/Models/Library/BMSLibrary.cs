@@ -7301,6 +7301,27 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
+    /// <summary>
+    /// 所持譜面の現在値から、プレイリスト未所持行の本体候補を引く派生索引を、構築済みでなければ一度だけ構築して設置します。
+    /// 取消されたら未構築のまま例外で終わります。通常の局所確定では構築せず、構築済みの索引へ差分だけを反映します。
+    /// </summary>
+    internal BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken, int? maxDegreeOfParallelism = null)
+        => catalogOwnedCollectionOwner.PrepareBaseCandidateIndex(cancellationToken, maxDegreeOfParallelism);
+
+    /// <summary>
+    /// 項目の題名・作者の比較キーから、その曲の本体を持つと推定できる所持フォルダを最大5件返します。
+    /// 排他を取らず、未構築なら空です。
+    /// </summary>
+    internal IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
+        => catalogOwnedCollectionOwner.FindBaseCandidates(titleKey, artistKey);
+
+    /// <summary>本体候補の索引の実処理を観測する内部 hook です。通常運用では未設定で、テストだけが使います。</summary>
+    internal Action<string> BaseCandidateIndexWorkObserver
+    {
+        get => catalogOwnedCollectionOwner.BaseCandidateIndexWorkObserver;
+        set => catalogOwnedCollectionOwner.BaseCandidateIndexWorkObserver = value;
+    }
+
     private List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshot()
     {
 

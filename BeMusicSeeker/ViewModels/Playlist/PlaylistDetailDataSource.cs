@@ -36,6 +36,12 @@ internal interface IPlaylistDetailDataSource
 
     BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState();
 
+    /// <summary>未所持行の本体候補の索引を、構築済みでなければ一度だけ構築して設置します。取消されたら未構築のまま例外で終わります。</summary>
+    BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken);
+
+    /// <summary>項目の題名・作者の比較キーから、本体候補の所持フォルダを現在の索引で引きます。未構築なら空で、構築しません。</summary>
+    IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey);
+
     BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5);
 
     /// <summary>同じentry/currentと捕捉済み参照入力から一行を投影します。参照入力はgetterの可変モデル読取りへ置き換えません。</summary>
@@ -58,6 +64,9 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
 
     private readonly MainChartRowProjectionOwner rowProjection;
 
+    // 行ごとに委譲を作らず、全行が同じ提供関数を共有する。
+    private readonly Func<string, string, IReadOnlyList<BaseCandidate>> baseCandidateProvider;
+
     internal PlaylistDetailDataSource(
         BMSLibrary library,
         BMSPlaylist playlists,
@@ -66,6 +75,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         this.library = library ?? throw new ArgumentNullException(nameof(library));
         this.playlists = playlists ?? throw new ArgumentNullException(nameof(playlists));
         this.rowProjection = rowProjection ?? throw new ArgumentNullException(nameof(rowProjection));
+        baseCandidateProvider = this.library.FindBaseCandidates;
     }
 
     /// <summary>確定結果の接続元が同じ library であることを検査する識別です。</summary>
@@ -110,6 +120,12 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         return library.GetPlaylistLibraryResolveIndexRuntimeState();
     }
 
+    public BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken)
+        => library.PrepareBaseCandidateIndex(cancellationToken);
+
+    public IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
+        => library.FindBaseCandidates(titleKey, artistKey);
+
     public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return library.ResolveChartInfo(sha256, md5);
@@ -137,6 +153,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
             entryOrder,
             referenceInput);
         if (referenceInput != null) { row = row.WithReferenceDisplay(referenceInput); }
+        row.BaseCandidateProvider = baseCandidateProvider;
         return row.WithResourceHealthProjection(resolvedChart == null ? ResourceHealthWarningProjection.Empty
             : library.TryGetCurrentResourceHealthWarningProjection(resolvedChart));
     }

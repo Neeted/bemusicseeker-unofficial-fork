@@ -223,9 +223,9 @@ internal static class InstallEstimationMetadataNormalizer
     /// </summary>
     internal static (string Title, string Artist)? BuildPairKey(string title, string artist)
     {
-        string normalizedTitle = NormalizeTitleDisplay(title);
-        return normalizedTitle.Length == 0 ? null
-            : (normalizedTitle.ToLowerInvariant(), NormalizeArtistDisplay(artist).ToLowerInvariant());
+        // 題名・作者それぞれの比較キーの合成として定義し、本体候補の索引側と項目側の定義をずらさない。
+        string titleKey = NormalizeTitleForTieBreak(title);
+        return titleKey.Length == 0 ? null : (titleKey, NormalizeArtistForTieBreak(artist));
     }
 
     /// <summary>非空TITLEと空許容ARTISTの実在ペアを集計し、最多・パス順・入力順で同一レコードの比較キーと表示を選びます。</summary>

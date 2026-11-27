@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
@@ -251,6 +253,54 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
             new MainWindowPlaylistUrlInstallTreeExpansionTerminal(
                 installTreeExpansion ?? throw new ArgumentNullException(nameof(installTreeExpansion))),
             MainWindowPlaylistTablesReloadTerminal.Create(viewModel));
+    }
+}
+
+/// <summary>
+/// 未所持行の右クリックメニューの「本体候補」を、候補の算出と、候補フォルダのエクスプローラー起動へ接続します。
+/// 起動はライブラリのフォルダツリーの「エクスプローラーで開く」と同じく、構成が注入するフォルダの存在確認と起動の関数を使い、
+/// 不在のフォルダでは何もせず、起動結果は破棄します。
+/// </summary>
+internal sealed class MainWindowPlaylistBaseCandidateTerminal
+{
+    private readonly Func<object, IReadOnlyList<BaseCandidate>> captureCandidates;
+
+    private readonly Func<string, bool> directoryExists;
+
+    private readonly Func<string, ExplorerOpenResult> openDirectory;
+
+    /// <summary>候補の算出とフォルダを開く関数を接続します。</summary>
+    /// <param name="captureCandidates">メニューを開いた行の候補を、現在の索引から返す関数。</param>
+    /// <param name="directoryExists">フォルダの存在確認。</param>
+    /// <param name="openDirectory">フォルダをエクスプローラーで開く関数。</param>
+    internal MainWindowPlaylistBaseCandidateTerminal(
+        Func<object, IReadOnlyList<BaseCandidate>> captureCandidates,
+        Func<string, bool> directoryExists,
+        Func<string, ExplorerOpenResult> openDirectory)
+    {
+        this.captureCandidates = captureCandidates ?? throw new ArgumentNullException(nameof(captureCandidates));
+        this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
+        this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
+    }
+
+    /// <summary>メニューを開いた行の本体候補（最大5件）を返します。</summary>
+    internal IReadOnlyList<BaseCandidate> Capture(object contextRow) => captureCandidates(contextRow);
+
+    /// <summary>候補のフォルダを、そのパスのまま開きます。存在しなければ何もしません。</summary>
+    internal void OpenFolder(string path)
+    {
+        if (!directoryExists(path)) { return; }
+        openDirectory(path);
+    }
+
+    /// <summary>ワークスペースの候補算出と、構成が注入するのと同じ存在確認・起動の窓口へ接続した端末を作ります。</summary>
+    internal static MainWindowPlaylistBaseCandidateTerminal Create(MainWindowViewModel viewModel)
+    {
+        ArgumentNullException.ThrowIfNull(viewModel);
+        return new MainWindowPlaylistBaseCandidateTerminal(
+            viewModel.PlaylistWorkspace.CaptureBaseCandidates,
+            LongPathFileSystem.DirectoryExists,
+            path => viewModel.ExternalShellGateway.OpenDirectory(path));
     }
 }
 

@@ -185,6 +185,15 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
         else { QueueCollectionChange(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, GetOrCreate(low), low)); }
     }
 
+    /// <summary>実体化済みの未所持行へだけ、本体候補の表示の再評価を求める変更通知を出します。元行・順序・選択は変更しません。</summary>
+    internal void NotifyUnownedRowsBaseCandidatesChanged()
+    {
+        foreach (PlaylistDetailRow row in realizedRows.Values.ToArray())
+        {
+            if (!row.IsOwned) { row.NotifyBaseCandidatesChanged(); }
+        }
+    }
+
     /// <summary>一配送の対象通知だけを、管理状態の確定と lock 解放後に公開します。</summary>
     internal void PublishChanges()
     {

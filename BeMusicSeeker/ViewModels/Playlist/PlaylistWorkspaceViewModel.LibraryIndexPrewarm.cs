@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -84,6 +86,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                     LogPlaylistLibraryIndex("playlist_library_index_prewarm completed status=" + (cacheHit ? "cached" : "built")
                         + " chartsByMd5Count=" + snapshot.Md5HashCount + " buildMs=" + snapshot.BuildElapsedMs
                         + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    // 未所持行の本体候補は、同じ準備の仕事の中で、参照解決索引の後に続けて構築する。
+                    token.ThrowIfCancellationRequested();
+                    var baseCandidateWatch = Stopwatch.StartNew();
+                    BaseCandidateIndexPrepareResult baseCandidates = source.PrepareBaseCandidateIndex(token);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm base_candidates status=" + baseCandidates
+                        + " elapsedMs=" + baseCandidateWatch.ElapsedMilliseconds);
+                    if (baseCandidates == BaseCandidateIndexPrepareResult.Installed)
+                    {
+                        // 設置して排他を解放した後に、画面へ再評価を依頼する。結果の待機は準備の完了に含めない。
+                        playlistRestoreUiApplyScheduler(NotifyBaseCandidatesChanged).ObserveFault("playlist_base_candidates_redraw");
+                    }
                     return snapshot;
                 }
                 catch (OperationCanceledException)
@@ -100,6 +113,20 @@ public sealed partial class PlaylistWorkspaceViewModel
             return playlistLibraryIndexPrewarmTask;
         }
     }
+
+    /// <summary>
+    /// 本体候補の索引の設置や所持譜面の変更の後に、現在のビューの実体化済みの未所持行へ変更通知だけを出します。
+    /// 元行・依存・確定結果・要求識別へは何も加えません。行ごとの厳密な時機は保証しません。UIスレッドで呼びます。
+    /// </summary>
+    private void NotifyBaseCandidatesChanged()
+        => (DetailViewState.View.Rows as PlaylistDetailVirtualView)?.NotifyUnownedRowsBaseCandidatesChanged();
+
+    /// <summary>
+    /// メニューを開いた行の本体候補を、現在の索引から最大5件返します。未所持行でだけ値があり、URL2の有無には依存しません。
+    /// </summary>
+    /// <param name="row">メニューを開いた行。</param>
+    internal IReadOnlyList<BaseCandidate> CaptureBaseCandidates(object row)
+        => row is PlaylistDetailRow detailRow ? detailRow.GetBaseCandidates() : [];
 
     private static PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(
         IPlaylistDetailDataSource dataSource, CancellationToken cancellationToken,

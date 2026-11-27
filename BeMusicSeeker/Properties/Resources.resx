@@ -4682,4 +4682,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Audio_duplicate_organize_result_more_format" xml:space="preserve">
     <value>ほか{0}フォルダはログを確認してください。</value>
   </data>
+  <data name="Playlist_base_candidates" xml:space="preserve">
+    <value>本体候補</value>
+  </data>
 </root>

@@ -67,6 +67,7 @@
   <SolidColorBrush x:Key="Table.TextBrush" Color="#FFE0F8F3" />
   <SolidColorBrush x:Key="Table.SelectedTextBrush" Color="#FFE0F8F3" />
   <SolidColorBrush x:Key="Table.SubtleTextBrush" Color="#FF9DC7C4" />
+  <SolidColorBrush x:Key="Table.BaseCandidateTextBrush" Color="#FFFFC76B" />
   <SolidColorBrush x:Key="Table.UndefinedCellBackgroundBrush" Color="#FF403C26" />
 
   <SolidColorBrush x:Key="TreeViewItem.TreeArrow.Static.Checked.Fill" Color="#FF9DC7C4" />

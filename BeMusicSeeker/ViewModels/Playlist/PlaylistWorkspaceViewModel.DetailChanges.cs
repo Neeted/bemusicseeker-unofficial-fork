@@ -299,6 +299,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
         PublishDetailChanges();
+        // 所持譜面の原題・作者・所属が変わった確定の後は、実体化済みの未所持行の本体候補の表示を再評価させる。
+        if (batch.CatalogCommits.Any(receipt => receipt.Changes.Any(CatalogMetadataDependency.Affects))) { NotifyBaseCandidatesChanged(); }
         bool possibleHashChange = batch.CatalogCommits.Any(receipt => receipt.IsFullReplacement || receipt.Changes.Any(change =>
             !StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Md5, change.After?.Md5)
             || !StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Sha256, change.After?.Sha256)));
