@@ -2512,7 +2512,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             this.content = content;
         }
 
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
         {
             return Task.FromResult<AppHttpResponse>(new AppHttpResponse(uri, new MemoryStream(content, writable: false)));
         }
@@ -2544,7 +2544,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         internal TaskCompletionSource<AppHttpResponse> Response { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
         {
             ReadStarted.TrySetResult(true);
             return Response.Task;

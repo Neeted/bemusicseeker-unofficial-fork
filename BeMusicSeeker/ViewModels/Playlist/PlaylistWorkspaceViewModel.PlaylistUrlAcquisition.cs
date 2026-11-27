@@ -272,12 +272,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        if (GetPlaylistUrlAcquisitionOptions().ShouldAutoInstall)
+        PlaylistUrlAcquisitionOptionsSnapshot options = GetPlaylistUrlAcquisitionOptions();
+        if (options.ShouldAutoInstall)
         {
             using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(1, url.ToString(), PlaylistUrlAcquisitionKind.UrlDownload);
             if (cancellation == null) { return; }
             requestCancellation = cancellation.Token;
-            PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url, cancellation).ConfigureAwait(false);
+            PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url, cancellation, options).ConfigureAwait(false);
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded
                 && playlistUrlAcquisitionWorkflow.IsStagedFileReady(result.FilePath))
             {
@@ -358,6 +359,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        // 取得の開始時に設定値を捕捉し、途中で設定が変わっても全対象へ同じ値を使う。
+        PlaylistUrlAcquisitionOptionsSnapshot options = GetPlaylistUrlAcquisitionOptions();
         try
         {
             for (int i = 0; i < targets.Count; i++)
@@ -381,7 +384,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(
                         target,
                         downloadedKeys,
-                        cancellationToken: cancellation.Token).ConfigureAwait(false);
+                        cancellationToken: cancellation.Token,
+                        options: options).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {
@@ -482,6 +486,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        PlaylistUrlAcquisitionOptionsSnapshot options = GetPlaylistUrlAcquisitionOptions();
         try
         {
             for (int i = 0; i < targets.Count; i++)
@@ -504,7 +509,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     result = await playlistExternalPackageLookupService.DownloadFirstAvailablePackageAsync(
                         targetMd5,
-                        (lookupResult, token) => DownloadExternalPackageLookupCandidateAsync(lookupResult, downloadedKeys, token),
+                        (lookupResult, token) => DownloadExternalPackageLookupCandidateAsync(lookupResult, downloadedKeys, options, token),
                         downloadedKeys,
                         failedDownloadKeys,
                         PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey,
@@ -609,14 +614,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync(Uri url, CancellationTokenSource cancellation)
+    private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync(Uri url, CancellationTokenSource cancellation, PlaylistUrlAcquisitionOptionsSnapshot options)
     {
         string displayName = url?.ToString() ?? string.Empty;
         PlaylistUrlDownloadResult result = null;
         try
         {
             UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: true, kind: PlaylistUrlAcquisitionKind.UrlDownload);
-            result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token).ConfigureAwait(false);
+            result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token, options: options).ConfigureAwait(false);
             cancellation.Token.ThrowIfCancellationRequested();
             UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, kind: PlaylistUrlAcquisitionKind.UrlDownload);
             return result;
@@ -638,6 +643,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task<PlaylistExternalPackageDownloadAttempt> DownloadExternalPackageLookupCandidateAsync(
         PlaylistExternalPackageLookupResult lookupResult,
         HashSet<string> downloadedKeys,
+        PlaylistUrlAcquisitionOptionsSnapshot options,
         CancellationToken cancellationToken)
     {
         if (lookupResult == null)
@@ -648,7 +654,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             lookupResult.DownloadUri,
             downloadedKeys,
             allowSharedPageResolution: false,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            options).ConfigureAwait(false);
         // 保存と応答解放を完了した取得物は、取消し後も既存の集約・回収へ渡します。
         if (result.Kind != PlaylistUrlDownloadResultKind.Downloaded)
         {

@@ -124,6 +124,9 @@ internal static class PlaylistUrlOwnershipTestSupport
 
         internal List<Uri> RequestedUris { get; } = [];
 
+        /// <summary>各要求へ渡されたヘッダー待ちの期限です。<see cref="RequestedUris"/> と同じ順に記録します。</summary>
+        internal List<TimeSpan> HeaderTimeouts { get; } = [];
+
         internal int OpenWriteCount { get; private set; }
 
         internal int GetTemporaryDirectoryCount { get; private set; }
@@ -143,10 +146,11 @@ internal static class PlaylistUrlOwnershipTestSupport
             responses[uri.AbsoluteUri] = responseFactory;
         }
 
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             RequestedUris.Add(uri);
+            HeaderTimeouts.Add(headerTimeout);
             if (TransportException is not null)
             {
                 throw TransportException;

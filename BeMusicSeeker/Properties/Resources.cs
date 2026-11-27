@@ -3674,4 +3674,38 @@ public class Resources
     public static string Audio_duplicate_organize_result_more_format => ResourceManager.GetString("Audio_duplicate_organize_result_more_format", resourceCulture);
     /// <summary>プレイリストの未所持行の右クリックメニューで、その曲の本体フォルダと推定した所持フォルダを並べるサブメニューの見出しです。</summary>
     public static string Playlist_base_candidates => ResourceManager.GetString("Playlist_base_candidates", resourceCulture);
+    /// <summary>詳細設定の「通信」節の見出しです。</summary>
+    public static string Network_settings_section => ResourceManager.GetString("Network_settings_section", resourceCulture);
+    /// <summary>外部難度表の同時取得数の項目名です。</summary>
+    public static string Network_external_table_sync_max_concurrency_label => ResourceManager.GetString("Network_external_table_sync_max_concurrency_label", resourceCulture);
+    /// <summary>外部難度表の同時取得数の説明です。</summary>
+    public static string Network_external_table_sync_max_concurrency_description => ResourceManager.GetString("Network_external_table_sync_max_concurrency_description", resourceCulture);
+    /// <summary>譜面・アーカイブの1ファイル上限の項目名です。</summary>
+    public static string Network_url_download_max_file_size_label => ResourceManager.GetString("Network_url_download_max_file_size_label", resourceCulture);
+    /// <summary>譜面・アーカイブの1ファイル上限の説明です。</summary>
+    public static string Network_url_download_max_file_size_description => ResourceManager.GetString("Network_url_download_max_file_size_description", resourceCulture);
+    /// <summary>ファイル取得の待ち時間の項目名です。</summary>
+    public static string Network_url_download_idle_timeout_label => ResourceManager.GetString("Network_url_download_idle_timeout_label", resourceCulture);
+    /// <summary>ファイル取得の待ち時間の説明です。</summary>
+    public static string Network_url_download_idle_timeout_description => ResourceManager.GetString("Network_url_download_idle_timeout_description", resourceCulture);
+    /// <summary>外部難度表の取得期限の項目名です。</summary>
+    public static string Network_external_table_request_timeout_label => ResourceManager.GetString("Network_external_table_request_timeout_label", resourceCulture);
+    /// <summary>外部難度表の取得期限の説明です。</summary>
+    public static string Network_external_table_request_timeout_description => ResourceManager.GetString("Network_external_table_request_timeout_description", resourceCulture);
+    /// <summary>外部難度表のHTML上限の項目名です。</summary>
+    public static string Network_external_table_html_limit_label => ResourceManager.GetString("Network_external_table_html_limit_label", resourceCulture);
+    /// <summary>外部難度表のHTML上限の説明です。</summary>
+    public static string Network_external_table_html_limit_description => ResourceManager.GetString("Network_external_table_html_limit_description", resourceCulture);
+    /// <summary>外部難度表のJSON上限の項目名です。</summary>
+    public static string Network_external_table_json_limit_label => ResourceManager.GetString("Network_external_table_json_limit_label", resourceCulture);
+    /// <summary>外部難度表のJSON上限の説明です。</summary>
+    public static string Network_external_table_json_limit_description => ResourceManager.GetString("Network_external_table_json_limit_description", resourceCulture);
+    /// <summary>通信設定の入力欄に添える、表の数の単位です。</summary>
+    public static string Network_unit_tables => ResourceManager.GetString("Network_unit_tables", resourceCulture);
+    /// <summary>通信設定の入力欄に添える、秒の単位です。</summary>
+    public static string Network_unit_seconds => ResourceManager.GetString("Network_unit_seconds", resourceCulture);
+    /// <summary>通信設定の入力欄に添える、MiBの単位です。</summary>
+    public static string Network_unit_mib => ResourceManager.GetString("Network_unit_mib", resourceCulture);
+    /// <summary>通信設定の入力が範囲外・整数以外のときの案内の書式です。{0}は下限、{1}は上限です。</summary>
+    public static string Network_setting_range_error_format => ResourceManager.GetString("Network_setting_range_error_format", resourceCulture);
 }

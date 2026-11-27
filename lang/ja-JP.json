@@ -1589,5 +1589,22 @@
   "Audio_duplicate_organize_result_format": "{0}フォルダを整理しました。完了 {1}／一部完了 {2}／スキップ {3}／未処理 {4}。",
   "Audio_duplicate_organize_result_trashed_format": "WAV・OGGの音源 {0}件をごみ箱へ送りました。",
   "Audio_duplicate_organize_result_more_format": "ほか{0}フォルダはログを確認してください。",
-  "Playlist_base_candidates": "本体候補"
+  "Playlist_base_candidates": "本体候補",
+  "Network_settings_section": "通信",
+  "Network_external_table_sync_max_concurrency_label": "外部難度表の同時取得数",
+  "Network_external_table_sync_max_concurrency_description": "外部難度表を登録・再読込みするときに、同時に取得する表の数です。大きいほど速くなる場合がありますが、接続先と回線への負荷が増えます。",
+  "Network_url_download_max_file_size_label": "譜面・アーカイブの1ファイルの上限",
+  "Network_url_download_max_file_size_description": "URLから取得する譜面や配布アーカイブ1ファイルの大きさの上限です。超えるファイルは取得しません。",
+  "Network_url_download_idle_timeout_label": "ファイル取得の待ち時間",
+  "Network_url_download_idle_timeout_description": "応答が始まるまでと、受信が途切れてから待つ時間です。この時間を過ぎると、そのファイルの取得は失敗します。",
+  "Network_external_table_request_timeout_label": "外部難度表の取得期限",
+  "Network_external_table_request_timeout_description": "外部難度表のHTML・ヘッダー・データの要求1件ごとに、送信を始めてから本文を読み終えるまでに使える時間です。",
+  "Network_external_table_html_limit_label": "外部難度表のHTMLの上限",
+  "Network_external_table_html_limit_description": "外部難度表のHTMLの展開後の大きさの上限です。",
+  "Network_external_table_json_limit_label": "外部難度表のJSONの上限",
+  "Network_external_table_json_limit_description": "外部難度表のヘッダーとデータ（JSON）の展開後の大きさの上限です。",
+  "Network_unit_tables": "表",
+  "Network_unit_seconds": "秒",
+  "Network_unit_mib": "MiB",
+  "Network_setting_range_error_format": "{0}～{1}の整数で入力してください。"
 }

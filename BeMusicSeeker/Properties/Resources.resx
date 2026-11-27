@@ -4685,4 +4685,55 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Playlist_base_candidates" xml:space="preserve">
     <value>本体候補</value>
   </data>
+  <data name="Network_settings_section" xml:space="preserve">
+    <value>通信</value>
+  </data>
+  <data name="Network_external_table_sync_max_concurrency_label" xml:space="preserve">
+    <value>外部難度表の同時取得数</value>
+  </data>
+  <data name="Network_external_table_sync_max_concurrency_description" xml:space="preserve">
+    <value>外部難度表を登録・再読込みするときに、同時に取得する表の数です。大きいほど速くなる場合がありますが、接続先と回線への負荷が増えます。</value>
+  </data>
+  <data name="Network_url_download_max_file_size_label" xml:space="preserve">
+    <value>譜面・アーカイブの1ファイルの上限</value>
+  </data>
+  <data name="Network_url_download_max_file_size_description" xml:space="preserve">
+    <value>URLから取得する譜面や配布アーカイブ1ファイルの大きさの上限です。超えるファイルは取得しません。</value>
+  </data>
+  <data name="Network_url_download_idle_timeout_label" xml:space="preserve">
+    <value>ファイル取得の待ち時間</value>
+  </data>
+  <data name="Network_url_download_idle_timeout_description" xml:space="preserve">
+    <value>応答が始まるまでと、受信が途切れてから待つ時間です。この時間を過ぎると、そのファイルの取得は失敗します。</value>
+  </data>
+  <data name="Network_external_table_request_timeout_label" xml:space="preserve">
+    <value>外部難度表の取得期限</value>
+  </data>
+  <data name="Network_external_table_request_timeout_description" xml:space="preserve">
+    <value>外部難度表のHTML・ヘッダー・データの要求1件ごとに、送信を始めてから本文を読み終えるまでに使える時間です。</value>
+  </data>
+  <data name="Network_external_table_html_limit_label" xml:space="preserve">
+    <value>外部難度表のHTMLの上限</value>
+  </data>
+  <data name="Network_external_table_html_limit_description" xml:space="preserve">
+    <value>外部難度表のHTMLの展開後の大きさの上限です。</value>
+  </data>
+  <data name="Network_external_table_json_limit_label" xml:space="preserve">
+    <value>外部難度表のJSONの上限</value>
+  </data>
+  <data name="Network_external_table_json_limit_description" xml:space="preserve">
+    <value>外部難度表のヘッダーとデータ（JSON）の展開後の大きさの上限です。</value>
+  </data>
+  <data name="Network_unit_tables" xml:space="preserve">
+    <value>表</value>
+  </data>
+  <data name="Network_unit_seconds" xml:space="preserve">
+    <value>秒</value>
+  </data>
+  <data name="Network_unit_mib" xml:space="preserve">
+    <value>MiB</value>
+  </data>
+  <data name="Network_setting_range_error_format" xml:space="preserve">
+    <value>{0}～{1}の整数で入力してください。</value>
+  </data>
 </root>

@@ -1589,5 +1589,22 @@
   "Audio_duplicate_organize_result_format": "已整理 {0} 個資料夾。完成 {1}／部分完成 {2}／略過 {3}／未處理 {4}。",
   "Audio_duplicate_organize_result_trashed_format": "已將{0}個WAV/OGG音源移至資源回收筒。",
   "Audio_duplicate_organize_result_more_format": "其餘 {0} 個資料夾請查看記錄。",
-  "Playlist_base_candidates": "本體候選"
+  "Playlist_base_candidates": "本體候選",
+  "Network_settings_section": "通訊",
+  "Network_external_table_sync_max_concurrency_label": "外部難度表同時取得數",
+  "Network_external_table_sync_max_concurrency_description": "註冊或重新讀取外部難度表時，同時取得的表的數量。數值越大可能越快，但會增加伺服器與網路的負擔。",
+  "Network_url_download_max_file_size_label": "譜面・壓縮檔單一檔案的大小上限",
+  "Network_url_download_max_file_size_description": "從 URL 取得的譜面或發佈壓縮檔單一檔案的大小上限。超過上限的檔案不會被取得。",
+  "Network_url_download_idle_timeout_label": "檔案取得的等待時間",
+  "Network_url_download_idle_timeout_description": "等待回應開始的時間，以及接收中斷後繼續等待的時間。超過此時間，該檔案的取得將失敗。",
+  "Network_external_table_request_timeout_label": "外部難度表的取得期限",
+  "Network_external_table_request_timeout_description": "外部難度表的每個 HTML、標頭與資料請求，從開始傳送到讀完本文所能使用的時間。",
+  "Network_external_table_html_limit_label": "外部難度表 HTML 的大小上限",
+  "Network_external_table_html_limit_description": "外部難度表 HTML 解壓縮後的大小上限。",
+  "Network_external_table_json_limit_label": "外部難度表 JSON 的大小上限",
+  "Network_external_table_json_limit_description": "外部難度表的標頭與資料（JSON）解壓縮後的大小上限。",
+  "Network_unit_tables": "表",
+  "Network_unit_seconds": "秒",
+  "Network_unit_mib": "MiB",
+  "Network_setting_range_error_format": "請輸入 {0} 到 {1} 之間的整數。"
 }

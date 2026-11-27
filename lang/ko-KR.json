@@ -1589,5 +1589,22 @@
   "Audio_duplicate_organize_result_format": "{0}개 폴더를 정리했습니다. 완료 {1}／일부 완료 {2}／건너뜀 {3}／미처리 {4}.",
   "Audio_duplicate_organize_result_trashed_format": "WAV/OGG 음원 {0}개를 휴지통으로 보냈습니다.",
   "Audio_duplicate_organize_result_more_format": "그 외 {0}개 폴더는 로그를 확인해 주세요.",
-  "Playlist_base_candidates": "본체 후보"
+  "Playlist_base_candidates": "본체 후보",
+  "Network_settings_section": "통신",
+  "Network_external_table_sync_max_concurrency_label": "외부 난이도표 동시 가져오기 수",
+  "Network_external_table_sync_max_concurrency_description": "외부 난이도표를 등록하거나 다시 불러올 때 동시에 가져오는 표의 수입니다. 값이 클수록 빨라질 수 있지만 서버와 회선의 부하가 늘어납니다.",
+  "Network_url_download_max_file_size_label": "채보·압축 파일 1개의 크기 상한",
+  "Network_url_download_max_file_size_description": "URL에서 받는 채보 또는 배포 압축 파일 1개의 크기 상한입니다. 이를 넘는 파일은 받지 않습니다.",
+  "Network_url_download_idle_timeout_label": "파일 받기 대기 시간",
+  "Network_url_download_idle_timeout_description": "응답이 시작될 때까지, 그리고 수신이 끊긴 뒤 기다리는 시간입니다. 이 시간이 지나면 해당 파일 받기는 실패합니다.",
+  "Network_external_table_request_timeout_label": "외부 난이도표 가져오기 제한 시간",
+  "Network_external_table_request_timeout_description": "외부 난이도표의 HTML·헤더·데이터 요청 1건마다, 전송을 시작해서 본문을 다 읽을 때까지 쓸 수 있는 시간입니다.",
+  "Network_external_table_html_limit_label": "외부 난이도표 HTML 크기 상한",
+  "Network_external_table_html_limit_description": "외부 난이도표 HTML의 압축 해제 후 크기 상한입니다.",
+  "Network_external_table_json_limit_label": "외부 난이도표 JSON 크기 상한",
+  "Network_external_table_json_limit_description": "외부 난이도표 헤더와 데이터(JSON)의 압축 해제 후 크기 상한입니다.",
+  "Network_unit_tables": "표",
+  "Network_unit_seconds": "초",
+  "Network_unit_mib": "MiB",
+  "Network_setting_range_error_format": "{0}~{1} 사이의 정수를 입력하세요."
 }

@@ -684,6 +684,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="recommendationScoreReader">推薦用の原観測を読み取る既存依存。省略時は所有ライブラリへ接続し、L/Pの所有関係は変えません。</param>
     /// <param name="initializeEntryWriteConnection">ownerが取得したentry保存接続へ、寿命内の観測・設定を取り付けます。</param>
     /// <param name="lr2PlaylistFolderSynchronization">独立構成で明示する出力境界。省略時は所有ライブラリの同期能力を使います。</param>
+    /// <param name="externalNetworkOptionsProvider">外部難度表の同時取得数・取得期限・本文上限を操作の開始時に捕捉する関数。省略時は既定値です。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
@@ -698,7 +699,8 @@ public partial class BMSPlaylist : ObservableObject
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
         Action<LR2SongDBExtended> initializeEntryWriteConnection = null,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
+        Func<PlaylistExternalNetworkOptionsSnapshot> externalNetworkOptionsProvider = null)
         : this(
             RequireLibraryBindings(libraryBindings).SourceLibrary.DatabaseScope,
             _lr2SongDB,
@@ -715,7 +717,8 @@ public partial class BMSPlaylist : ObservableObject
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,
             recommendationScoreReader,
-            initializeEntryWriteConnection)
+            initializeEntryWriteConnection,
+            externalNetworkOptionsProvider)
     {
         this.libraryBindings = RequireLibraryBindings(libraryBindings);
         playlistMutationAdmission = libraryBindings.SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission;
@@ -741,6 +744,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
     /// <param name="initializeEntryWriteConnection">ownerが取得したentry保存接続へ、寿命内の観測・設定を取り付けます。</param>
+    /// <param name="externalNetworkOptionsProvider">外部難度表の同時取得数・取得期限・本文上限を操作の開始時に捕捉する関数。省略時は既定値です。</param>
     /// <param name="databaseScope">保存・復元と終了処理が共有する構成寿命のDB所有者。</param>
     internal BMSPlaylist(
         ApplicationDatabaseScope databaseScope,
@@ -758,7 +762,8 @@ public partial class BMSPlaylist : ObservableObject
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        Action<LR2SongDBExtended> initializeEntryWriteConnection = null)
+        Action<LR2SongDBExtended> initializeEntryWriteConnection = null,
+        Func<PlaylistExternalNetworkOptionsSnapshot> externalNetworkOptionsProvider = null)
     {
         if (_lr2SongDB == null)
         {
@@ -926,7 +931,8 @@ public partial class BMSPlaylist : ObservableObject
             ApplyCachedPlaylistUrlCompletionToTables,
             ReOutputCustomFoldersAfterContentReplacement,
             capability => AcquirePlaylistMutationLease("external_playlist_mutation", capability: capability),
-            PublishReferenceTableUpdates);
+            PublishReferenceTableUpdates,
+            externalNetworkOptionsProvider);
         externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,

@@ -1589,5 +1589,22 @@
   "Audio_duplicate_organize_result_format": "Organized {0} folders. Completed {1} / Partially completed {2} / Skipped {3} / Not processed {4}.",
   "Audio_duplicate_organize_result_trashed_format": "Sent {0} WAV/OGG audio files to the Recycle Bin.",
   "Audio_duplicate_organize_result_more_format": "Check the log for the other {0} folders.",
-  "Playlist_base_candidates": "Base candidates"
+  "Playlist_base_candidates": "Base candidates",
+  "Network_settings_section": "Network",
+  "Network_external_table_sync_max_concurrency_label": "Simultaneous external table downloads",
+  "Network_external_table_sync_max_concurrency_description": "How many external difficulty tables are fetched at the same time when registering or reloading. Higher values can be faster but put more load on the servers and your connection.",
+  "Network_url_download_max_file_size_label": "Maximum size per chart or archive file",
+  "Network_url_download_max_file_size_description": "Upper limit for one chart or archive file downloaded from a URL. Larger files are not downloaded.",
+  "Network_url_download_idle_timeout_label": "Download wait time",
+  "Network_url_download_idle_timeout_description": "How long to wait for a response to start, and for more data after the transfer stalls. A file that exceeds this time fails to download.",
+  "Network_external_table_request_timeout_label": "External table fetch time limit",
+  "Network_external_table_request_timeout_description": "Time allowed for each HTML, header, or data request of an external table, from sending the request until the whole body is read.",
+  "Network_external_table_html_limit_label": "External table HTML size limit",
+  "Network_external_table_html_limit_description": "Upper limit for the size of an external table's HTML after decompression.",
+  "Network_external_table_json_limit_label": "External table JSON size limit",
+  "Network_external_table_json_limit_description": "Upper limit for the size of an external table's header and data JSON after decompression.",
+  "Network_unit_tables": "tables",
+  "Network_unit_seconds": "seconds",
+  "Network_unit_mib": "MiB",
+  "Network_setting_range_error_format": "Enter a whole number from {0} to {1}."
 }

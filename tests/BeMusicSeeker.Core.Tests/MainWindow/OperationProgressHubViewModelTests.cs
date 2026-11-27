@@ -1677,7 +1677,7 @@ public sealed class OperationProgressHubViewModelTests
         internal TaskCompletionSource<AppHttpResponse> Response { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
         {
             ReadStarted.Set();
             return Response.Task;

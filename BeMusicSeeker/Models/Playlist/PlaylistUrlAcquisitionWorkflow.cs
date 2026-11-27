@@ -72,18 +72,25 @@ internal sealed class PlaylistUrlDownloadResult
 
 internal interface IPlaylistUrlDownloadGateway
 {
-    Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken);
+    /// <summary>応答ヘッダーを <paramref name="headerTimeout"/> まで待ち、本文は期限で切らずに開きます。</summary>
+    Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken);
     string GetTemporaryDirectory();
     FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share);
     bool FileExists(string path);
     void DeleteFile(string path);
 }
 
-internal sealed class AppPlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway
+internal sealed class AppPlaylistUrlDownloadGateway(AppHttpClient httpClient) : IPlaylistUrlDownloadGateway
 {
-    public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+    /// <summary>アプリ共通のHTTPクライアントで取得するgatewayを構成します。</summary>
+    internal AppPlaylistUrlDownloadGateway()
+        : this(AppHttpClient.Shared)
     {
-        return AppHttpClient.Shared.OpenReadAsync(uri, cancellationToken);
+    }
+
+    public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
+    {
+        return httpClient.OpenReadAsync(uri, headerTimeout, cancellationToken);
     }
 
     public string GetTemporaryDirectory()
@@ -109,8 +116,6 @@ internal sealed class AppPlaylistUrlDownloadGateway : IPlaylistUrlDownloadGatewa
 
 internal sealed partial class PlaylistUrlAcquisitionWorkflow
 {
-    private const long DownloadAndInstallSizeLimitBytes = 536870912L;
-
     private const int SharedDownloadPageResolverMaxBytes = 2097152;
 
     private static readonly string[] DownloadAndInstallArchiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
@@ -121,6 +126,9 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
 
     private static readonly Regex odriveRegex = new("https?://onedrive\\.live\\.com/redir\\?(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+
+    /// <summary>設定を渡さない取得が使う、設定が未保存の既定値です。</summary>
+    private static readonly PlaylistUrlAcquisitionOptionsSnapshot DefaultOptions = new();
 
     private readonly IPlaylistUrlDownloadGateway _downloadGateway;
 
@@ -175,8 +183,10 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         return CreateDownloadKeyCore(uri);
     }
     /// <summary>通常の通信・入力失敗を取得結果へ変換し、内部故障と未解決の回収は呼出元へ返します。</summary>
-    internal async Task<PlaylistUrlDownloadResult> DownloadCandidateAsync(Uri uri, HashSet<string> downloadedKeys = null, bool allowSharedPageResolution = true, CancellationToken cancellationToken = default)
+    /// <param name="options">この取得が使う1ファイル上限と応答待ち・無受信時間。操作の開始時に捕捉した値を渡し、省略時は既定値です。</param>
+    internal async Task<PlaylistUrlDownloadResult> DownloadCandidateAsync(Uri uri, HashSet<string> downloadedKeys = null, bool allowSharedPageResolution = true, CancellationToken cancellationToken = default, PlaylistUrlAcquisitionOptionsSnapshot options = null)
     {
+        options ??= DefaultOptions;
         if (uri == null || !uri.IsAbsoluteUri)
         {
             return PlaylistUrlDownloadResult.BrowserFallback();
@@ -201,10 +211,10 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         PlaylistUrlDownloadResult result = null;
         try
         {
-            AppHttpResponse response = await _downloadGateway.OpenReadAsync(normalizedUri, cancellationToken).ConfigureAwait(false);
+            AppHttpResponse response = await _downloadGateway.OpenReadAsync(normalizedUri, options.IdleTimeout, cancellationToken).ConfigureAwait(false);
             result = await DownloadPlaylistUrlResponseCandidateAsync(normalizedUri, response, tempDirectory,
                 allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.Ordinal),
-                downloadedKeys, cancellationToken).ConfigureAwait(false);
+                downloadedKeys, options, cancellationToken).ConfigureAwait(false);
             // 再帰元を含む全応答の解放後だけ、次候補が使う成功済みキーを確定します。
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.DownloadKey))
             {
@@ -227,7 +237,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
     }
 
     // 応答の破棄が失敗した場合も、呼出元へ渡せなかった取得物を所有者が回収します。
-    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, CancellationToken cancellationToken)
+    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, PlaylistUrlAcquisitionOptionsSnapshot options, CancellationToken cancellationToken)
     {
         PlaylistUrlDownloadResult result = null;
         Exception operationFailure = null;
@@ -236,7 +246,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
             try
             {
                 result = await DownloadPlaylistUrlResponseCandidateCoreAsync(requestedUri, response, tempDirectory,
-                    remainingSharedPageResolutionDepth, resolvedPageUris, downloadedKeys, cancellationToken).ConfigureAwait(false);
+                    remainingSharedPageResolutionDepth, resolvedPageUris, downloadedKeys, options, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception failure)
             {
@@ -266,7 +276,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         }
     }
 
-    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateCoreAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, CancellationToken cancellationToken = default)
+    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateCoreAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, PlaylistUrlAcquisitionOptionsSnapshot options, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Uri responseUri = response?.ResponseUri;
@@ -283,15 +293,17 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
             {
                 return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
             }
-            if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
+            // 共有ページのHTMLは解析用の別上限で読むため、2 MiB以下の宣言長なら1ファイル上限で先に拒否しない。
+            // 実体と判明した場合は、書込み前に同じ宣言長の判定を行う。
+            if (response.ContentLength.Value > options.MaxFileSizeBytes && !MayBeSharedDownloadPage(requestedUri, response))
             {
-                LogDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentLength=" + response.ContentLength.Value + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
+                LogDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentLength=" + response.ContentLength.Value + " limitBytes=" + options.MaxFileSizeBytes);
                 return PlaylistUrlDownloadResult.BlockedBySizeLimit(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
             }
         }
         if (remainingSharedPageResolutionDepth > 0 && ShouldResolveSharedDownloadPageBeforeFileName(requestedUri, response))
         {
-            (Uri resolvedUri, bool unsupportedScheme) resolution = await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false);
+            (Uri resolvedUri, bool unsupportedScheme) resolution = await TryResolveSharedDownloadPageUriAsync(requestedUri, response, options, cancellationToken).ConfigureAwait(false);
             if (resolution.unsupportedScheme)
             {
                 LogDownload("playlist_url_download rejected_unsupported_recursive_scheme source=" + requestedUri + " response=" + responseUri);
@@ -307,8 +319,8 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
                     return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
                 }
                 LogDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
-                AppHttpResponse resolvedResponse = await _downloadGateway.OpenReadAsync(resolvedUri, cancellationToken).ConfigureAwait(false);
-                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, cancellationToken).ConfigureAwait(false);
+                AppHttpResponse resolvedResponse = await _downloadGateway.OpenReadAsync(resolvedUri, options.IdleTimeout, cancellationToken).ConfigureAwait(false);
+                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, options, cancellationToken).ConfigureAwait(false);
             }
             LogDownload("playlist_url_download unresolved_shared_page source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentType=" + GetContentTypeLogValue(response));
             return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
@@ -322,7 +334,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         if (!IsDownloadAndInstallCandidateFileName(fileName))
         {
             (Uri resolvedUri, bool unsupportedScheme) resolution = remainingSharedPageResolutionDepth > 0
-                ? await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false)
+                ? await TryResolveSharedDownloadPageUriAsync(requestedUri, response, options, cancellationToken).ConfigureAwait(false)
                 : (null, false);
             if (resolution.unsupportedScheme)
             {
@@ -339,8 +351,8 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
                     return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
                 }
                 LogDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
-                AppHttpResponse resolvedResponse = await _downloadGateway.OpenReadAsync(resolvedUri, cancellationToken).ConfigureAwait(false);
-                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, cancellationToken).ConfigureAwait(false);
+                AppHttpResponse resolvedResponse = await _downloadGateway.OpenReadAsync(resolvedUri, options.IdleTimeout, cancellationToken).ConfigureAwait(false);
+                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, options, cancellationToken).ConfigureAwait(false);
             }
             LogDownload("playlist_url_download skipped_unsupported source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " fileName=" + fileName + " contentType=" + GetContentTypeLogValue(response));
             return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
@@ -354,14 +366,27 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
                 return PlaylistUrlDownloadResult.Duplicate(downloadKey);
             }
         }
-        string filePath = Path.Combine(tempDirectory, fileName);
-        if (!await TryCopyStreamToFileWithLimitAsync(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes, cancellationToken).ConfigureAwait(false))
+        if (response.ContentLength > options.MaxFileSizeBytes)
         {
-            LogDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " file=" + fileName + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
+            // 共有ページの可能性で先送りした宣言長の判定です。書込みを始める前に拒否します。
+            LogDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentLength=" + response.ContentLength.Value + " limitBytes=" + options.MaxFileSizeBytes);
+            return PlaylistUrlDownloadResult.BlockedBySizeLimit(downloadKey);
+        }
+        string filePath = Path.Combine(tempDirectory, fileName);
+        if (!await TryCopyStreamToFileWithLimitAsync(response.ResponseStream, filePath, options.MaxFileSizeBytes, options.IdleTimeout, cancellationToken).ConfigureAwait(false))
+        {
+            LogDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " file=" + fileName + " limitBytes=" + options.MaxFileSizeBytes);
             return PlaylistUrlDownloadResult.BlockedBySizeLimit(downloadKey);
         }
         LogDownload("playlist_url_download downloaded source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " key=" + (downloadKey ?? string.Empty) + " file=" + fileName + " contentType=" + GetContentTypeLogValue(response));
         return PlaylistUrlDownloadResult.Downloaded(filePath, downloadKey);
+    }
+
+    /// <summary>共有ページの解決対象として読める大きさ（2 MiB以下）の応答かを返します。</summary>
+    private static bool MayBeSharedDownloadPage(Uri requestedUri, AppHttpResponse response)
+    {
+        return response?.ContentLength <= SharedDownloadPageResolverMaxBytes
+            && (IsSharedDownloadPageResolutionCandidate(requestedUri) || IsSharedDownloadPageResolutionCandidate(response.ResponseUri));
     }
 
     private static bool ShouldResolveSharedDownloadPageBeforeFileName(Uri requestedUri, AppHttpResponse response)
@@ -590,7 +615,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         return string.IsNullOrWhiteSpace(fileId) ? null : fileId;
     }
 
-    private async Task<(Uri resolvedUri, bool unsupportedScheme)> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
+    private async Task<(Uri resolvedUri, bool unsupportedScheme)> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, PlaylistUrlAcquisitionOptionsSnapshot options, CancellationToken cancellationToken = default)
     {
         if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(response?.ResponseUri))
         {
@@ -600,7 +625,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         {
             return (null, false);
         }
-        string html = await ReadTextWithLimitAsync(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, cancellationToken).ConfigureAwait(false);
+        string html = await ReadTextWithLimitAsync(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, options.IdleTimeout, cancellationToken).ConfigureAwait(false);
         if (html == null)
         {
             return (null, false);
@@ -784,7 +809,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
             || IsBmsSearchInfoUri(uri);
     }
 
-    private async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, CancellationToken cancellationToken = default)
+    private async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, TimeSpan idleTimeout, CancellationToken cancellationToken = default)
     {
         if (source == null || maxBytes <= 0)
         {
@@ -793,7 +818,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         byte[] buffer = new byte[8192];
         using var memoryStream = new MemoryStream();
         int count;
-        while ((count = await ReadBodyAsync(source, buffer, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length), cancellationToken).ConfigureAwait(false)) > 0)
+        while ((count = await ReadBodyAsync(source, buffer, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length), idleTimeout, cancellationToken).ConfigureAwait(false)) > 0)
         {
             await memoryStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
             if (memoryStream.Length > maxBytes)
@@ -804,10 +829,10 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         return DecodeDownloadPage(memoryStream.ToArray(), charSet);
     }
 
-    // 無受信の期限は一回の実読取りだけに適用する。書込み・解析や次の読取りへ時計を持ち越さない。
-    private async Task<int> ReadBodyAsync(Stream source, byte[] buffer, int count, CancellationToken cancellationToken)
+    // 無受信の期限は一回の実読取りだけに適用する。ヘッダー待ちの期限や書込み・解析、次の読取りへ時計を持ち越さない。
+    private async Task<int> ReadBodyAsync(Stream source, byte[] buffer, int count, TimeSpan idleTimeout, CancellationToken cancellationToken)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30), timeProvider);
+        using var deadline = new CancellationTokenSource(idleTimeout, timeProvider);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         return await source.ReadAsync(buffer, 0, count, cancellation.Token).ConfigureAwait(false);
     }
@@ -899,7 +924,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
         return uriSet.Add(builder.Uri.AbsoluteUri);
     }
 
-    private async Task<bool> TryCopyStreamToFileWithLimitAsync(Stream source, string destinationPath, long maxBytes, CancellationToken cancellationToken = default)
+    private async Task<bool> TryCopyStreamToFileWithLimitAsync(Stream source, string destinationPath, long maxBytes, TimeSpan idleTimeout, CancellationToken cancellationToken = default)
     {
         byte[] buffer = new byte[81920];
         long totalBytes = 0;
@@ -914,7 +939,7 @@ internal sealed partial class PlaylistUrlAcquisitionWorkflow
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    int count = await ReadBodyAsync(source, buffer, buffer.Length, cancellationToken).ConfigureAwait(false);
+                    int count = await ReadBodyAsync(source, buffer, buffer.Length, idleTimeout, cancellationToken).ConfigureAwait(false);
                     if (count <= 0) { break; }
                     cancellationToken.ThrowIfCancellationRequested();
                     totalBytes += count;

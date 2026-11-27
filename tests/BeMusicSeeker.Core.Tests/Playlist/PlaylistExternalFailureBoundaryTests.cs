@@ -118,7 +118,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             switch (malformedPart)
             {
                 case "array-header": File.WriteAllText(badHeader, "[]"); break;
-                case "oversized-html": File.WriteAllText(badHeader, "<html>" + new string(' ', ExternalPlaylistContentReader.HtmlLimitBytes) + "<meta name=\"bmstable\" content=\"good-header.json\">"); break;
+                case "oversized-html": File.WriteAllText(badHeader, "<html>" + new string(' ', PlaylistExternalNetworkOptionsSnapshot.Default.HtmlLimitBytes) + "<meta name=\"bmstable\" content=\"good-header.json\">"); break;
                 case "json-with-html-meta": File.WriteAllText(badHeader, "{ invalid json }<html><meta name=\"bmstable\" content=\"good-header.json\"></html>"); break;
                 case "header": File.WriteAllText(badHeader, "{ invalid json }"); break;
                 case "data": File.WriteAllText(badData, "{ invalid json }"); break;

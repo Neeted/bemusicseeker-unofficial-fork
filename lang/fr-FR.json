@@ -1589,5 +1589,22 @@
   "Audio_duplicate_organize_result_format": "{0} dossiers nettoyés. Terminés {1} / Partiellement terminés {2} / Ignorés {3} / Non traités {4}.",
   "Audio_duplicate_organize_result_trashed_format": "{0} fichier(s) audio WAV/OGG envoyé(s) à la Corbeille.",
   "Audio_duplicate_organize_result_more_format": "Consultez le journal pour les {0} autres dossiers.",
-  "Playlist_base_candidates": "Candidats du dossier de base"
+  "Playlist_base_candidates": "Candidats du dossier de base",
+  "Network_settings_section": "Réseau",
+  "Network_external_table_sync_max_concurrency_label": "Téléchargements simultanés de tableaux externes",
+  "Network_external_table_sync_max_concurrency_description": "Nombre de tableaux de difficulté externes récupérés en même temps lors de l'enregistrement ou du rechargement. Une valeur élevée peut accélérer l'opération mais augmente la charge sur les serveurs et la connexion.",
+  "Network_url_download_max_file_size_label": "Taille maximale par fichier de chart ou d'archive",
+  "Network_url_download_max_file_size_description": "Taille maximale d'un fichier de chart ou d'archive téléchargé depuis une URL. Les fichiers plus volumineux ne sont pas téléchargés.",
+  "Network_url_download_idle_timeout_label": "Délai d'attente du téléchargement",
+  "Network_url_download_idle_timeout_description": "Durée d'attente avant le début de la réponse, puis après l'arrêt de la réception de données. Au-delà, le téléchargement du fichier échoue.",
+  "Network_external_table_request_timeout_label": "Délai de récupération d'un tableau externe",
+  "Network_external_table_request_timeout_description": "Temps accordé à chaque requête HTML, d'en-tête ou de données d'un tableau externe, de l'envoi jusqu'à la lecture complète du contenu.",
+  "Network_external_table_html_limit_label": "Taille maximale du HTML d'un tableau externe",
+  "Network_external_table_html_limit_description": "Taille maximale du HTML d'un tableau externe après décompression.",
+  "Network_external_table_json_limit_label": "Taille maximale du JSON d'un tableau externe",
+  "Network_external_table_json_limit_description": "Taille maximale des JSON d'en-tête et de données d'un tableau externe après décompression.",
+  "Network_unit_tables": "tableaux",
+  "Network_unit_seconds": "secondes",
+  "Network_unit_mib": "Mio",
+  "Network_setting_range_error_format": "Saisissez un nombre entier de {0} à {1}."
 }

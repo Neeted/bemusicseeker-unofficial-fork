@@ -106,6 +106,8 @@ LR2連携は、XMLの差分保存、必要な設定項目の保存、その回�
 
 正規化の保存に失敗しても、元のファイルを破壊せず、読み込めた値を正規化して利用します。通常起動のバージョン記録を、過去の段階ごとの移行手順として再実行しません。カスタムフォルダの再出力も過去のバージョンではなく、現在の出力欠落や内容変更で判断します。
 
+通信設定の6値（`ExternalTableSyncMaxConcurrency`、`UrlDownloadMaxFileSizeMiB`、`UrlDownloadIdleTimeoutSeconds`、`ExternalTableRequestTimeoutSeconds`、`ExternalTableHtmlLimitMiB`、`ExternalTableJsonLimitMiB`）は正の整数で保存し、ファイルまたはキーがない場合と、範囲外・整数以外の保存値は読込み時に既定値になります。下限・上限ちょうどは保持し、他の設定キーと未知キーは保持して、起動失敗やファイル全体の初期化にしません。範囲と既定値は[通信設定](settings.md#通信設定)を正本とします。
+
 ### 保存失敗と実行中の設定
 
 通常項目の保存失敗は当該項目の確定値・表示・次回入力を旧値に保ち、他項目を戻しません。局所グループは候補を保って明示再試行を待ちます。音量のpreviewは再生設定ストア内に保持し、操作終端で音量キーだけを保存します。保存失敗では最新の確定音量を表示と現在再生へ反映します。
@@ -120,6 +122,7 @@ BMTの異物理先変更は、新先の必要ファイルと管理情報を先�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 通信設定6値の既定・範囲外の既定化・保存と操作値への写像 | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)（`IntegerRange`、通信設定の各項目） | `PortableSettingsPersistenceTests.MissingFileAndIndividualKeyUseDefaults` は欠損時の既定、`NetworkSettingsInvalidFileValuesUseDefaultsAndBoundariesAreKept` は不正値の既定化と下限・上限・未知キーの保持、`NetworkSettingsRoundTripAndMapToOperationValues` は保存・新しい読取り口とバイト数・TimeSpan・longの上限への写像 |
 | 確認済み登録の差分保存・同所導入先・通知 | `BmsRootRegistrationStore.SaveRootChanges`、`Lr2RootChange` | `BmsRootRegistrationTests.RootSpellingChange_PreservesOtherRegistrationsAndPublishesAfterAllMedia` が両modeの登録・三種管理基点・関連/無関係導入先、XML/Settingsの部分失敗、未知属性保持と通知失敗を実媒体で確認する。`RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement` が保存済みB/公開Aの分離を確認する。`SettingsDialogBehaviorTests.FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement` が標準compositionの既定provider・実file diff・次の再出力/差分、確定表示と候補・score取得世代/履歴の保持を確認する。`Lr2ConfigOwnerTests.CaseOnlyRootChange_ReplacesInPlaceAndPublishesOnlyItsDelta` が元順序と限定公開を確認する。 |
 | 未設定LR2へのモード選択の限定保存 | [モード選択](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[終了受付](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | `SettingsDialogBehaviorTests.OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure` が未設定・不正な生パス保持、実保存失敗と明示再操作、未知キー・別wrapperの無関係確定値を確認する。`MainWindowViewHostTests.MainWindowOperationModeRestart*` が実Close・プレイヤーの回収・後継起動を、既存の `PortableSettingsPersistenceTests` がprovider自体の限定公開を分担する。 |
 | 確定BMS登録の共通保存・限定公開 | [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) | `BmsRootRegistrationTests` が実config/XMLの片側失敗・最新/同値明示保存・未知XML・roots-only保存を、`SettingsDialogBehaviorTests.Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave` が候補・通常Close/reopen・必要差分終端を分担する。 |

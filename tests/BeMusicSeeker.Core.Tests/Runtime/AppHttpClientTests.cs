@@ -1,5 +1,4 @@
 using System.Collections.Specialized;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Web;
@@ -472,14 +471,12 @@ public sealed class AppHttpClientTests
         var httpObservers = new List<Task>();
         var clock = new ManualRequestTimeProvider();
         StagedResponseHandler? handler = null;
-        HttpClient? transport = null;
         Task<string>? request = null;
         Exception? primaryFailure = null;
         try
         {
             handler = new StagedResponseHandler();
-            transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-            var client = new AppHttpClient(transport, clock);
+            var client = new AppHttpClient(handler, 30000, clock);
             request = StartBufferedRequest(client, new Uri("https://example.invalid/deadline"), operation, httpOperation.Token);
             // 要求側の失敗を phase 待ちに隠さず、各段階の通知を直接観測する。
             await AwaitPhaseOrRequestAsync(handler.RequestStarted.Task, request, "request started", httpOperation.Token);
@@ -506,14 +503,12 @@ public sealed class AppHttpClientTests
         {
             using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             httpOperation.Cancel();
-            handler?.ReleaseHeaders.TrySetResult();
-            handler?.Body.Release.TrySetResult(0);
-            transport?.CancelPendingRequests();
+            handler?.ReleaseAll();
             Task[] owned = httpObservers.Concat(new Task?[] { request }.OfType<Task>()).ToArray();
             try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned); }
             finally
             {
-                if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); handler?.Dispose(); }
+                if (owned.All(task => task.IsCompleted)) { handler?.Dispose(); }
             }
         }
     }
@@ -695,180 +690,229 @@ public sealed class AppHttpClientTests
         return filePath;
     }
 
-    // Only the deadline test uses this local transport. The socket-based adapter
-    // tests below still require a real peer disconnect before fixture cleanup.
-    private sealed class StagedResponseHandler : HttpMessageHandler
+    /// <summary>期限を指定しない全メソッドが、ヘッダー待ちを既定秒数ちょうどで切り、直前までは切りません。</summary>
+    /// <remarks>
+    /// 期限は手動時計の <c>Advance</c> だけで進めます。既定期限の1ms前には送信の取消しも失敗も起きず、ちょうどで
+    /// <see cref="TimeoutException"/> を内部例外に持つ <see cref="TaskCanceledException"/> になり、呼出し元の取消トークンは取消されず、
+    /// 実際の送信が取り消されることを確認します。HttpClient既定の実時間期限へ戻す誤りや、利用者取消との混同を検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("GetBytes")]
+    [DataRow("GetString")]
+    [DataRow("GetStringAsync")]
+    [DataRow("PostForm")]
+    [DataRow("PostFormAsync")]
+    [DataRow("PostString")]
+    [DataRow("PostFile")]
+    [DataRow("DownloadFile")]
+    [DataRow("OpenRead")]
+    [DataRow("OpenReadAsync")]
+    [TestCategory("Http")]
+    public async Task DefaultDeadline_HeaderWaitExpiresExactlyAtDefault(string operation)
     {
-        private readonly HttpResponseMessage response;
-
-        internal StagedResponseHandler()
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var clock = new ManualRequestTimeProvider();
+        var handler = new StagedResponseHandler();
+        Task? request = null;
+        Exception? primaryFailure = null;
+        try
         {
-            response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(Body) };
+            var client = new AppHttpClient(handler, 30000, clock);
+            string uploadPath = Path.Combine(workspace.RootDirectory, "upload.bin");
+            File.WriteAllBytes(uploadPath, [1, 2, 3]);
+            request = StartHeaderRequest(client, operation, new Uri("https://example.invalid/default"), uploadPath,
+                Path.Combine(workspace.RootDirectory, "download.bin"), httpOperation.Token);
+            await AwaitPhaseOrRequestAsync(handler.RequestStarted.Task, request, "request started", httpOperation.Token);
+            clock.Advance(TimeSpan.FromSeconds(30) - TimeSpan.FromMilliseconds(1));
+            Assert.IsFalse(handler.RequestCancellation.IsCancellationRequested, "既定期限の直前までは送信を取り消しません。");
+            Assert.IsFalse(request.IsCompleted);
+
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            Exception failure = await Assert.ThrowsAsync<TaskCanceledException>(() => request.WaitAsync(httpOperation.Token));
+            Assert.IsInstanceOfType<TimeoutException>(failure.InnerException, "期限切れは利用者取消と区別できる内部例外を持ちます。");
+            Assert.IsTrue(handler.RequestCancellation.IsCancellationRequested, "期限切れで実際の送信を取り消します。");
+            Assert.IsFalse(httpOperation.IsCancellationRequested, "呼出し元の取消トークンは取消済みになりません。");
         }
-
-        internal TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal TaskCompletionSource ReleaseHeaders { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal PendingBodyStream Body { get; } = new();
-        internal CancellationToken RequestCancellation { get; private set; }
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
         {
-            RequestCancellation = cancellationToken;
-            RequestStarted.TrySetResult();
-            await ReleaseHeaders.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return response;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                response.Dispose();
-            }
-            base.Dispose(disposing);
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            handler.ReleaseAll();
+            Task[] owned = request == null ? [] : [request];
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned); }
+            finally { if (owned.All(task => task.IsCompleted)) { handler.Dispose(); } }
         }
     }
 
-    private sealed class PendingBodyStream : Stream
+    /// <summary>期限を指定した要求と指定しない要求が同時に動いても、互いの期限を変えず、同じクライアントの既定期限も変えません。</summary>
+    /// <remarks>
+    /// 明示期限が既定より短い場合と長い場合の両方で、各要求が自分の期限で切れることを確認します。
+    /// 共有クライアントの設定を書き換える実装や、一方の期限が他方へ波及する誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(5)]
+    [DataRow(600)]
+    [TestCategory("Http")]
+    public async Task ExplicitDeadline_DoesNotChangeConcurrentDefaultRequests(int explicitSeconds)
     {
-        private bool prefixRead;
-
-        internal TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal TaskCompletionSource<int> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal CancellationToken ReadCancellation { get; private set; }
-        internal bool IsDisposed { get; private set; }
-
-        public override bool CanRead => !IsDisposed;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-
-        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
-
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var clock = new ManualRequestTimeProvider();
+        var handler = new StagedResponseHandler();
+        Task<AppHttpResponse>? explicitRequest = null;
+        Task<AppHttpResponse>? defaultRequest = null;
+        Task<AppHttpResponse>? laterDefaultRequest = null;
+        Exception? primaryFailure = null;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (buffer.IsEmpty)
-            {
-                return ValueTask.FromResult(0);
-            }
-            if (!prefixRead)
-            {
-                prefixRead = true;
-                buffer.Span[0] = 65;
-                return ValueTask.FromResult(1);
-            }
-            ReadCancellation = cancellationToken;
-            ReadStarted.TrySetResult();
-            return new ValueTask<int>(Release.Task.WaitAsync(cancellationToken));
+            var client = new AppHttpClient(handler, 30000, clock);
+            var explicitUri = new Uri("https://example.invalid/explicit");
+            var defaultUri = new Uri("https://example.invalid/default");
+            var laterUri = new Uri("https://example.invalid/later");
+            StagedResponse explicitStage = handler.Stage(explicitUri);
+            StagedResponse defaultStage = handler.Stage(defaultUri);
+            StagedResponse laterStage = handler.Stage(laterUri);
+            explicitRequest = client.OpenReadAsync(explicitUri, TimeSpan.FromSeconds(explicitSeconds), httpOperation.Token);
+            defaultRequest = client.OpenReadAsync(defaultUri, httpOperation.Token);
+            await AwaitPhaseOrRequestAsync(explicitStage.RequestStarted.Task, explicitRequest, "explicit started", httpOperation.Token);
+            await AwaitPhaseOrRequestAsync(defaultStage.RequestStarted.Task, defaultRequest, "default started", httpOperation.Token);
+
+            var first = TimeSpan.FromSeconds(Math.Min(explicitSeconds, 30));
+            clock.Advance(first);
+            Task<AppHttpResponse> expired = explicitSeconds < 30 ? explicitRequest : defaultRequest;
+            Task<AppHttpResponse> pending = explicitSeconds < 30 ? defaultRequest : explicitRequest;
+            StagedResponse expiredStage = explicitSeconds < 30 ? explicitStage : defaultStage;
+            StagedResponse pendingStage = explicitSeconds < 30 ? defaultStage : explicitStage;
+            Exception failure = await Assert.ThrowsAsync<TaskCanceledException>(() => expired.WaitAsync(httpOperation.Token));
+            Assert.IsInstanceOfType<TimeoutException>(failure.InnerException);
+            Assert.IsTrue(expiredStage.RequestCancellation.IsCancellationRequested);
+            Assert.IsFalse(pending.IsCompleted, "もう一方の要求は自分の期限まで切れません。");
+            Assert.IsFalse(pendingStage.RequestCancellation.IsCancellationRequested);
+
+            clock.Advance(TimeSpan.FromSeconds(Math.Max(explicitSeconds, 30)) - first);
+            failure = await Assert.ThrowsAsync<TaskCanceledException>(() => pending.WaitAsync(httpOperation.Token));
+            Assert.IsInstanceOfType<TimeoutException>(failure.InnerException);
+
+            // 明示期限の要求を経ても、同じクライアントの既定期限は生成時の30秒のままです。
+            laterDefaultRequest = client.OpenReadAsync(laterUri, httpOperation.Token);
+            await AwaitPhaseOrRequestAsync(laterStage.RequestStarted.Task, laterDefaultRequest, "later started", httpOperation.Token);
+            clock.Advance(TimeSpan.FromSeconds(30) - TimeSpan.FromMilliseconds(1));
+            Assert.IsFalse(laterStage.RequestCancellation.IsCancellationRequested);
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            await Assert.ThrowsAsync<TaskCanceledException>(() => laterDefaultRequest.WaitAsync(httpOperation.Token));
         }
-
-        protected override void Dispose(bool disposing)
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
         {
-            IsDisposed = true;
-            base.Dispose(disposing);
-        }
-
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Flush() => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
-
-    // No global clock or Timer is changed. Only one-shot CTS timers are needed by
-    // this fixture; firing occurs synchronously when the test advances its clock.
-    private sealed class ManualRequestTimeProvider : TimeProvider
-    {
-        private readonly object gate = new();
-        private readonly List<RequestTimer> timers = [];
-        private TimeSpan elapsed;
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            var timer = new RequestTimer(this, callback, state);
-            lock (gate)
-            {
-                timers.Add(timer);
-                timer.Change(dueTime, period);
-            }
-            return timer;
-        }
-
-        internal void Advance(TimeSpan amount)
-        {
-            if (amount < TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(amount));
-            }
-            RequestTimer[] due;
-            lock (gate)
-            {
-                elapsed += amount;
-                due = timers.Where(timer => timer.Due <= elapsed).ToArray();
-                foreach (RequestTimer timer in due)
-                {
-                    timer.Due = TimeSpan.MaxValue;
-                }
-            }
-            foreach (RequestTimer timer in due)
-            {
-                timer.Fire();
-            }
-        }
-
-        private sealed class RequestTimer : ITimer
-        {
-            private readonly ManualRequestTimeProvider owner;
-            private readonly TimerCallback callback;
-            private readonly object? state;
-            private bool disposed;
-
-            internal RequestTimer(ManualRequestTimeProvider owner, TimerCallback callback, object? state)
-            {
-                this.owner = owner;
-                this.callback = callback;
-                this.state = state;
-            }
-
-            internal TimeSpan Due { get; set; } = TimeSpan.MaxValue;
-
-            public bool Change(TimeSpan dueTime, TimeSpan period)
-            {
-                if (period != Timeout.InfiniteTimeSpan)
-                {
-                    throw new NotSupportedException("This request-clock fixture supports one-shot timers only.");
-                }
-                lock (owner.gate)
-                {
-                    if (disposed)
-                    {
-                        return false;
-                    }
-                    Due = dueTime == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : owner.elapsed + dueTime;
-                    return true;
-                }
-            }
-
-            internal void Fire() => callback(state);
-
-            public void Dispose()
-            {
-                lock (owner.gate)
-                {
-                    disposed = true;
-                    owner.timers.Remove(this);
-                }
-            }
-
-            public ValueTask DisposeAsync()
-            {
-                Dispose();
-                return ValueTask.CompletedTask;
-            }
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            handler.ReleaseAll();
+            Task[] owned = new Task?[] { explicitRequest, defaultRequest, laterDefaultRequest }.OfType<Task>().ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned); }
+            finally { if (owned.All(task => task.IsCompleted)) { handler.Dispose(); } }
         }
     }
 
+    /// <summary>ストリーム系の取得は、ヘッダー後の本文読取りを既定期限で切らず、保留中の読取りは本文の到着後に完了します。</summary>
+    /// <remarks>
+    /// ヘッダー受信後に手動時計を1時間進めても、読取りは取消されず応答も解放されません。
+    /// 本文まで一つの期限で切るのはまとめて読む系だけであり、巨大ファイルの取得を既定期限で打ち切る誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("OpenReadAsync")]
+    [DataRow("OpenRead")]
+    [DataRow("DownloadFile")]
+    [DataRow("PostFile")]
+    [TestCategory("Http")]
+    public async Task StreamingRequests_BodyReadIsNotCutByDefaultDeadline(string operation)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var clock = new ManualRequestTimeProvider();
+        var handler = new StagedResponseHandler();
+        Task? request = null;
+        Task<int>? bodyRead = null;
+        AppHttpResponse? response = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            var client = new AppHttpClient(handler, 30000, clock);
+            var uri = new Uri("https://example.invalid/stream");
+            StagedResponse stage = handler.Stage(uri, body: []);
+            string uploadPath = Path.Combine(workspace.RootDirectory, "upload.bin");
+            File.WriteAllBytes(uploadPath, [1, 2, 3]);
+            Task<AppHttpResponse>? opened = null;
+            request = operation switch
+            {
+                "OpenReadAsync" => opened = client.OpenReadAsync(uri, httpOperation.Token),
+                "OpenRead" => Task.Factory.StartNew(() => response = client.OpenRead(uri), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default),
+                "DownloadFile" => Task.Factory.StartNew(() => client.DownloadFile(uri, Path.Combine(workspace.RootDirectory, "download.bin")), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default),
+                _ => Task.Factory.StartNew(() => client.PostFile(uri, uploadPath), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            };
+            await AwaitPhaseOrRequestAsync(stage.RequestStarted.Task, request, "request started", httpOperation.Token);
+            clock.Advance(TimeSpan.FromSeconds(29));
+            stage.ReleaseHeaders.TrySetResult();
+            if (operation is "OpenReadAsync" or "OpenRead")
+            {
+                await request.WaitAsync(httpOperation.Token);
+                response = opened != null ? await opened : response;
+                bodyRead = response!.ResponseStream.ReadAsync(new byte[16], 0, 16, CancellationToken.None);
+            }
+            await AwaitPhaseOrRequestAsync(stage.Body.ReadStarted.Task, bodyRead ?? request, "body read started", httpOperation.Token);
+
+            clock.Advance(TimeSpan.FromHours(1));
+            Assert.IsFalse(stage.Body.ReadCancellation.IsCancellationRequested, "本文の読取りを既定期限で取り消しません。");
+            Assert.IsFalse(stage.Body.IsDisposed);
+            Assert.IsFalse((bodyRead ?? request).IsCompleted);
+
+            stage.Body.Release.TrySetResult(0);
+            await (bodyRead ?? request).WaitAsync(httpOperation.Token);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            handler.ReleaseAll();
+            Task[] owned = new Task?[] { request, bodyRead }.OfType<Task>().ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned); }
+            finally
+            {
+                response?.Dispose();
+                if (owned.All(task => task.IsCompleted)) { handler.Dispose(); }
+            }
+        }
+    }
+
+    private static Task StartHeaderRequest(AppHttpClient client, string operation, Uri address, string uploadPath, string downloadPath, CancellationToken cancellationToken)
+    {
+        var form = new NameValueCollection { { "name", "test" } };
+        return operation switch
+        {
+            "GetBytes" => StartSynchronous(() => client.GetBytes(address)),
+            "GetString" => StartSynchronous(() => client.GetString(address)),
+            "GetStringAsync" => client.GetStringAsync(address, cancellationToken: cancellationToken),
+            "PostForm" => StartSynchronous(() => client.PostForm(address, form)),
+            "PostFormAsync" => client.PostFormAsync(address, form, cancellationToken: cancellationToken),
+            "PostString" => StartSynchronous(() => client.PostString(address, "body", "text/plain")),
+            "PostFile" => StartSynchronous(() => client.PostFile(address, uploadPath)),
+            "DownloadFile" => StartSynchronous(() => client.DownloadFile(address, downloadPath)),
+            "OpenRead" => StartSynchronous(() => client.OpenRead(address).Dispose()),
+            "OpenReadAsync" => OpenAndDisposeAsync(client, address, cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation))
+        };
+    }
+
+    private static async Task OpenAndDisposeAsync(AppHttpClient client, Uri address, CancellationToken cancellationToken)
+    {
+        using AppHttpResponse response = await client.OpenReadAsync(address, cancellationToken);
+    }
+
+    // 同期APIが占有するスレッドは、返したTaskの完了で回収します。
+    private static Task StartSynchronous(Action request)
+        => Task.Factory.StartNew(request, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 }

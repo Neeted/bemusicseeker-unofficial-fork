@@ -2263,6 +2263,110 @@ public sealed class SettingsDialogBehaviorTests
         return (songDbPath, configPath, bmsRoot);
     }
 
+    private static SettingsIntegerField GetNetworkField(SettingsDialogViewModel dialog, string name)
+        => (SettingsIntegerField)typeof(SettingsDialogViewModel).GetProperty(name + "Field")!.GetValue(dialog)!;
+
+    private static int ReadNetworkSetting(Settings settings, string name)
+        => (int)typeof(Settings).GetProperty(name)!.GetValue(settings)!;
+
+    /// <summary>
+    /// 条件：通信設定の6欄それぞれで、下限・上限ちょうど・前後に空白を付けた値と、空・空白だけ・整数以外・範囲外（下限-1・上限+1・0・負数）・int64を超える桁を入力する。
+    /// 期待結果：有効な値は項目ごとに即時保存し、新しく作った読取り口と確定値の両方で読み直しても同じになる。無効な値は保存せず例外も出さず、直前の保存値は両方の読取り口で変わらない。入力文字列は残り、欄は下限・上限を埋め込んだ文言のErrorになり、有効な値の確定でエラーが消える。
+    /// 検出する誤り：範囲外の丸め、空・整数以外の保存、無効入力による保存値の巻き戻し、入力文字列の消去、上限・下限の取り違え、欄ごとの範囲の混同。
+    /// </summary>
+    [TestMethod]
+    [DataRow("ExternalTableSyncMaxConcurrency", 32, 1, 64)]
+    [DataRow("UrlDownloadMaxFileSizeMiB", 512, 1, 16384)]
+    [DataRow("UrlDownloadIdleTimeoutSeconds", 30, 5, 600)]
+    [DataRow("ExternalTableRequestTimeoutSeconds", 300, 10, 3600)]
+    [DataRow("ExternalTableHtmlLimitMiB", 10, 1, 512)]
+    [DataRow("ExternalTableJsonLimitMiB", 100, 1, 512)]
+    [DoNotParallelize]
+    public void NetworkField_SavesValidIntegersAndKeepsSavedValueOnInvalidInput(string name, int defaultValue, int minimum, int maximum)
+    {
+        RunOnUiDispatcher(() =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "network-field-" + name);
+            Settings values = OpenPersistedSettings(directory.Path);
+            string path = Path.Combine(directory.Path, "user.config");
+            var failures = new List<Exception>();
+            using var harness = SettingsDialogHarness.Create(values, reportApplyFailure: failures.Add);
+            SettingsIntegerField field = GetNetworkField(harness.Dialog, name);
+            void AssertSaved(int expected, string condition)
+            {
+                Assert.AreEqual(expected, ReadNetworkSetting(values, name), condition + "（確定値）");
+                Assert.AreEqual(expected, ReadNetworkSetting(TestSettingsFactory.OpenSettings(path), name), condition + "（新しい読取り口）");
+                Assert.AreEqual(expected.ToString(CultureInfo.InvariantCulture), field.Text.Trim(), condition + "（表示）");
+            }
+
+            AssertSaved(defaultValue, "既定値");
+            Assert.AreEqual(string.Empty, field.ValidationStatus);
+            foreach (int accepted in new[] { minimum, maximum })
+            {
+                field.Text = accepted.ToString(CultureInfo.InvariantCulture);
+                AssertSaved(accepted, "上限・下限ちょうど");
+            }
+            int good = minimum + 1;
+            field.Text = "  " + good.ToString(CultureInfo.InvariantCulture) + "  ";
+            AssertSaved(good, "前後の空白付き");
+            foreach (string invalid in new[] { "", "   ", "abc", "1.5", (minimum - 1).ToString(CultureInfo.InvariantCulture), (maximum + 1).ToString(CultureInfo.InvariantCulture), "0", "-1", "99999999999999999999" })
+            {
+                field.Text = invalid;
+                Assert.AreEqual(invalid, field.Text, "入力した文字列は残します。");
+                Assert.AreEqual("Error", field.ValidationStatus);
+                StringAssert.Contains(field.ValidationMessage, minimum.ToString(CultureInfo.InvariantCulture));
+                StringAssert.Contains(field.ValidationMessage, maximum.ToString(CultureInfo.InvariantCulture));
+                Assert.AreEqual(good, ReadNetworkSetting(values, name), "'" + invalid + "' は確定値を変えません。");
+                Assert.AreEqual(good, ReadNetworkSetting(TestSettingsFactory.OpenSettings(path), name), "'" + invalid + "' は保存値を変えません。");
+            }
+            field.Text = maximum.ToString(CultureInfo.InvariantCulture);
+            Assert.AreEqual(string.Empty, field.ValidationStatus, "有効な値の確定でエラーが消えます。");
+            Assert.AreEqual(string.Empty, field.ValidationMessage);
+            Assert.AreEqual(0, failures.Count);
+            return Task.CompletedTask;
+        }, nameof(NetworkField_SavesValidIntegersAndKeepsSavedValueOnInvalidInput) + "." + name);
+    }
+
+    /// <summary>
+    /// 条件：HTML上限512とJSON上限1の大小を逆にした組を保存し、その後に一つの欄へ無効な入力をしてから別の欄へ有効な値を入力する。続けて設定画面を表示し直す。
+    /// 期待結果：大小関係は制約されず両方保存できる。ある欄の入力エラーは別の欄の保存を妨げず、表示し直すと全欄が保存値を表示してエラーが消える。
+    /// 検出する誤り：HTML上限とJSON上限の大小関係の検査、欄をまたぐエラーの波及、表示し直しでのエラーの残存。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void NetworkFields_AreIndependentAndReopenShowsSavedValues()
+    {
+        RunOnUiDispatcher(() =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "network-field-independent");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string path = Path.Combine(directory.Path, "user.config");
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            dialog.ExternalTableHtmlLimitMiBField.Text = "512";
+            dialog.ExternalTableJsonLimitMiBField.Text = "1";
+            Settings saved = TestSettingsFactory.OpenSettings(path);
+            Assert.AreEqual(512, saved.ExternalTableHtmlLimitMiB);
+            Assert.AreEqual(1, saved.ExternalTableJsonLimitMiB);
+
+            dialog.UrlDownloadIdleTimeoutSecondsField.Text = "4";
+            Assert.AreEqual("Error", dialog.UrlDownloadIdleTimeoutSecondsField.ValidationStatus);
+            dialog.ExternalTableRequestTimeoutSecondsField.Text = "3600";
+            Assert.AreEqual(3600, ReadNetworkSetting(TestSettingsFactory.OpenSettings(path), "ExternalTableRequestTimeoutSeconds"), "別の欄の入力エラーは保存を妨げません。");
+            Assert.AreEqual(string.Empty, dialog.ExternalTableRequestTimeoutSecondsField.ValidationStatus);
+            Assert.AreEqual("Error", dialog.UrlDownloadIdleTimeoutSecondsField.ValidationStatus, "エラーは別の欄の確定で消えません。");
+            Assert.AreEqual(30, ReadNetworkSetting(TestSettingsFactory.OpenSettings(path), "UrlDownloadIdleTimeoutSeconds"));
+
+            dialog.SetPresentationActive(false);
+            dialog.SetPresentationActive(true);
+            Assert.AreEqual("30", dialog.UrlDownloadIdleTimeoutSecondsField.Text, "表示し直すと保存値を表示します。");
+            Assert.AreEqual(string.Empty, dialog.UrlDownloadIdleTimeoutSecondsField.ValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.UrlDownloadIdleTimeoutSecondsField.ValidationMessage);
+            dialog.SetPresentationActive(false);
+            return Task.CompletedTask;
+        }, nameof(NetworkFields_AreIndependentAndReopenShowsSavedValues));
+    }
+
     private static void TryDeleteDirectory(string path)
     {
         if (!Directory.Exists(path))

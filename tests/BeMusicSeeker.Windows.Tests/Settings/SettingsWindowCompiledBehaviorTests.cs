@@ -6,6 +6,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
@@ -1699,6 +1700,92 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// 実BAMLの詳細設定ページで、通信の6個のテキスト欄を欄ごとに異なる値（5・2048・45・900・3・200）でEnterとフォーカス移動に分けて確定し、
+    /// 各値が確定値へ保存されること、1欄の無効な入力でその欄の <see cref="SettingsField"/> がErrorと文言になり入力文字列と保存値が保たれることを確認します。
+    /// </summary>
+    /// <remarks>
+    /// 欄の特定は <c>Text</c> のBindingの経路で行い、Enterは <c>PreviewKeyDown</c>、フォーカス移動は <c>LostFocus</c> の実イベントをそのTextBoxへ送ります。
+    /// 欄の取り違え（別の設定への配線）、Enterとフォーカス移動の接続漏れ、検証結果の接続漏れを検出します。条件の網羅はVMの系列が分担します。
+    /// </remarks>
+    [TestMethod]
+    public void AdvancedPageNetworkFieldsCommitWithEnterAndFocusLossAndShowRangeError()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            try
+            {
+                Settings values = TestSettingsFactory.CreateIsolatedSettings();
+                owner = MainWindowViewModelTestFactory.Create(values);
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(window);
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+                Materialize(window);
+                var page = (AdvancedSettingsPage)SettingsTabs.SelectedPage(window);
+                string[] bindingPaths =
+                [
+                    nameof(SettingsDialogViewModel.ExternalTableSyncMaxConcurrencyField) + ".Text",
+                    nameof(SettingsDialogViewModel.UrlDownloadMaxFileSizeMiBField) + ".Text",
+                    nameof(SettingsDialogViewModel.UrlDownloadIdleTimeoutSecondsField) + ".Text",
+                    nameof(SettingsDialogViewModel.ExternalTableRequestTimeoutSecondsField) + ".Text",
+                    nameof(SettingsDialogViewModel.ExternalTableHtmlLimitMiBField) + ".Text",
+                    nameof(SettingsDialogViewModel.ExternalTableJsonLimitMiBField) + ".Text"
+                ];
+                TextBox[] boxes = [.. bindingPaths.Select(path => FindLogicalDescendants<TextBox>(page).Single(box => GetBindingPath(box, TextBox.TextProperty) == path))];
+                int[] inputs = [5, 2048, 45, 900, 3, 200];
+                for (int index = 0; index < boxes.Length; index++)
+                {
+                    boxes[index].Text = inputs[index].ToString(CultureInfo.InvariantCulture);
+                    if (index % 2 == 0) { CommitWithEnter(boxes[index]); } else { CommitWithFocusLoss(boxes[index]); }
+                    Materialize(window);
+                }
+                Assert.AreEqual(5, values.ExternalTableSyncMaxConcurrency);
+                Assert.AreEqual(2048, values.UrlDownloadMaxFileSizeMiB);
+                Assert.AreEqual(45, values.UrlDownloadIdleTimeoutSeconds);
+                Assert.AreEqual(900, values.ExternalTableRequestTimeoutSeconds);
+                Assert.AreEqual(3, values.ExternalTableHtmlLimitMiB);
+                Assert.AreEqual(200, values.ExternalTableJsonLimitMiB);
+
+                boxes[2].Text = "4";
+                CommitWithEnter(boxes[2]);
+                Materialize(window);
+                SettingsField field = FindNearestSettingsField(boxes[2]);
+                Assert.AreEqual("Error", field.ValidationStatus);
+                Assert.AreEqual(string.Format(Resources.Network_setting_range_error_format, 5, 600), field.ValidationMessage);
+                Assert.AreEqual("4", boxes[2].Text, "入力文字列を保持します。");
+                Assert.AreEqual(45, values.UrlDownloadIdleTimeoutSeconds, "無効な入力は保存しません。");
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                owner?.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    private static void CommitWithEnter(TextBox box)
+    {
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(box)!, 0, Key.Enter)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+            Source = box
+        };
+        box.RaiseEvent(enter);
+    }
+
+    private static void CommitWithFocusLoss(TextBox box) => box.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent, box));
+
+    private static SettingsField FindNearestSettingsField(DependencyObject element)
+    {
+        for (DependencyObject? current = element; current != null; current = LogicalTreeHelper.GetParent(current))
+        {
+            if (current is SettingsField field) { return field; }
+        }
+        throw new AssertFailedException("入力欄を囲むSettingsFieldが見つかりません。");
     }
 
     private static void Materialize(SettingsWindow window)

@@ -53,7 +53,7 @@ MD5ごとに逐次処理し、取消後は新しい問合せ・取得を始め�
 
 対応譜面は `.bme`、`.bms`、`.bml`、`.pms`、`.bmson`、アーカイブは `.zip`、`.7z`、`.rar`、`.lzh` です。保存名は `Content-Disposition` を最優先とし、その指定がなければ、対応する名前を持つ最終応答のURI、`Location`、要求URIの順に求めます。元URLのクエリの有無で優先を変えません。最終応答のURIの名前が無効なら `Location`、`Location` の名前も無効なら要求URIの名前を使います。取得済み応答の候補だけを使い、名前を得るための追加通信や拡張子の推測は行いません。既知の共有ページでは末尾の拡張子よりページ解決を優先します。HTML型の応答をアーカイブとして保存しません。
 
-`Content-Length=0` は要ブラウザー、宣言長または実コピー量が512 MiBを超えた場合はサイズ上限です。HTML解析は2 MiBまでです。`filename*` をRFC 5987として優先し、`filename` がUTF-8をLatin-1として読んだ文字化けなら復元します。URIの名前はパーセント復号します。
+`Content-Length=0` は要ブラウザー、宣言長または実コピー量が1ファイル上限（既定512 MiB、設定で1〜16384 MiB）を超えた場合はサイズ上限です。宣言長と実コピー量はそれぞれ独立に判定し、どちらも上限ちょうどは許可します。宣言長で拒否する場合は書込みを始めず、拒否した取得物は残しません。共有ページのHTML解析は、1ファイル上限と独立に2 MiBまでで、宣言長が2 MiB以下ならその上限が小さくても解決します。`filename*` をRFC 5987として優先し、`filename` がUTF-8をLatin-1として読んだ文字化けなら復元します。URIの名前はパーセント復号します。
 
 ### URL正規化と共有ページ
 
@@ -91,7 +91,7 @@ venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCH
 
 ### URL本文の無受信期限と終了
 
-単発・一括・外部API候補のURL取得は、ヘッダー受信まで既存の30秒期限を使います。本文は各読取りに無受信30秒を設け、受信するたびに更新します。総転送時間、ローカル書込み、解析はこの無受信期限に含めません。単発取得も進捗行から取消できます。利用者・終了の取消を通常失敗やブラウザー代替へ変換せず、遅延Dispatcher配送でも取消を再確認します。
+単発・一括・外部API候補のURL取得は、ヘッダー受信まで設定の応答待ち時間（既定30秒、5〜600秒）を使い、共有ページを解決した後の2本目以降の要求にも同じ値を使います。時間切れは通常失敗で、利用者取消にしません。本文は各読取りに同じ秒数の無受信期限を設け、受信するたびに更新し、ヘッダー待ちの期限を持ち越しません。1ファイル上限と応答待ち時間は操作の開始時の設定値を最後まで使い、設定を変えた後の次の操作から新しい値を使います。総転送時間、ローカル書込み、解析はこの無受信期限に含めません。単発取得も進捗行から取消できます。利用者・終了の取消を通常失敗やブラウザー代替へ変換せず、遅延Dispatcher配送でも取消を再確認します。
 
 取得表示と新規取得の抑止は導入引渡し待ちの前に終了し、先行要求の導入待ち中に次の取得を許可します。終了では、その表示状態とは別に、取得開始から導入引渡し・未受理入力の回収までの全処理を取り消して回収します。応答・一時入力・受付は、実際のI/Oと必要な後片付けが終わるまで保持します。
 
@@ -103,13 +103,15 @@ venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCH
 
 ### 外部表の本文上限
 
-外部難度表はHTMLを10 MiB、header・data JSONをそれぞれ100 MiBまで、文字列化・解析前に実展開済み本文バイト数で制限します。上限ちょうどは許可し、1バイト超過を拒否します。`Content-Length`、MIME、拡張子を根拠に上限を変えません。HTTP圧縮の展開後とローカル入力に同じ上限を適用します。
+外部難度表はHTMLを設定のHTML上限（既定10 MiB、1〜512 MiB）、header・data JSONを設定のJSON上限（既定100 MiB、1〜512 MiB）まで、文字列化・解析前に実展開済み本文バイト数で制限します。上限ちょうどは許可し、1バイト超過を拒否します。`Content-Length`、MIME、拡張子を根拠に上限を変えません。HTTP圧縮の展開後とローカル入力に同じ上限を適用します。
 
-初回はBOMと既存の空白を除く先頭`{`または`[`をJSON候補、それ以外をHTMLとします。BOM・空白は累積量に含め、種別不明中は100 MiBで読みます。10 MiB超の空白後にJSONが始まれば100 MiB以内で許可し、HTMLと確定した場合はその時点の累積量を10 MiBと比較します。JSON候補の不正入力をHTMLのmeta探索へ戻しません。取得失敗した対象の値・hash・更新日時・ローカル編集を保持し、独立した成功対象は反映します。URL導入のHTML 2 MiB・package 512 MiBとは別の制限です。
+初回はBOMと既存の空白を除く先頭`{`または`[`をJSON候補、それ以外をHTMLとします。BOM・空白は累積量に含め、種別不明中はHTML上限とJSON上限の大きい方まで読みます。確定した時点で、それまでの累積量を該当する種別の上限と比較します（既定では、10 MiB超の空白後にJSONが始まれば100 MiB以内で許可し、HTMLと確定した場合は10 MiBと比較します）。HTML上限とJSON上限の大小関係は制約しません。JSON候補の不正入力をHTMLのmeta探索へ戻しません。取得失敗した対象の値・hash・更新日時・ローカル編集を保持し、独立した成功対象は反映します。URL導入の共有ページHTML 2 MiB・1ファイル上限とは別の制限です。
 
 ### 外部表の通信期限
 
-通常の外部難度表のHTTP GETと汎用のフォームPOSTは、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じ全文読込み方式の同期GET・フォームPOST・テキストPOSTにも適用します。大容量取得、multipart送信、ストリームを返すAPIの期限とは区別します。
+外部難度表のHTML・header・dataの各HTTP要求は、送信開始から本文読取り完了まで、設定の取得期限（既定300秒、10〜3600秒）を総期限として使い、ローカルファイルには適用しません。同時に取得する表の数は設定（既定32、1〜64）を超えず、登録と再読込みの両方に適用します。取得期限・同時取得数・本文上限は操作の開始時の設定値を最後まで使います。表一覧APIは従来の300秒のままです。
+
+要求期限は共有クライアントの設定を書き換えず、要求ごとに時計で計時します。期限を指定しない要求はクライアント生成時の既定期限を使い、ヘッダー待ちの時間切れは `TimeoutException` を内部例外に持つ `TaskCanceledException` です。通常の外部難度表のHTTP GETと汎用のフォームPOSTは、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じ全文読込み方式の同期GET・フォームPOST・テキストPOSTにも適用します。大容量取得、multipart送信、ストリームを返すAPIの期限とは区別します。
 
 内蔵の推定表・リコメンド表は通信せず、[ローカル計算の契約](local-recommendations.md)に従います。一般の外部表取込み、URL補完、利用者のダウンロードの通信と取消は維持します。
 
@@ -164,7 +166,11 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | 開始後の入力保持と導入の実終端 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PackageInstallWorkflowOwner` | `DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy` はP中の読取り取得、実ownerの導入中の可読性と取得Taskの待機、通常／故障終端後の入力保持を確認する。適用前の管理入力回収と適用後の保全は[導入側の検証](../library/drop-install.md#実装とテストの対応)に分担する。 |
 | 単一期限・本文取消・接続解放 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../tests/BeMusicSeeker.Core.Tests/Runtime/AppHttpClientTests.cs) |
 | 実HTTP fixtureの有限要求不足時の回収 | [`SingleRequestHttpServer`](../../../tests/BeMusicSeeker.TestSupport/Components/SingleRequestHttpServer.cs) | `AppHttpClientTests.FiniteServer_DisposeReclaimsUnrequestedResponse` は一要求だけで後続acceptを残し、Dispose後の実serverTask終端を確認する。有限二要求の正常系は上記の二本文引渡し代表、既定一接続の応答・本文停止・peer切断は既存HTTP/URL期限ケースへ分担する。 |
-| 外部表の本文上限、先頭判定、失敗対象保持 | `ExternalPlaylistContentReader`、`PlaylistExternalSyncOwner` | `ExternalPlaylistContentReaderTests`、`BmsPlaylistExternalLoadTests`、`PlaylistExternalFailureBoundaryTests` |
+| 外部表の本文上限、先頭判定、失敗対象保持 | `ExternalPlaylistContentReader`、`PlaylistExternalSyncOwner` | `ExternalPlaylistContentReaderTests`（HTML上限が大きい行を含む）、`BmsPlaylistExternalLimitTests` はローカル入力の設定上限・大小逆転・gzip展開後、`PlaylistExternalFailureBoundaryTests` |
+| 譜面取得の1ファイル上限と全入口の開始時設定 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistUrlAcquisitionOptionsSnapshot`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.NetworkSettings` の宣言長・実受信量の独立判定（1 MiB・16384 MiB）、共有ページHTML、単発・一括・外部APIの開始時の値と次の操作 |
+| 応答待ち・無受信期限の設定秒数 | `PlaylistUrlAcquisitionWorkflow`、`AppHttpClient.OpenReadAsync` | `PlaylistUrlAcquisitionDeadlineTests` は本番gatewayと手動時計で5秒・600秒、共有ページ2本目、定期受信後の停止 |
+| 要求ごとの期限（既定・明示の併走・ストリーム系） | `AppHttpClient` | `AppHttpClientTests.DefaultDeadline_*`、`ExplicitDeadline_*`、`StreamingRequests_*` |
+| 外部表の取得期限と同時取得数 | `PlaylistExternalSyncOwner`、`PlaylistExternalNetworkOptionsSnapshot` | `BmsPlaylistExternalLoadTests.ExternalRequest_TotalDeadline*`（10秒・3600秒、HTML・header・data）、`BmsPlaylistExternalReloadTests.ExternalTableFetch_*`（登録・再読込み、1と3、進行中は開始時の値） |
 | 無受信期限・単発取消・全取得Taskの終了回収 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.BodyDeadline_ResetsOnDataAndJoinsCancelledRead`、`BodyDeadline_DoesNotLimitLocalWrite`、`SingleBodyCancellation_JoinsIoBeforeRemovingProgressAndNeverFallsBack`、`WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently`、`SingleBodyCancellation_DisconnectsRealPeerBeforeFixtureDisposal`、`BrowserFallback_DeferredPresentationObservesShutdown` |
 | HTMLの再取得なし・通常の相対表現保持 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | `BmsPlaylistExternalLoadTests.LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests` はraw相対header/data、取得集合と回数、別表・外部DTDの未取得を確認する。BOM・ローカル入力、drive/file/UNC解決は同クラスの既存ケースが分担する。 |
 | 実転送後の相対header/data/entryと同期元保持 | `PlaylistExternalSyncOwner.LoadExternalTableAsync` | [`BmsPlaylistExternalLoadTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) の `LoadExternalTableAsync_RedirectedPageResolvesRelativeHeaderAndData`、`LoadExternalTableAsync_RedirectedDirectHeaderPreservesSourceAndResolvesData` はslash付きページ・直接headerの実HTTP転送から要求pathと回数、既知のentry本体・差分を照合する。data転送の登録・DB読戻しは[保存仕様](storage-and-export.md#実装とテストの対応)へ分担する。 |

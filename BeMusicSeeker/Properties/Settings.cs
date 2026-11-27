@@ -1887,6 +1887,97 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>通信設定の整数値が受理する範囲と既定値です。範囲外の値は丸めず既定値として扱います。</summary>
+    /// <param name="Minimum">受理する下限（この値を含む）。</param>
+    /// <param name="Maximum">受理する上限（この値を含む）。</param>
+    /// <param name="Default">未設定・不正・範囲外のときに使う値。</param>
+    internal readonly record struct IntegerRange(int Minimum, int Maximum, int Default)
+    {
+        /// <summary>値が下限以上かつ上限以下かを返します。</summary>
+        internal bool Contains(int value) => value >= Minimum && value <= Maximum;
+
+        /// <summary>範囲内の値はそのまま、範囲外は既定値を返します。</summary>
+        internal int Normalize(int value) => Contains(value) ? value : Default;
+    }
+
+    /// <summary>外部難度表の同時取得数（表）の範囲です。</summary>
+    internal static readonly IntegerRange ExternalTableSyncMaxConcurrencyRange = new(1, 64, 32);
+
+    /// <summary>譜面・アーカイブ1ファイルの上限（MiB）の範囲です。</summary>
+    internal static readonly IntegerRange UrlDownloadMaxFileSizeMiBRange = new(1, 16384, 512);
+
+    /// <summary>ファイル取得の応答待ち・無受信時間（秒）の範囲です。</summary>
+    internal static readonly IntegerRange UrlDownloadIdleTimeoutSecondsRange = new(5, 600, 30);
+
+    /// <summary>外部難度表の取得期限（秒）の範囲です。</summary>
+    internal static readonly IntegerRange ExternalTableRequestTimeoutSecondsRange = new(10, 3600, 300);
+
+    /// <summary>外部難度表のHTML本文上限（MiB）の範囲です。</summary>
+    internal static readonly IntegerRange ExternalTableHtmlLimitMiBRange = new(1, 512, 10);
+
+    /// <summary>外部難度表のJSON本文上限（MiB）の範囲です。</summary>
+    internal static readonly IntegerRange ExternalTableJsonLimitMiBRange = new(1, 512, 100);
+
+    /// <summary>外部難度表を同時に取得する表の数です。旧設定での欠如と範囲外の保存値は既定の32になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("32")]
+    public int ExternalTableSyncMaxConcurrency
+    {
+        get => ExternalTableSyncMaxConcurrencyRange.Normalize((int)this[nameof(ExternalTableSyncMaxConcurrency)]);
+        set => this[nameof(ExternalTableSyncMaxConcurrency)] = ExternalTableSyncMaxConcurrencyRange.Normalize(value);
+    }
+
+    /// <summary>譜面・アーカイブ取得の1ファイル上限（MiB）です。旧設定での欠如と範囲外の保存値は既定の512になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("512")]
+    public int UrlDownloadMaxFileSizeMiB
+    {
+        get => UrlDownloadMaxFileSizeMiBRange.Normalize((int)this[nameof(UrlDownloadMaxFileSizeMiB)]);
+        set => this[nameof(UrlDownloadMaxFileSizeMiB)] = UrlDownloadMaxFileSizeMiBRange.Normalize(value);
+    }
+
+    /// <summary>譜面・アーカイブ取得の応答待ち・無受信時間（秒）です。旧設定での欠如と範囲外の保存値は既定の30になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("30")]
+    public int UrlDownloadIdleTimeoutSeconds
+    {
+        get => UrlDownloadIdleTimeoutSecondsRange.Normalize((int)this[nameof(UrlDownloadIdleTimeoutSeconds)]);
+        set => this[nameof(UrlDownloadIdleTimeoutSeconds)] = UrlDownloadIdleTimeoutSecondsRange.Normalize(value);
+    }
+
+    /// <summary>外部難度表の取得期限（秒）です。旧設定での欠如と範囲外の保存値は既定の300になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("300")]
+    public int ExternalTableRequestTimeoutSeconds
+    {
+        get => ExternalTableRequestTimeoutSecondsRange.Normalize((int)this[nameof(ExternalTableRequestTimeoutSeconds)]);
+        set => this[nameof(ExternalTableRequestTimeoutSeconds)] = ExternalTableRequestTimeoutSecondsRange.Normalize(value);
+    }
+
+    /// <summary>外部難度表のHTML本文上限（MiB）です。旧設定での欠如と範囲外の保存値は既定の10になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("10")]
+    public int ExternalTableHtmlLimitMiB
+    {
+        get => ExternalTableHtmlLimitMiBRange.Normalize((int)this[nameof(ExternalTableHtmlLimitMiB)]);
+        set => this[nameof(ExternalTableHtmlLimitMiB)] = ExternalTableHtmlLimitMiBRange.Normalize(value);
+    }
+
+    /// <summary>外部難度表のJSON本文上限（MiB）です。HTML上限との大小関係は制約しません。旧設定での欠如と範囲外の保存値は既定の100になります。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("100")]
+    public int ExternalTableJsonLimitMiB
+    {
+        get => ExternalTableJsonLimitMiBRange.Normalize((int)this[nameof(ExternalTableJsonLimitMiB)]);
+        set => this[nameof(ExternalTableJsonLimitMiB)] = ExternalTableJsonLimitMiBRange.Normalize(value);
+    }
+
     public Settings()
     {
         base.SettingsLoaded += SettingsLoadedEventHandler;
@@ -1912,6 +2003,12 @@ internal sealed class Settings : ApplicationSettingsBase
         NormalizeDoubleSetting(settings, "CustomTableFontSize", MinCustomTableFontSize, MaxCustomTableFontSize, DefaultCustomTableFontSize);
         NormalizeDoubleSetting(settings, "CustomTableRowHeight", MinCustomTableRowHeight, MaxCustomTableRowHeight, DefaultCustomTableRowHeight);
         NormalizeDoubleSetting(settings, "CustomTableHeaderHeight", MinCustomTableHeaderHeight, MaxCustomTableHeaderHeight, DefaultCustomTableHeaderHeight);
+        NormalizeIntegerSetting(settings, nameof(ExternalTableSyncMaxConcurrency), ExternalTableSyncMaxConcurrencyRange);
+        NormalizeIntegerSetting(settings, nameof(UrlDownloadMaxFileSizeMiB), UrlDownloadMaxFileSizeMiBRange);
+        NormalizeIntegerSetting(settings, nameof(UrlDownloadIdleTimeoutSeconds), UrlDownloadIdleTimeoutSecondsRange);
+        NormalizeIntegerSetting(settings, nameof(ExternalTableRequestTimeoutSeconds), ExternalTableRequestTimeoutSecondsRange);
+        NormalizeIntegerSetting(settings, nameof(ExternalTableHtmlLimitMiB), ExternalTableHtmlLimitMiBRange);
+        NormalizeIntegerSetting(settings, nameof(ExternalTableJsonLimitMiB), ExternalTableJsonLimitMiBRange);
         EnsureColumnSettingDefaults(settings);
         if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
         {
@@ -1926,6 +2023,16 @@ internal sealed class Settings : ApplicationSettingsBase
         double rawValue = settings[key] is double value ? value : defaultValue;
         double normalizedValue = NormalizeRange(rawValue, minimum, maximum, defaultValue);
         if (!normalizedValue.Equals(rawValue))
+        {
+            settings[key] = normalizedValue;
+        }
+    }
+
+    private static void NormalizeIntegerSetting(Settings settings, string key, IntegerRange range)
+    {
+        int rawValue = settings[key] is int value ? value : range.Default;
+        int normalizedValue = range.Normalize(rawValue);
+        if (normalizedValue != rawValue)
         {
             settings[key] = normalizedValue;
         }

@@ -628,6 +628,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(TableListUriValidationStatus));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationMessage));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationStatus));
+        RaiseNetworkFieldValidationChanged();
         RaiseFieldReasonsChanged();
     }
 
@@ -4210,6 +4211,7 @@ public partial class SettingsDialogViewModel : ViewModel
         if (presentationOpening)
         {
             ClearTransientPlaylistUriValidationState();
+            ClearNetworkFieldInputState();
             ObservePlaylistCatalogVersion(workspacePort.PlaylistCatalogVersion);
             PublishPlaylistCatalogPresentationIfNeeded();
         }

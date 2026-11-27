@@ -19,9 +19,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class PlaylistExternalSyncOwner
 {
-    private const int ExternalPlaylistSyncMaxConcurrency = 32;
-
     private readonly AppHttpClient httpClient;
+
+    private readonly Func<PlaylistExternalNetworkOptionsSnapshot> networkOptionsProvider;
 
     private readonly PlaylistRecommendedTableOwner recommendedTableOwner;
 
@@ -98,6 +98,7 @@ internal sealed class PlaylistExternalSyncOwner
     /// 正本を永続化した reload result を呼び出し単位でまとめ、`.lr2folder` と LR2 `folder` row を収束させる callback。
     /// </param>
     /// <param name="requiredReferenceApply">全guard解放後・必要出力前に同じ確定receiptを参照モデルへ渡す必須接続。任意UI配送の抑制では省略しません。</param>
+    /// <param name="networkOptionsProvider">操作の開始時に同時取得数・取得期限・本文上限を捕捉する関数。省略時は既定値です。</param>
     internal PlaylistExternalSyncOwner(
         AppHttpClient httpClient,
         PlaylistRecommendedTableOwner recommendedTableOwner,
@@ -122,9 +123,11 @@ internal sealed class PlaylistExternalSyncOwner
         Action<IEnumerable<BMSTable>, string> applyCachedPlaylistUrlCompletions = null,
         Action<IReadOnlyList<BMSTable>, string, LibraryFileMutationCapability> reOutputCustomFoldersAfterReload = null,
         Func<LibraryFileMutationCapability, LibraryFileMutationLease> mutationAdmission = null,
-        Action<IReadOnlyList<PlaylistTableUpdateReceipt>> requiredReferenceApply = null)
+        Action<IReadOnlyList<PlaylistTableUpdateReceipt>> requiredReferenceApply = null,
+        Func<PlaylistExternalNetworkOptionsSnapshot> networkOptionsProvider = null)
     {
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        this.networkOptionsProvider = networkOptionsProvider ?? (() => PlaylistExternalNetworkOptionsSnapshot.Default);
         this.recommendedTableOwner = recommendedTableOwner ?? throw new ArgumentNullException(nameof(recommendedTableOwner));
         // 診断先の失敗で元の取得・保存結果を置き換えない。
         this.logWarning = (exception, message) =>
@@ -172,11 +175,16 @@ internal sealed class PlaylistExternalSyncOwner
         Uri pageUri,
         BMSTable baseTable = null,
         CancellationToken cancellationToken = default)
-        => LoadExternalTableCoreAsync(pageUri, baseTable, cancellationToken, null, initialImport: false);
+        => LoadExternalTableCoreAsync(pageUri, baseTable, cancellationToken, null, initialImport: false, CaptureNetworkOptions());
+
+    /// <summary>操作の開始時に一度だけ通信設定を捕捉します。以後の設定変更は、進行中の操作へ影響しません。</summary>
+    private PlaylistExternalNetworkOptionsSnapshot CaptureNetworkOptions()
+        => networkOptionsProvider() ?? throw new InvalidOperationException("External playlist network options provider returned null.");
 
     private async Task<BMSTable> LoadExternalTableCoreAsync(
         Uri pageUri, BMSTable baseTable, CancellationToken cancellationToken,
-        Lazy<Task<WalkureScoreInput>> scoreCapture, bool initialImport)
+        Lazy<Task<WalkureScoreInput>> scoreCapture, bool initialImport,
+        PlaylistExternalNetworkOptionsSnapshot options)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (pageUri == null || !pageUri.IsAbsoluteUri)
@@ -197,7 +205,7 @@ internal sealed class PlaylistExternalSyncOwner
         BMSTable bmsTable = null;
         try
         {
-            (string input, bool isJson, Uri responseUri) = await GetExternalContentAsync(pageUri, cancellationToken, detectKind: true).ConfigureAwait(false);
+            (string input, bool isJson, Uri responseUri) = await GetExternalContentAsync(pageUri, options, cancellationToken, detectKind: true).ConfigureAwait(false);
             // 初回の元指定と既存本文分類だけで確定し、redirectやdata_urlで方針を変えません。
             PlaylistJsonDatePolicy datePolicy = initialImport && originalPageUri.IsFile && isJson
                 ? PlaylistJsonDatePolicy.Strict : PlaylistJsonDatePolicy.Compatible;
@@ -219,7 +227,7 @@ internal sealed class PlaylistExternalSyncOwner
                     throw new PlaylistHeaderUriNotFoundException(originalPageUri);
                 }
                 resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(responsePageUri, headerUri) : headerUri;
-                (headerJson, _, responseHeaderUri) = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
+                (headerJson, _, responseHeaderUri) = await GetExternalContentAsync(resolvedHeaderUri, options, cancellationToken).ConfigureAwait(false);
             }
 
             bmsTable = new BMSTable();
@@ -259,7 +267,7 @@ internal sealed class PlaylistExternalSyncOwner
                     + " headerUrl=" + FormatUriForLog(bmsTable.Header_url)
                     + " sourcePage=" + FormatUriForLog(originalPageUri));
             }
-            (string dataJson, _, Uri responseDataUri) = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
+            (string dataJson, _, Uri responseDataUri) = await GetExternalContentAsync(resolvedDataUri, options, cancellationToken).ConfigureAwait(false);
             // entryの相対URLと保存後の公開data基準を、実際に読んだ文書へ揃える。
             // 通常の相対表現は同じ参照なら保持し、本文hashにはURIを混ぜない。
             if (!Uri.Equals(bmsTable.GetAbsoluteDataUrl(), responseDataUri))
@@ -289,7 +297,7 @@ internal sealed class PlaylistExternalSyncOwner
     }
 
     /// <summary>本文と分類、相対参照の基準となる実応答URIを、応答の解放前に確定して返します。</summary>
-    private async Task<(string Text, bool IsJson, Uri ResponseUri)> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken, bool detectKind = false)
+    private async Task<(string Text, bool IsJson, Uri ResponseUri)> GetExternalContentAsync(Uri uri, PlaylistExternalNetworkOptionsSnapshot options, CancellationToken cancellationToken, bool detectKind = false)
     {
         // HttpClientが扱う4 schemeとローカルファイルを維持し、未対応の取得元だけを入力失敗にします。
         // 読取り全体のNotSupportedExceptionを捕捉して内部故障まで隠すことはしません。
@@ -297,12 +305,14 @@ internal sealed class PlaylistExternalSyncOwner
         {
             throw new UriFormatException("Unsupported playlist resource URI scheme: " + uri.Scheme);
         }
-        // 従来の通常外部表と同じく、一資源の送信開始から本文完了まで総期限を維持する。
-        // file入力も同じ上限で読むが、ローカル処理へHTTPの期限は付けない。
-        using CancellationTokenSource deadline = uri.IsFile ? null : httpClient.CreateRequestDeadline();
+        // 一資源の送信開始から本文完了まで、操作開始時に捕捉した設定秒数の総期限を使う。ヘッダー受信では更新しない。
+        // 総期限が送信と本文読取りの両方を取り消すため、ヘッダー待ちには別の期限を重ねない。
+        // file入力も同じ本文上限で読むが、ローカル処理へHTTPの期限は付けない。
+        using CancellationTokenSource deadline = uri.IsFile ? null : httpClient.CreateRequestDeadline(options.RequestTimeout);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline?.Token ?? CancellationToken.None);
-        using AppHttpResponse response = await httpClient.OpenReadAsync(uri, cancellation.Token).ConfigureAwait(false);
-        (string text, bool isJson) = await ExternalPlaylistContentReader.ReadAsync(response.ResponseStream, detectKind, cancellation.Token).ConfigureAwait(false);
+        using AppHttpResponse response = await httpClient.OpenReadAsync(uri, Timeout.InfiniteTimeSpan, cancellation.Token).ConfigureAwait(false);
+        (string text, bool isJson) = await ExternalPlaylistContentReader.ReadAsync(
+            response.ResponseStream, detectKind, options.HtmlLimitBytes, options.JsonLimitBytes, cancellation.Token).ConfigureAwait(false);
         return (text, isJson, response.ResponseUri);
     }
 
@@ -332,6 +342,7 @@ internal sealed class PlaylistExternalSyncOwner
                 Uri uri = table.Page_url ?? table.Header_url;
                 return uri != null && uri.IsAbsoluteUri;
             })];
+        PlaylistExternalNetworkOptionsSnapshot options = CaptureNetworkOptions();
         int completedTableCount = 0;
         var results = new PlaylistExternalTableLoadResult[targetSnapshot.Count];
         Lazy<Task<WalkureScoreInput>> scoreCapture = recommendedTableOwner.CreateScoreCapture(cancellationToken);
@@ -343,7 +354,7 @@ internal sealed class PlaylistExternalSyncOwner
             CurrentTableName = string.Empty,
             CurrentUri = null
         }, reason);
-        using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+        using var semaphoreSlim = new SemaphoreSlim(options.MaxConcurrency, options.MaxConcurrency);
         await Task.WhenAll([.. targetSnapshot.Select(async (table, index) =>
         {
             await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -362,7 +373,7 @@ internal sealed class PlaylistExternalSyncOwner
                 BMSTable externalTable = await LoadExternalTableCoreAsync(
                     uri,
                     inheritLocalTableProperties ? table : null,
-                    cancellationToken, scoreCapture, initialImport).ConfigureAwait(false);
+                    cancellationToken, scoreCapture, initialImport, options).ConfigureAwait(false);
                 results[index] = new PlaylistExternalTableLoadResult
                 {
                     SourceTable = table,
@@ -489,6 +500,7 @@ internal sealed class PlaylistExternalSyncOwner
                     Uri uri = ResolveTargetUri(table);
                     return uri != null && uri.IsAbsoluteUri;
                 })];
+            PlaylistExternalNetworkOptionsSnapshot options = CaptureNetworkOptions();
             int completedTableCount = 0;
             Lazy<Task<WalkureScoreInput>> scoreCapture = recommendedTableOwner.CreateScoreCapture(cancellationToken);
             object resultLock = new();
@@ -500,7 +512,7 @@ internal sealed class PlaylistExternalSyncOwner
                 CurrentTableName = string.Empty,
                 CurrentUri = null
             }, reason);
-            using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+            using var semaphoreSlim = new SemaphoreSlim(options.MaxConcurrency, options.MaxConcurrency);
             try
             {
                 await Task.WhenAll([.. targetSnapshot.Select(async table =>
@@ -516,6 +528,7 @@ internal sealed class PlaylistExternalSyncOwner
                             syncResultCallback,
                             reason,
                             cancellationToken,
+                            options,
                             requireCurrentTargetForApply,
                             allowUriOverride: uriProvider != null,
                             publishReferenceReceipt: publishReferenceReceipts,
@@ -739,7 +752,7 @@ internal sealed class PlaylistExternalSyncOwner
         }
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
-        BMSTable table = await LoadExternalTableCoreAsync(pageUri, null, cancellationToken, null, initialImport: true).ConfigureAwait(false);
+        BMSTable table = await LoadExternalTableCoreAsync(pageUri, null, cancellationToken, null, initialImport: true, CaptureNetworkOptions()).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return await RegistrateExternalTableAsync(
             table,
@@ -1063,6 +1076,7 @@ internal sealed class PlaylistExternalSyncOwner
         Action<PlaylistReloadTargetResult> syncResultCallback,
         string reason,
         CancellationToken cancellationToken,
+        PlaylistExternalNetworkOptionsSnapshot options,
         bool requireCurrentTargetForApply = true,
         bool allowUriOverride = false,
         bool publishReferenceReceipt = false,
@@ -1096,7 +1110,7 @@ internal sealed class PlaylistExternalSyncOwner
             BMSTable reloadedTable;
             try
             {
-                reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture, initialImport: false).ConfigureAwait(false);
+                reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture, initialImport: false, options).ConfigureAwait(false);
             }
             catch (Exception sourceFailure) when (uri.Scheme != "bmseeker"
                 && !(sourceFailure is OperationCanceledException && cancellationToken.IsCancellationRequested)

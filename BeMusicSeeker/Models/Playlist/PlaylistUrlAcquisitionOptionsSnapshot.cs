@@ -14,6 +14,14 @@ internal sealed class PlaylistUrlAcquisitionOptionsSnapshot
 
     internal bool ShouldAutoInstall => ScanBmsFilesOnStartup && AutoInstall;
 
+    /// <summary>譜面・アーカイブ1ファイルの上限（バイト）です。宣言長と実受信量を、それぞれこの値と比べます。</summary>
+    internal long MaxFileSizeBytes { get; init; } = Settings.UrlDownloadMaxFileSizeMiBRange.Default * BytesPerMiB;
+
+    /// <summary>ヘッダー待ちと、本文の一回の読取りごとの無受信を切る期間です。</summary>
+    internal TimeSpan IdleTimeout { get; init; } = TimeSpan.FromSeconds(Settings.UrlDownloadIdleTimeoutSecondsRange.Default);
+
+    private const long BytesPerMiB = 1024L * 1024L;
+
     internal static PlaylistUrlAcquisitionOptionsSnapshot CreateCurrent(Settings settings)
     {
         if (settings == null)
@@ -24,7 +32,9 @@ internal sealed class PlaylistUrlAcquisitionOptionsSnapshot
         return new PlaylistUrlAcquisitionOptionsSnapshot
         {
             ScanBmsFilesOnStartup = settings.ScanBmsFilesOnStartup,
-            AutoInstall = settings.AutoInstall
+            AutoInstall = settings.AutoInstall,
+            MaxFileSizeBytes = settings.UrlDownloadMaxFileSizeMiB * BytesPerMiB,
+            IdleTimeout = TimeSpan.FromSeconds(settings.UrlDownloadIdleTimeoutSeconds)
         };
     }
 }

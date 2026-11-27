@@ -689,7 +689,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
             applicationPathSnapshot,
-            uiScheduler);
+            uiScheduler,
+            externalNetworkOptionsProvider: () => PlaylistExternalNetworkOptionsSnapshot.CreateCurrent(settingsEditSession.Values));
     }
 
     BMSLibrary IStartupLibraryFactory.CreateBmsLibrary(LibraryProfile libraryProfile)

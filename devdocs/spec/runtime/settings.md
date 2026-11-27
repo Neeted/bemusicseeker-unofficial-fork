@@ -123,7 +123,7 @@ BMSの差分再読込み・スコアの再読込み・BMTの失敗は、その�
 - 変更・確定のボタンは、適用できる局所差分がある場合に強調表示し、不要なときは無効にします。取消は、無効な入力を含む取消可能な編集があるときだけ有効です。レコードは選択中の一件で判断し、他のレコードの変更では有効にしません。BMSの明示再保存、出力先の明示再選択、BMTの同じ値での全表の再更新は、差分がない場合も最新の入力で実行できます。
 - 環境の選択は、スタンドアローンとLR2連携を、等幅の二列・同じ高さのRadioButtonのカードにし、名称を一回と、折り返す説明を表示します。通常設定と初期環境設定で共通です。カードの全表面と標準のキー入力から確認の経路へ渡し、`IsEnvironmentSelectionEnabled`、一方向の選択表示、確認一回を保持します。設定の実操作中に入口で拒否した場合は、両方のRadioとViewModelの選択を保存済みのモードへ再通知し、確認・保存・再起動を開始しません。実際の保存の開始後に失敗した場合は、今回の入力を保持して明示的な再操作を可能にし、選択の表示を設定値への単純な双方向のBindingに置き換えません。
 
-詳細設定は「メッセージ表示」「初期化」「LR2連携」「危険な操作」を持ち、起動時の保留の選択は「初期化」に置きます。音声設定は、出力設定、音量、専用テスト、詳細な音声設定を別々のセクションにします。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作は、それぞれの目的が分かる見出しで示します。「このソフトについて」は、バージョン、ライセンス、リンク、読取専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。
+詳細設定は「メッセージ表示」「初期化」「LR2連携」「通信」「危険な操作」を持ち、起動時の保留の選択は「初期化」に置きます。音声設定は、出力設定、音量、専用テスト、詳細な音声設定を別々のセクションにします。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作は、それぞれの目的が分かる見出しで示します。「このソフトについて」は、バージョン、ライセンス、リンク、読取専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。
 
 設定ページ内の意味上の重複した見出しは整理し、言語・テーマ・音量・録音ファイル名・LR2プレイログの単純な囲みを除きます。
 
@@ -284,6 +284,24 @@ falseで省略するのは、導入先が未設定の保留パッケージを新
 - 保存済みの範囲外の値は、診断つきで自動設定を拒否します。範囲外の値を黙って90%などへ丸めず、画面で利用者が有効な値へ修正できます。
 
 詳細な許可条件は[導入先推定](../library/install-estimation.md#確信度と画面への適用)を正本とします。
+
+### 通信設定
+
+詳細設定ページの「通信」節（危険な操作の節より前）に、通信の6値を整数の入力欄で置きます。値は正の整数で保存し、範囲と既定値は次のとおりです。
+
+| 設定キー | 意味（単位） | 既定 | 下限 | 上限 |
+| --- | --- | --- | --- | --- |
+| `ExternalTableSyncMaxConcurrency` | 外部難度表の同時取得数（表） | 32 | 1 | 64 |
+| `UrlDownloadMaxFileSizeMiB` | 譜面・アーカイブの1ファイル上限（MiB） | 512 | 1 | 16384 |
+| `UrlDownloadIdleTimeoutSeconds` | ファイル取得の応答待ち・無受信時間（秒） | 30 | 5 | 600 |
+| `ExternalTableRequestTimeoutSeconds` | 外部難度表の取得期限（秒） | 300 | 10 | 3600 |
+| `ExternalTableHtmlLimitMiB` | 外部難度表のHTML上限（MiB） | 10 | 1 | 512 |
+| `ExternalTableJsonLimitMiB` | 外部難度表のJSON上限（MiB） | 100 | 1 | 512 |
+
+- 確定はEnterとフォーカス移動で行い、有効な値だけを項目ごとに即時保存します。前後の空白は許し、Invariantの10進整数として読みます。
+- 空・空白だけ・整数以外・範囲外・int64を超える桁は保存せず、例外も出しません。直前の保存値は変わらず、入力した文字列を残して、その欄を下限・上限を埋め込んだ共通文言のErrorにします。有効な値の確定でエラーが消え、ある欄のエラーは別の欄の保存を妨げません。設定画面を表示し直すと保存値を表示してエラーを消します。
+- HTML上限とJSON上限は独立で、大小関係を制約しません。
+- 保存した値は次に開始する操作から使い、進行中の操作は開始時の値を使い続けます。適用の契約は[URL・外部APIからの取得](../playlist/downloads.md)に従います。
 
 ### 取り込み後の自動推定に続く導入
 
@@ -714,6 +732,7 @@ setterや、通常の走査・表の編集・出力・同期では、組込み�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 通信設定の入力・検証・接続 | [`SettingsDialogViewModel.Network`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Network.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | `SettingsDialogBehaviorTests.NetworkField_*` と `NetworkFields_*` は6欄ごとの保存・拒否・エラー・独立・表示し直し、`SettingsWindowCompiledBehaviorTests.AdvancedPageNetworkFieldsCommitWithEnterAndFocusLossAndShowRangeError` は実BAMLの欄の特定とEnter・フォーカス移動の確定 |
 | 不備の一覧の生成・並び・作り直しの時機、局所候補の不参照、開始ボタンの可否 | [`SettingsDialogViewModel.Deficiencies`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Deficiencies.cs) の `BuildDeficiencies`・`RefreshDeficiencies`・`RefreshStartupDeficiencies`、[`SettingsDeficiency`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDeficiency.cs)、`CanStartEnvironment` | [`SettingsDeficiencyListTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDeficiencyListTests.cs) の `DeficiencyList_AssignsEachConfirmedFailureToContractPageFieldAndReason` が、有効な基準から1か所崩した各行（LR2のsong.db・設定XML、LR2ディレクトリが空のsong.db欠落、LR2環境の行による出力先・導入先の抑止、登録済みBMSディレクトリなし、親子の検索ルート、スタンドアロンのルートなし、スタンドアロンで残った出力先と同じ導入先、スコアDB、beatorajaのルート、画像、uBMplay、LR2本体、通常・ROOTの未設定と未設定を除いた文字種の検査、追加の名前重複・重なり、導入先の未設定・出力先と同じ・出力先の配下・それ以外、LR2バックアップ、スタンドアロンのバックアップ、有効な基準）のページ・欄・理由と、空と開始可否の一致を、`DeficiencyList_OrdersByPageListThenCurrentCheckOrder` が並びを、`BmsDirectoriesField_ShowsOnlyUnconfirmedGuidanceWhileCandidateDiffersAndRestoresConfirmedReason` がBMS候補が未確定の間の欄の理由・状態と一覧の不変、候補を戻す編集・取消・確定での復帰を、`BmsDirectoriesField_GuidesToLr2DirectoryOnlyWhileConfirmedLr2ConfigIsUnresolved` がLR2設定を解決できない間だけの案内を、`DeficiencyList_IgnoresLocalCandidatesAndRebuildsAfterConfirmationItemSaveReopenAndLanguageChange` が局所候補・画面外の変更での不変と、項目保存・確定の終端・表示開始・言語変更での作り直しと通知、内容が同じ作り直しで一覧を差し替えないことを確認する。`SettingDialogCategoryPersistenceTests.CompiledInitialLr2OutputPickers_SaveEachRequiredPlacementBeforeAllowingInitialization` は初回の出力先の段階保存ごとの一覧・実際の開始ボタン・案内欄を確認する。`StartupUnresolvedLr2Config_ListsLr2EnvironmentAndSuppressesDependentRowsUntilNextRefresh`（LR2ディレクトリの保存値あり・空、登録済みBMSディレクトリなし）が、設定画面ではLR2設定を解決できる確定値で起動時検査が設定XMLを解決できなかったと報告した場合のLR2環境の行と理由の選択、出力先・導入先・BMSディレクトリの追加を求める行と出力先・導入先の欄の検証表示の抑止、無関係な行の維持、次の作り直しでの復帰を確認する。起動経路で設定XMLを解決できなかった場合のLR2環境の行は、`SettingDialogEnvironmentConfirmationTests.UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` が確認する。BMTの表の出力先なしは、有効なルートでは表の出力先が既定値へ解決されるため実FSで作れず、自動テストでは確認していない。 |
 | BMSディレクトリ同士の同一・親子関係を両モードで拒否する（追加・確定・不備の一覧・起動時検査） | `SettingsDialogViewModel` の `AddBmsSearchRootPathsCoreAsync`・`ThrowIfBmsRootAdditionOverlaps`・`CheckBmsRootsBeforeConfirmation`・`BuildDeficiencies`・`CollectNestedBmsSearchRootConflicts` | Core の `SettingDialogCustomFolderOutputBaseTests.CollectNestedBmsSearchRootConflicts_DetectsParentChildOnly` が判定の条件（接頭辞だけ共通の兄弟、大文字小文字と末尾の区切り、存在しないパス、入力順）を確認する。Windows の `SettingsDialogBehaviorTests.BmsRootAddition_RejectsSameOrNestedRootsAndAcceptsPrefixSibling` は両モードで、候補の子・親・表記違いの同一・同時の親子・確定前の候補の子の追加が候補と保存媒体を変えず通知一件で拒否されることと、接頭辞だけ共通の兄弟・候補から外した確定値の子が受理されることを、`BmsRootConfirmation_RejectsNestedFinalListInBothModesUntilOneIsRemoved` は旧版の親子登録で無関係な追加は受理し、確定は親と子を示して拒否し、一方を外せば保存できて不備の行が消えることを確認する。[`SettingsDeficiencyListTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDeficiencyListTests.cs) の `DeficiencyList_AssignsEachConfirmedFailureToContractPageFieldAndReason` は単独動作の親子（子が存在しない場合を含む）の行と兄弟で行が出ないことを、`SettingDialogEditCompletionTests.InitializeAsync_StandaloneNestedRootsStopWithBmsDirectoryDeficiencyAndKeepSettings` は起動が設定不備で止まり、保存値を変えないことを確認する。保存済みの欠落・親子・順序をそのまま読むことは `BmsRootRegistrationTests.StandaloneRegistration_PreservesMissingNestedRootsAndPublishesOnlyAfterSave` が確認する。 |
 | 前提を要する有効化の候補の理由、保存済みの不整合 | `SettingsDialogViewModel.Deficiencies` の欄の理由、`CanConfirmBmtSettings`、`CommitBmtSettingsCoreAsync`、`CommitScoreSettingsCoreAsync` | `SettingsDeficiencyListTests.UnmetPrerequisiteCandidates_ShowFieldReasonWithoutSavingAndClearWhenResolved`（スコアのルート・score.db、画像、BMTのルート、uBMplay、BMIIDXView）が理由・非保存・確定可否と確定時の理由の一致・解消を、`SavedUnmetPairs_AreListedWithFieldReasonAndClearAfterEitherFix` が保存済みの組の表示と、チェックを外す保存・前提の修正・表示開始時の再検査での解消を確認する。 |

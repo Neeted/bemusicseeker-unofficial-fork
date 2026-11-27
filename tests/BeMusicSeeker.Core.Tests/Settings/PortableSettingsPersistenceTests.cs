@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 
@@ -174,6 +175,98 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(2, TestSettingsFactory.OpenSettings(files.Path).PlayerResamplingQuality);
         Assert.AreEqual(1, TestSettingsFactory.OpenSettings(files.Path).PlayerMixerThreadCount);
         Assert.AreEqual(99, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        AssertNetworkDefaults(TestSettingsFactory.OpenSettings(files.Path), "旧設定のキー欠損");
+        File.Delete(files.Path);
+        AssertNetworkDefaults(TestSettingsFactory.OpenSettings(files.Path), "ファイルなし");
+    }
+
+    /// <summary>通信設定6値の既定値を、実装の定数ではなく仕様の数値で確認します。</summary>
+    private static void AssertNetworkDefaults(Settings settings, string condition)
+    {
+        Assert.AreEqual(32, settings.ExternalTableSyncMaxConcurrency, condition);
+        Assert.AreEqual(512, settings.UrlDownloadMaxFileSizeMiB, condition);
+        Assert.AreEqual(30, settings.UrlDownloadIdleTimeoutSeconds, condition);
+        Assert.AreEqual(300, settings.ExternalTableRequestTimeoutSeconds, condition);
+        Assert.AreEqual(10, settings.ExternalTableHtmlLimitMiB, condition);
+        Assert.AreEqual(100, settings.ExternalTableJsonLimitMiB, condition);
+    }
+
+    /// <summary>通信設定の範囲外・整数以外の保存値は読込み時に既定値になり、下限・上限ちょうどはそのまま保持します。他の設定キーと未知キーは保持し、起動失敗やファイル全体の初期化にしません。</summary>
+    /// <remarks>
+    /// 下限-1・上限+1・0・負数・整数以外（abc・1.5・空）・int32とint64を超える桁を、6キーそれぞれの実ファイルと実providerで確認します。
+    /// 範囲外を上限・下限へ丸める誤りと、不正値で設定全体を読めなくする誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("ExternalTableSyncMaxConcurrency", 32, 1, 64)]
+    [DataRow("UrlDownloadMaxFileSizeMiB", 512, 1, 16384)]
+    [DataRow("UrlDownloadIdleTimeoutSeconds", 30, 5, 600)]
+    [DataRow("ExternalTableRequestTimeoutSeconds", 300, 10, 3600)]
+    [DataRow("ExternalTableHtmlLimitMiB", 10, 1, 512)]
+    [DataRow("ExternalTableJsonLimitMiB", 100, 1, 512)]
+    public void NetworkSettingsInvalidFileValuesUseDefaultsAndBoundariesAreKept(string key, int defaultValue, int minimum, int maximum)
+    {
+        using var files = new SettingsFiles();
+        int Read(string raw)
+        {
+            File.WriteAllText(files.Path, Config(key, raw).Replace("</BeMusicSeeker", "<setting name=\"Lang\" serializeAs=\"String\"><value>fr-FR</value></setting><setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
+            Settings loaded = TestSettingsFactory.OpenSettings(files.Path);
+            Assert.AreEqual("fr-FR", loaded.Lang, "他の設定キーは保持します。");
+            return (int)typeof(Settings).GetProperty(key)!.GetValue(loaded)!;
+        }
+        string[] invalid =
+        [
+            (minimum - 1).ToString(CultureInfo.InvariantCulture), (maximum + 1).ToString(CultureInfo.InvariantCulture),
+            "0", "-1", "abc", "1.5", "", "2147483648", "99999999999999999999"
+        ];
+        foreach (string raw in invalid)
+        {
+            Assert.AreEqual(defaultValue, Read(raw), "不正値 '" + raw + "' は既定値になります。");
+        }
+        Assert.AreEqual(minimum, Read(minimum.ToString(CultureInfo.InvariantCulture)));
+        Assert.AreEqual(maximum, Read(maximum.ToString(CultureInfo.InvariantCulture)));
+        Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
+    }
+
+    /// <summary>通信設定6値を既定値と異なる値で実保存し、新しい読取り口と、取得・外部表が操作開始時に使う値（バイト数・TimeSpan・longの上限）を照合します。</summary>
+    /// <remarks>2 GiBを超える1ファイル上限をint計算で桁あふれさせる誤りと、単位の取り違え（MiB・秒）を検出します。</remarks>
+    [TestMethod]
+    public void NetworkSettingsRoundTripAndMapToOperationValues()
+    {
+        using var files = new SettingsFiles();
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
+        settings.ExternalTableSyncMaxConcurrency = 5;
+        settings.UrlDownloadMaxFileSizeMiB = 2048;
+        settings.UrlDownloadIdleTimeoutSeconds = 45;
+        settings.ExternalTableRequestTimeoutSeconds = 900;
+        settings.ExternalTableHtmlLimitMiB = 3;
+        settings.ExternalTableJsonLimitMiB = 200;
+        settings.Save();
+
+        Settings loaded = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual(5, loaded.ExternalTableSyncMaxConcurrency);
+        Assert.AreEqual(2048, loaded.UrlDownloadMaxFileSizeMiB);
+        Assert.AreEqual(45, loaded.UrlDownloadIdleTimeoutSeconds);
+        Assert.AreEqual(900, loaded.ExternalTableRequestTimeoutSeconds);
+        Assert.AreEqual(3, loaded.ExternalTableHtmlLimitMiB);
+        Assert.AreEqual(200, loaded.ExternalTableJsonLimitMiB);
+        var acquisition = PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(loaded);
+        Assert.AreEqual(2147483648L, acquisition.MaxFileSizeBytes);
+        Assert.AreEqual(TimeSpan.FromSeconds(45), acquisition.IdleTimeout);
+        var external = PlaylistExternalNetworkOptionsSnapshot.CreateCurrent(loaded);
+        Assert.AreEqual(5, external.MaxConcurrency);
+        Assert.AreEqual(TimeSpan.FromSeconds(900), external.RequestTimeout);
+        Assert.AreEqual(3 * 1048576, external.HtmlLimitBytes);
+        Assert.AreEqual(200 * 1048576, external.JsonLimitBytes);
+
+        // 上限・下限ちょうどもそのまま保存し、1ファイル上限の最大値は long のバイト数で表します。
+        loaded.UrlDownloadMaxFileSizeMiB = 16384;
+        loaded.ExternalTableJsonLimitMiB = 512;
+        loaded.ExternalTableHtmlLimitMiB = 512;
+        loaded.Save();
+        Settings maximum = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual(17179869184L, PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(maximum).MaxFileSizeBytes);
+        Assert.AreEqual(536870912, PlaylistExternalNetworkOptionsSnapshot.CreateCurrent(maximum).JsonLimitBytes);
+        Assert.AreEqual(536870912, PlaylistExternalNetworkOptionsSnapshot.CreateCurrent(maximum).HtmlLimitBytes);
     }
 
     /// <summary>新規と旧設定の欠如は既定の99%で読み、有効な90/97/100と範囲外の保存値を実保存・新reader・操作snapshotへそのまま渡し、黙った丸めを検出します。</summary>

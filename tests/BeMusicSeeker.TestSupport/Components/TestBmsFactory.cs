@@ -330,6 +330,11 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         return () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values);
     }
 
+    private static Func<PlaylistExternalNetworkOptionsSnapshot> CreateExternalNetworkOptions(Settings settings)
+    {
+        return settings == null ? null : () => PlaylistExternalNetworkOptionsSnapshot.CreateCurrent(settings);
+    }
+
     private static Func<CustomFolderOutputSettingsSnapshot> CreateCustomFolderOptions(Settings settings)
     {
         Settings values = settings ?? TestSettingsFactory.CreateIsolatedSettings();
@@ -369,7 +374,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             recommendationScoreReader: recommendationScoreReader,
             initializeEntryWriteConnection: initializeEntryWriteConnection,
-            lr2PlaylistFolderSynchronization: lr2PlaylistFolderSynchronization)
+            lr2PlaylistFolderSynchronization: lr2PlaylistFolderSynchronization,
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -400,7 +406,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath),
             new ChartFileOperationSynchronizer(),
-            recommendationScoreReader: recommendationScoreReader)
+            recommendationScoreReader: recommendationScoreReader,
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -421,7 +428,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            new ChartFileOperationSynchronizer())
+            new ChartFileOperationSynchronizer(),
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -449,7 +457,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler,
             lr2PlaylistFolderSynchronization,
-            new ChartFileOperationSynchronizer())
+            new ChartFileOperationSynchronizer(),
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -471,7 +480,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            new ChartFileOperationSynchronizer())
+            new ChartFileOperationSynchronizer(),
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -493,7 +503,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            new ChartFileOperationSynchronizer())
+            new ChartFileOperationSynchronizer(),
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 
@@ -529,7 +540,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             mutationAdmission ?? new ChartFileOperationSynchronizer(),
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,
-            recommendationScoreReader)
+            recommendationScoreReader,
+            externalNetworkOptionsProvider: CreateExternalNetworkOptions(settings))
     {
     }
 }

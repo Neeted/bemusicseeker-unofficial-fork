@@ -152,47 +152,100 @@ internal sealed class AppHttpClient
 
     /// <summary>
     /// このインスタンスが内部で使う <see cref="HttpClient"/> です。
+    /// 実時間の全体期限は持たせず、期限は要求ごとの取消で <see cref="timeProvider"/> を使って計時します。
     /// </summary>
     private readonly HttpClient httpClient;
 
-    private readonly TimeProvider timeProvider = TimeProvider.System;
+    /// <summary>期限を指定しない要求へ使う、クライアント生成時に決めた期限です。要求ごとの期限は共有状態を書き換えません。</summary>
+    private readonly TimeSpan defaultTimeout;
 
-    /// <summary>本文を自前で制限する呼出し側へ、送信と共有する総期限を渡します。返した期限は呼出し側が破棄します。</summary>
-    internal CancellationTokenSource CreateRequestDeadline() => new(httpClient.Timeout, timeProvider);
+    private readonly TimeProvider timeProvider;
+
+    /// <summary>
+    /// 本文を自前で制限する呼出し側へ、要求ごとの総期限を渡します。返した期限は呼出し側が破棄します。
+    /// </summary>
+    /// <param name="timeout">この要求だけの期限。省略時はクライアント生成時の既定期限です。</param>
+    internal CancellationTokenSource CreateRequestDeadline(TimeSpan? timeout = null)
+        => new(ResolveTimeout(timeout), timeProvider);
 
     /// <summary>
     /// 指定タイムアウトで HTTP クライアントを初期化します。
     /// </summary>
-    /// <param name="requestTimeoutMs">リクエスト全体のタイムアウト時間（ミリ秒）。</param>
+    /// <param name="requestTimeoutMs">期限を指定しない要求へ使う既定の期限（ミリ秒）。</param>
     private AppHttpClient(int requestTimeoutMs)
+        : this(
+            new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate },
+            requestTimeoutMs,
+            TimeProvider.System)
     {
-        var httpClientHandler = new HttpClientHandler
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-        };
-        httpClient = new HttpClient(httpClientHandler)
-        {
-            Timeout = TimeSpan.FromMilliseconds((requestTimeoutMs > 0) ? requestTimeoutMs : DefaultTimeoutMs)
-        };
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
     }
 
     /// <summary>
-    /// 呼出し側が所有する transport と時計で、同じ送信・本文読取り経路を構成します。
-    /// 並列テストでも共有クライアントや実時間を変更せず、要求期限を検証できます。
+    /// 呼出し側が所有する handler と時計で、本番と同じ <see cref="HttpClient"/> の構成と送信・本文読取り経路を作ります。
+    /// 並列テストでも共有クライアントや実時間を変更せず、要求ごとの期限を検証できます。
     /// </summary>
-    /// <param name="httpClient">Timeout が要求全体の期限となるクライアント。破棄は呼出し側が所有します。</param>
-    /// <param name="timeProvider">要求開始から本文完了までの期限を計測する時計。</param>
-    internal AppHttpClient(HttpClient httpClient, TimeProvider timeProvider)
+    /// <param name="handler">送信を担う handler。破棄は <see cref="HttpClient"/> を通じて行われます。</param>
+    /// <param name="requestTimeoutMs">期限を指定しない要求へ使う既定の期限（ミリ秒）。</param>
+    /// <param name="timeProvider">期限を計測する時計。</param>
+    internal AppHttpClient(HttpMessageHandler handler, int requestTimeoutMs, TimeProvider timeProvider)
+        : this(
+            CreateHttpClient(handler ?? throw new ArgumentNullException(nameof(handler))),
+            TimeSpan.FromMilliseconds(requestTimeoutMs > 0 ? requestTimeoutMs : DefaultTimeoutMs),
+            timeProvider)
     {
-        this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+    }
+
+    /// <summary>
+    /// 呼出し側が所有する <see cref="HttpClient"/> と時計で、同じ送信・本文読取り経路を構成します。
+    /// <paramref name="httpClient"/> の <see cref="HttpClient.Timeout"/> は期限を指定しない要求の既定期限として引き継ぎ、
+    /// 実時間の全体期限を残さないよう無期限へ戻します。
+    /// </summary>
+    /// <param name="httpClient">未使用のクライアント。破棄は呼出し側が所有します。</param>
+    /// <param name="timeProvider">要求ごとの期限を計測する時計。</param>
+    internal AppHttpClient(HttpClient httpClient, TimeProvider timeProvider)
+        : this(
+            httpClient ?? throw new ArgumentNullException(nameof(httpClient)),
+            AdoptTimeout(httpClient),
+            timeProvider)
+    {
+    }
+
+    private AppHttpClient(HttpClient httpClient, TimeSpan defaultTimeout, TimeProvider timeProvider)
+    {
+        this.httpClient = httpClient;
+        this.defaultTimeout = defaultTimeout;
         this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+    }
+
+    /// <summary>本番と test 構成で共有する <see cref="HttpClient"/> の作成です。内部の期限は無期限にし、要求ごとの取消へ任せます。</summary>
+    private static HttpClient CreateHttpClient(HttpMessageHandler handler)
+    {
+        var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
+        return client;
+    }
+
+    private static TimeSpan AdoptTimeout(HttpClient client)
+    {
+        TimeSpan timeout = client.Timeout;
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        return timeout == Timeout.InfiniteTimeSpan ? TimeSpan.FromMilliseconds(DefaultTimeoutMs) : timeout;
+    }
+
+    private TimeSpan ResolveTimeout(TimeSpan? timeout)
+    {
+        TimeSpan value = timeout ?? defaultTimeout;
+        if (value != Timeout.InfiniteTimeSpan && value <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "The request timeout must be positive or infinite.");
+        }
+        return value;
     }
 
     /// <summary>
     /// 指定タイムアウトを持つクライアントを生成します。
     /// </summary>
-    /// <param name="requestTimeoutMs">リクエスト全体のタイムアウト時間（ミリ秒）。</param>
+    /// <param name="requestTimeoutMs">期限を指定しない要求へ使う既定の期限（ミリ秒）。</param>
     /// <returns>指定タイムアウトで構成された <see cref="AppHttpClient"/>。</returns>
     internal static AppHttpClient Create(int requestTimeoutMs)
     {
@@ -460,23 +513,45 @@ internal sealed class AppHttpClient
     /// <summary>
     /// 指定 URI の内容を非同期にストリームとして開き、応答メタデータと一緒に返します。
     /// 大容量ファイル取得を UI 側から中断できるよう、HTTP リクエスト開始までのキャンセルを伝播します。
+    /// ヘッダー待ちにはクライアント生成時の既定期限を使い、本文読取りは期限で切りません。
     /// </summary>
     /// <param name="uri">取得元 URI。</param>
     /// <param name="cancellationToken">取得を中断するためのトークン。</param>
     /// <returns>応答メタデータ付きストリーム。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    internal async Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken = default)
+    internal Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken = default)
+        => OpenReadAsync(uri, defaultTimeout, cancellationToken);
+
+    /// <summary>
+    /// 指定 URI の内容を非同期にストリームとして開き、応答メタデータと一緒に返します。
+    /// ヘッダー待ちだけをこの要求の <paramref name="headerTimeout"/> で切り、本文読取りは期限で切りません。
+    /// 本文まで含めた期限は、呼出し側が <paramref name="cancellationToken"/> で与えます。
+    /// 期限を指定した要求と指定しない要求が同時に動いても、互いの期限や共有クライアントの設定は変わりません。
+    /// </summary>
+    /// <param name="uri">取得元 URI。</param>
+    /// <param name="headerTimeout">応答ヘッダーを待つ期限。<see cref="Timeout.InfiniteTimeSpan"/> ではヘッダー待ちにも期限を付けません。</param>
+    /// <param name="cancellationToken">取得を中断するためのトークン。</param>
+    /// <returns>応答メタデータ付きストリーム。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="headerTimeout"/> が正でも無期限でもない場合。</exception>
+    /// <exception cref="TaskCanceledException">ヘッダー待ちの期限を超えた場合。<see cref="TimeoutException"/> を内部例外に持ちます。</exception>
+    internal async Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
     {
         if (uri == null)
         {
             throw new ArgumentNullException(nameof(uri));
         }
+        TimeSpan timeout = ResolveTimeout(headerTimeout);
         cancellationToken.ThrowIfCancellationRequested();
         if (uri.IsFile)
         {
             return new AppHttpResponse(uri, LongPathFileSystem.OpenRead(uri.LocalPath));
         }
-        HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false);
+        HttpResponseMessage httpResponseMessage;
+        using (var deadline = new RequestDeadline(timeProvider, timeout, cancellationToken))
+        {
+            httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, deadline).ConfigureAwait(false);
+        }
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -502,7 +577,9 @@ internal sealed class AppHttpClient
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
     private HttpResponseMessage Send(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, bool throwOnNonSuccess = true)
     {
-        return SendAsync(method, uri, content, headers, CancellationToken.None, throwOnNonSuccess).ConfigureAwait(false).GetAwaiter().GetResult();
+        // ヘッダー待ちだけを既定期限で切り、同期呼出しの本文読取りは従来どおり期限で切りません。
+        using var deadline = new RequestDeadline(timeProvider, defaultTimeout, CancellationToken.None);
+        return SendAsync(method, uri, content, headers, deadline, throwOnNonSuccess).ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -512,11 +589,11 @@ internal sealed class AppHttpClient
     /// <param name="uri">送信先 URI。</param>
     /// <param name="content">送信本文。</param>
     /// <param name="headers">追加のリクエストヘッダー。</param>
-    /// <param name="cancellationToken">キャンセル用トークン。</param>
+    /// <param name="deadline">この要求の期限と呼出し元の取消を結んだ送信取消。期限だけで取り消された場合は <see cref="TimeoutException"/> を内部例外に持つ <see cref="TaskCanceledException"/> にします。</param>
     /// <param name="throwOnNonSuccess"><see langword="true"/> の場合は非成功レスポンスを例外化します。</param>
     /// <returns>レスポンス。既定では成功レスポンスのみ返します。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default, bool throwOnNonSuccess = true)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content, IDictionary<string, string> headers, RequestDeadline deadline, bool throwOnNonSuccess = true)
     {
         if (method == null)
         {
@@ -538,7 +615,17 @@ internal sealed class AppHttpClient
         HttpResponseMessage httpResponseMessage;
         try
         {
-            httpResponseMessage = await httpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            httpResponseMessage = await httpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (deadline.TimedOut)
+        {
+            // HttpClient.Timeout が作る例外と同じ形にし、利用者取消と区別できるようにする。
+            var timeout = new TaskCanceledException(
+                "The request was canceled due to the configured request timeout of " + deadline.Timeout.TotalSeconds + " seconds elapsing.",
+                new TimeoutException("The request timed out.", ex),
+                deadline.Token);
+            LogRequestFailure(method.Method, uri, null, "timeout", timeout);
+            throw timeout;
         }
         catch (TaskCanceledException ex)
         {
@@ -580,12 +667,10 @@ internal sealed class AppHttpClient
         IDictionary<string, string> headers = null,
         CancellationToken cancellationToken = default)
     {
-        // ResponseHeadersRead の HttpClient.Timeout はヘッダーまでしか有効でない。
-        // 時計も期限も要求単位で所有し、同じ取消しを本文の実 I/O まで維持する。
-        using var deadline = new CancellationTokenSource(httpClient.Timeout, timeProvider);
-        using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        using HttpResponseMessage response = await SendAsync(method, uri, content, headers, readCancellation.Token).ConfigureAwait(false);
-        return await ReadResponseBytesAsync(response, readCancellation.Token).ConfigureAwait(false);
+        // 時計も期限も要求単位で所有し、ヘッダー待ちと同じ取消しを本文の実 I/O まで維持する。
+        using var deadline = new RequestDeadline(timeProvider, defaultTimeout, cancellationToken);
+        using HttpResponseMessage response = await SendAsync(method, uri, content, headers, deadline).ConfigureAwait(false);
+        return await ReadResponseBytesAsync(response, deadline.Token).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -634,6 +719,40 @@ internal sealed class AppHttpClient
             await memoryStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
         }
         return memoryStream.ToArray();
+    }
+
+    /// <summary>
+    /// 一つの要求だけの期限を、クライアントが持つ時計で計時し、呼出し元の取消と結びます。
+    /// 共有クライアントの設定を書き換えず、同時に動く要求の期限へ影響しません。
+    /// </summary>
+    private sealed class RequestDeadline : IDisposable
+    {
+        private readonly CancellationTokenSource timer;
+        private readonly CancellationTokenSource linked;
+        private readonly CancellationToken caller;
+
+        internal RequestDeadline(TimeProvider timeProvider, TimeSpan timeout, CancellationToken caller)
+        {
+            Timeout = timeout;
+            this.caller = caller;
+            timer = new CancellationTokenSource(timeout, timeProvider);
+            linked = CancellationTokenSource.CreateLinkedTokenSource(caller, timer.Token);
+        }
+
+        /// <summary>この要求の期限です。</summary>
+        internal TimeSpan Timeout { get; }
+
+        /// <summary>期限と呼出し元の取消のどちらでも取り消される送信・本文読取り用トークンです。</summary>
+        internal CancellationToken Token => linked.Token;
+
+        /// <summary>呼出し元の取消ではなく、期限だけで取り消された場合に真です。</summary>
+        internal bool TimedOut => timer.IsCancellationRequested && !caller.IsCancellationRequested;
+
+        public void Dispose()
+        {
+            linked.Dispose();
+            timer.Dispose();
+        }
     }
 
     /// <summary>

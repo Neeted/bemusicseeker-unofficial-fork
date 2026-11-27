@@ -677,7 +677,7 @@ public sealed class OperationProgressHubLanguageTests
 
         internal int ReadCount => Volatile.Read(ref readCount);
 
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref readCount);
             ReadStarted.TrySetResult();

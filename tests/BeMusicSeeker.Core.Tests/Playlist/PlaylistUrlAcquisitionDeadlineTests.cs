@@ -1,3 +1,4 @@
+using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
@@ -105,32 +106,35 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         finally { release.TrySetResult(); try { await request; } catch (OperationCanceledException) { } Directory.Delete(root, true); }
     }
 
-    /// <summary>受信ごとに無受信30秒を更新し、期限取消しの観測後も実read終端まで応答・一時入力を保持します。</summary>
+    /// <summary>受信ごとに操作開始時の無受信秒数（既定30秒・設定の5秒・600秒）を更新し、期限取消しの観測後も実read終端まで応答・一時入力を保持します。</summary>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task BodyDeadline_ResetsOnDataAndJoinsCancelledRead(bool sharedHtml)
+    [DataRow(false, 30)]
+    [DataRow(true, 30)]
+    [DataRow(false, 5)]
+    [DataRow(true, 600)]
+    public async Task BodyDeadline_ResetsOnDataAndJoinsCancelledRead(bool sharedHtml, int idleSeconds)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = Path.Combine(migrationWorkspace.RootDirectory, "PlaylistBodyDeadline-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var clock = new BodyTimeProvider();
+        var clock = new ManualRequestTimeProvider();
         using var stream = new StagedBodyStream();
         var gateway = new BodyGateway(root, stream);
         Uri uri = new(sharedHtml ? "https://www.mediafire.com/file/test/file" : "https://example.invalid/file.zip");
         var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }, clock);
-        Task<PlaylistUrlDownloadResult> request = workflow.DownloadCandidateAsync(uri);
+        Task<PlaylistUrlDownloadResult> request = workflow.DownloadCandidateAsync(uri,
+            options: new PlaylistUrlAcquisitionOptionsSnapshot { IdleTimeout = TimeSpan.FromSeconds(idleSeconds) });
         try
         {
             await stream.Started[0].Task;
-            clock.Advance(TimeSpan.FromSeconds(29));
+            clock.Advance(TimeSpan.FromSeconds(idleSeconds - 1));
             stream.Release[0].TrySetResult(1);
             await stream.Started[1].Task;
-            clock.Advance(TimeSpan.FromSeconds(29));
-            Assert.IsFalse(request.IsCompleted, "総転送時間が30秒を超えても受信中は継続します。");
+            clock.Advance(TimeSpan.FromSeconds(idleSeconds - 1));
+            Assert.IsFalse(request.IsCompleted, "総転送時間が無受信秒数を超えても受信中は継続します。");
             stream.Release[1].TrySetResult(1);
             await stream.Started[2].Task;
-            clock.Advance(TimeSpan.FromSeconds(30));
+            clock.Advance(TimeSpan.FromSeconds(idleSeconds));
             await stream.Cancelled.Task;
             Assert.IsFalse(request.IsCompleted);
             Assert.IsFalse(stream.IsDisposed);
@@ -155,7 +159,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = Path.Combine(migrationWorkspace.RootDirectory, "PlaylistBodyWrite-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var clock = new BodyTimeProvider();
+        var clock = new ManualRequestTimeProvider();
         using var stream = new MemoryStream([1, 2, 3], writable: false);
         var gateway = new BodyGateway(root, stream) { HoldWrite = true };
         Task<PlaylistUrlDownloadResult> request = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }, clock)
@@ -217,8 +221,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         internal bool HoldWrite { get; init; }
         internal TaskCompletionSource WriteStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource ReleaseWrite { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
-            => RealHttp ? AppHttpClient.Shared.OpenReadAsync(uri, cancellationToken) : Task.FromResult(new AppHttpResponse(uri, stream));
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
+            => RealHttp ? AppHttpClient.Shared.OpenReadAsync(uri, headerTimeout, cancellationToken) : Task.FromResult(new AppHttpResponse(uri, stream));
         public string GetTemporaryDirectory() => root;
         public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share) => new BodyFileStream(path, mode, access, share, this);
         public bool FileExists(string path) => File.Exists(path);
@@ -233,33 +237,173 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    private sealed class BodyTimeProvider : TimeProvider
+    /// <summary>ヘッダー待ちは操作開始時の設定秒数（既定30秒より短い5秒・長い600秒）で切れ、共有ページを解決した後の2本目の要求にも同じ値を使います。</summary>
+    /// <remarks>
+    /// workflowから本番のgateway・時計を差し替えた<see cref="AppHttpClient"/>・段階制御のhandlerまで動かし、設定秒数の1ms前は取り消さず、ちょうどで通常失敗にします。
+    /// 時間切れを利用者取消にしない、固定の30秒や共有クライアントの期限へ戻る、2本目だけ既定値になる誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(5, false)]
+    [DataRow(600, false)]
+    [DataRow(5, true)]
+    [DataRow(600, true)]
+    public async Task HeaderWait_UsesOperationIdleTimeoutThroughProductionGateway(int idleSeconds, bool sharedPageSecondRequest)
     {
-        private readonly List<BodyTimer> timers = [];
-        private TimeSpan elapsed;
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(migrationWorkspace.RootDirectory, "PlaylistHeaderWait-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        var clock = new ManualRequestTimeProvider();
+        var handler = new StagedResponseHandler();
+        Task<PlaylistUrlDownloadResult>? request = null;
+        Exception? primaryFailure = null;
+        try
         {
-            var timer = new BodyTimer(this, callback, state);
-            lock (timers) { timers.Add(timer); timer.Change(dueTime, period); }
-            return timer;
-        }
-        internal void Advance(TimeSpan amount)
-        {
-            BodyTimer[] due;
-            lock (timers) { elapsed += amount; due = [.. timers.Where(timer => timer.Due <= elapsed)]; foreach (BodyTimer timer in due) { timer.Due = TimeSpan.MaxValue; } }
-            foreach (BodyTimer timer in due) { timer.Fire(); }
-        }
-        private sealed class BodyTimer(BodyTimeProvider owner, TimerCallback callback, object? state) : ITimer
-        {
-            internal TimeSpan Due { get; set; } = TimeSpan.MaxValue;
-            public bool Change(TimeSpan dueTime, TimeSpan period)
+            var workflow = new PlaylistUrlAcquisitionWorkflow(
+                new RootedGateway(new AppPlaylistUrlDownloadGateway(new AppHttpClient(handler, 30000, clock)), root), _ => { }, clock);
+            Uri pageUri = new("https://www.mediafire.com/file/test-page/playlist");
+            Uri fileUri = new("https://download.mediafire.com/test-download/file.zip");
+            Uri plainUri = new("https://example.invalid/file.zip");
+            StagedResponse held;
+            Uri start;
+            if (sharedPageSecondRequest)
             {
-                lock (owner.timers) { Due = dueTime == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : owner.elapsed + dueTime; return true; }
+                string html = "<html><body><a id=\"downloadButton\" href=\"" + fileUri + "\">Download</a></body></html>";
+                StagedResponse page = handler.Stage(pageUri, Encoding.UTF8.GetBytes(html), holdBody: false, contentType: "text/html");
+                page.ReleaseHeaders.TrySetResult();
+                held = handler.Stage(fileUri);
+                start = pageUri;
             }
-            internal void Fire() => callback(state);
-            public void Dispose() { lock (owner.timers) { owner.timers.Remove(this); } }
-            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+            else
+            {
+                held = handler.Stage(plainUri);
+                start = plainUri;
+            }
+            request = workflow.DownloadCandidateAsync(start, cancellationToken: operation.Token,
+                options: new PlaylistUrlAcquisitionOptionsSnapshot { IdleTimeout = TimeSpan.FromSeconds(idleSeconds) });
+            await AwaitPhaseOrRequestAsync(held.RequestStarted.Task, request, operation.Token);
+
+            clock.Advance(TimeSpan.FromSeconds(idleSeconds) - TimeSpan.FromMilliseconds(1));
+            Assert.IsFalse(held.RequestCancellation.IsCancellationRequested, "設定秒数の直前までは送信を取り消しません。");
+            Assert.IsFalse(request.IsCompleted);
+
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            PlaylistUrlDownloadResult result = await request.WaitAsync(operation.Token);
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind, "時間切れは通常の取得失敗で、利用者取消ではありません。");
+            Assert.IsTrue(held.RequestCancellation.IsCancellationRequested, "時間切れで実際の送信を取り消します。");
+            Assert.IsFalse(operation.IsCancellationRequested);
+            Assert.AreEqual(0, Directory.GetFiles(root).Length);
         }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            operation.Cancel();
+            handler.ReleaseAll();
+            Task[] owned = request == null ? [] : [request];
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, owned); }
+            finally
+            {
+                if (owned.All(task => task.IsCompleted)) { handler.Dispose(); Directory.Delete(root, true); }
+            }
+        }
+    }
+
+    /// <summary>ヘッダー到着後、ヘッダー待ちの秒数を超えて定期的に本文が届けば取得でき、その後の停止だけが無受信期限で切れます。</summary>
+    /// <remarks>
+    /// ヘッダーを設定秒数の1ms前まで待たせた後、本文の各readを同じ秒数の1ms前で進めます。ヘッダー待ちの期限を本文へ持ち越す誤りと、
+    /// 無受信期限を総転送時間にする誤りを検出します。5秒と600秒で、固定の30秒との違いを確認します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(5, false)]
+    [DataRow(600, false)]
+    [DataRow(5, true)]
+    [DataRow(600, true)]
+    public async Task Body_PeriodicDataBeyondHeaderWaitDownloads_ThenStallExpiresByIdleTimeout(int idleSeconds, bool stall)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(migrationWorkspace.RootDirectory, "PlaylistBodyIdle-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        var clock = new ManualRequestTimeProvider();
+        var handler = new StagedResponseHandler();
+        using var body = new StagedBodyStream();
+        Task<PlaylistUrlDownloadResult>? request = null;
+        Exception? primaryFailure = null;
+        TimeSpan nearlyIdle = TimeSpan.FromSeconds(idleSeconds) - TimeSpan.FromMilliseconds(1);
+        try
+        {
+            var workflow = new PlaylistUrlAcquisitionWorkflow(
+                new RootedGateway(new AppPlaylistUrlDownloadGateway(new AppHttpClient(handler, 30000, clock)), root), _ => { }, clock);
+            Uri uri = new("https://example.invalid/file.zip");
+            StagedResponse stage = handler.Stage(uri, body);
+            request = workflow.DownloadCandidateAsync(uri, cancellationToken: operation.Token,
+                options: new PlaylistUrlAcquisitionOptionsSnapshot { IdleTimeout = TimeSpan.FromSeconds(idleSeconds) });
+            await AwaitPhaseOrRequestAsync(stage.RequestStarted.Task, request, operation.Token);
+            clock.Advance(nearlyIdle);
+            stage.ReleaseHeaders.TrySetResult();
+            await AwaitPhaseOrRequestAsync(body.Started[0].Task, request, operation.Token);
+            clock.Advance(nearlyIdle);
+            body.Release[0].TrySetResult(1);
+            await AwaitPhaseOrRequestAsync(body.Started[1].Task, request, operation.Token);
+            clock.Advance(nearlyIdle);
+            Assert.IsFalse(request.IsCompleted, "ヘッダー待ちを含む総経過が設定秒数を超えても、受信が続く間は継続します。");
+            body.Release[1].TrySetResult(1);
+            await AwaitPhaseOrRequestAsync(body.Started[2].Task, request, operation.Token);
+            if (stall)
+            {
+                clock.Advance(TimeSpan.FromSeconds(idleSeconds));
+                await body.Cancelled.Task.WaitAsync(operation.Token);
+                Assert.IsFalse(request.IsCompleted, "取消しの観測後も、実readの終端まで応答と一時入力を保持します。");
+                body.Terminal.TrySetResult();
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, (await request.WaitAsync(operation.Token)).Kind);
+                Assert.AreEqual(0, Directory.GetFiles(root).Length);
+            }
+            else
+            {
+                body.Release[2].TrySetResult(0);
+                PlaylistUrlDownloadResult result = await request.WaitAsync(operation.Token);
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+                CollectionAssert.AreEqual(new byte[] { 32, 32 }, File.ReadAllBytes(result.FilePath));
+            }
+            Assert.IsFalse(operation.IsCancellationRequested);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            operation.Cancel();
+            handler.ReleaseAll();
+            body.Terminal.TrySetResult();
+            foreach (TaskCompletionSource<int> release in body.Release) { release.TrySetResult(0); }
+            Task[] owned = request == null ? [] : [request];
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, owned); }
+            finally
+            {
+                if (owned.All(task => task.IsCompleted)) { handler.Dispose(); Directory.Delete(root, true); }
+            }
+        }
+    }
+
+    // 段階の到達は合図で待ち、要求側の失敗が先に起きた場合はその場で検出します。
+    private static async Task AwaitPhaseOrRequestAsync(Task phase, Task request, CancellationToken operationToken)
+    {
+        await Task.WhenAny(phase, request).WaitAsync(operationToken);
+        if (request.IsCompleted) { await request; }
+        Assert.IsTrue(phase.IsCompleted, "取得が目的の段階より先に終了しました。");
+    }
+
+    /// <summary>通信は本番のgatewayへ委ね、一時入力の置き場だけをケースの専有領域へ向けます。</summary>
+    private sealed class RootedGateway(IPlaylistUrlDownloadGateway inner, string root) : IPlaylistUrlDownloadGateway
+    {
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, TimeSpan headerTimeout, CancellationToken cancellationToken)
+            => inner.OpenReadAsync(uri, headerTimeout, cancellationToken);
+        public string GetTemporaryDirectory() => root;
+        public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share) => new(path, mode, access, share);
+        public bool FileExists(string path) => File.Exists(path);
+        public void DeleteFile(string path) => File.Delete(path);
     }
 
 }
