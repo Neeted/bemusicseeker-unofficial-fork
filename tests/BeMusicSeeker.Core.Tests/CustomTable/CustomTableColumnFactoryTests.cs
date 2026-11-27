@@ -885,6 +885,39 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("table A", columns["PlaylistSymbols"].GetTooltip(row));
     }
 
+    /// <summary>
+    /// 統合候補一覧と整理候補一覧のSTATUS列のツールチップは420 DIPを最小幅として内容の幅まで広げ、メイン一覧のCOMMENT・MEMOは420 DIPの固定幅のままであることを確認します。
+    /// フルパスを含むSTATUSの説明を固定幅で折り返す誤りと、文章の列まで内容の幅へ広げる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void CandidateStatusColumns_GrowTooltipToContentWhileCommentAndMemoStayFixed()
+    {
+        var mainSettings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(mainSettings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+        var mainColumns = CustomTableColumnFactory.CreateMainColumns(mainSettings).ToDictionary(column => column.Id);
+        CustomTableColumn mergeStatus = CustomTableColumnFactory.CreateDuplicateCandidateColumns(new DuplicateMergeCandidateColumnSettings())
+            .Single(column => column.Id == "Status");
+        CustomTableColumn audioStatus = CustomTableColumnFactory.CreateAudioDuplicateCandidateColumns(new AudioDuplicateCandidateColumnSettings())
+            .Single(column => column.Id == "Status");
+
+        foreach (CustomTableColumn status in new[] { mergeStatus, audioStatus })
+        {
+            Assert.AreEqual(420d, status.TooltipTextWidth);
+            Assert.IsTrue(status.TooltipGrowsToContent);
+        }
+        foreach (string id in new[] { "Comment", "Memo" })
+        {
+            Assert.AreEqual(420d, mainColumns[id].TooltipTextWidth);
+            Assert.IsFalse(mainColumns[id].TooltipGrowsToContent);
+        }
+        // 幅の指定がない列は、広げる指定を持ちません。
+        Assert.IsFalse(mainColumns["Warning"].TooltipGrowsToContent);
+    }
+
     /// <summary>異文化と非Gregorian暦でも再生中の複合状態・キー数・率・健全率・統計値・日付を固定書式と既存丸めで表示することを確認し、状態分類や数値の尺度を変える誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]

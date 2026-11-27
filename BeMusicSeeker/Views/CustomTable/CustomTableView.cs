@@ -211,6 +211,7 @@ public sealed partial class CustomTableView : Grid
     private string toolTipColumnId;
     private string toolTipText;
     private double? toolTipTextWidth;
+    private bool toolTipGrowsToContent;
     private CustomTableHitTestResult currentCellHit;
     private Point? rowDragStartPoint;
     private CustomTableHitTestResult rowDragStartHit;
@@ -3176,11 +3177,15 @@ public sealed partial class CustomTableView : Grid
             cellToolTip.IsOpen = false;
         }
         double? tooltipTextWidth = hit.Column.TooltipTextWidth;
-        if (!string.Equals(toolTipText, tooltip, StringComparison.Ordinal) || toolTipTextWidth != tooltipTextWidth)
+        bool tooltipGrowsToContent = hit.Column.TooltipGrowsToContent;
+        if (!string.Equals(toolTipText, tooltip, StringComparison.Ordinal)
+            || toolTipTextWidth != tooltipTextWidth
+            || toolTipGrowsToContent != tooltipGrowsToContent)
         {
-            cellToolTip.Content = CreateCellToolTipContent(tooltip, tooltipTextWidth);
+            cellToolTip.Content = CreateCellToolTipContent(tooltip, tooltipTextWidth, tooltipGrowsToContent);
             toolTipText = tooltip;
             toolTipTextWidth = tooltipTextWidth;
+            toolTipGrowsToContent = tooltipGrowsToContent;
         }
         toolTipRowIndex = toolTipCellKey;
         toolTipColumnId = hit.Column.Id;
@@ -3190,16 +3195,38 @@ public sealed partial class CustomTableView : Grid
         }
     }
 
-    internal static object CreateCellToolTipContent(string tooltip, double? tooltipTextWidth)
+    /// <summary>内容の幅まで広げるツールチップが、主モニターの作業領域の幅から空ける余白（DIP）です。ツールチップの枠と余白の分です。</summary>
+    internal const double GrowingToolTipScreenMargin = 48d;
+
+    /// <summary>
+    /// セルのツールチップの内容を作ります。幅の指定がなければ文字列のまま、指定があれば折り返しつきの <see cref="TextBlock"/> です。
+    /// </summary>
+    /// <param name="tooltip">表示する文字列。</param>
+    /// <param name="tooltipTextWidth">文字の幅（DIP）。</param>
+    /// <param name="growsToContent">
+    /// 真なら <paramref name="tooltipTextWidth"/> を最小幅として内容の幅まで広げ、主モニターの作業領域の幅から余白を引いた幅を超える行だけ折り返します
+    /// （画面からはみ出して読めなくならないための上限です）。偽なら <paramref name="tooltipTextWidth"/> の固定幅で折り返します。
+    /// </param>
+    internal static object CreateCellToolTipContent(string tooltip, double? tooltipTextWidth, bool growsToContent = false)
     {
         if (!tooltipTextWidth.HasValue)
         {
             return tooltip;
         }
+        if (!growsToContent)
+        {
+            return new TextBlock
+            {
+                Text = tooltip,
+                Width = tooltipTextWidth.Value,
+                TextWrapping = TextWrapping.Wrap
+            };
+        }
         return new TextBlock
         {
             Text = tooltip,
-            Width = tooltipTextWidth.Value,
+            MinWidth = tooltipTextWidth.Value,
+            MaxWidth = Math.Max(tooltipTextWidth.Value, SystemParameters.WorkArea.Width - GrowingToolTipScreenMargin),
             TextWrapping = TextWrapping.Wrap
         };
     }
@@ -3243,6 +3270,7 @@ public sealed partial class CustomTableView : Grid
         toolTipColumnId = null;
         toolTipText = null;
         toolTipTextWidth = null;
+        toolTipGrowsToContent = false;
     }
 
     private static CustomTableHitTestResult CreateEmptyHit()

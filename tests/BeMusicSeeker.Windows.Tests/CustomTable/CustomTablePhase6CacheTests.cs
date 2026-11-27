@@ -1447,6 +1447,51 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     /// <summary>
+    /// 内容の幅まで広げるtooltipは、指定幅を最小幅とし、短い内容では最小幅、指定幅より長い一行では折り返さずにその行の幅まで広がり、
+    /// 上限（主モニターの作業領域の幅から余白を引いた幅）を超える一行だけを折り返すことを、実際に測った大きさで確認します。
+    /// 固定幅のまま長いパスを折り返す誤り、最小幅を落とす誤り、画面の幅を超えて広げる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void CustomTableView_GrowingTooltipContentKeepsMinimumWidthAndWrapsOnlyBeyondTheScreenLimit()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            double limit = Math.Max(420d, SystemParameters.WorkArea.Width - CustomTableView.GrowingToolTipScreenMargin);
+            static Size Measure(TextBlock block)
+            {
+                block.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                return block.DesiredSize;
+            }
+
+            var shortBlock = (TextBlock)CustomTableView.CreateCellToolTipContent("short", 420d, growsToContent: true);
+            Size shortSize = Measure(shortBlock);
+            Assert.IsTrue(double.IsNaN(shortBlock.Width), "固定幅を指定しません。");
+            Assert.AreEqual(420d, shortBlock.MinWidth);
+            Assert.AreEqual(limit, shortBlock.MaxWidth);
+            Assert.AreEqual(420d, shortSize.Width, 0.5d);
+
+            // 指定幅より長く上限より短い一行は、折り返さず、その行の幅まで広がります。
+            double characterWidth = Measure(new TextBlock { Text = new string('a', 100) }).Width / 100d;
+            Assert.IsTrue(characterWidth > 0d);
+            string longPath = @"C:\" + new string('a', (int)Math.Ceiling(480d / characterWidth));
+            double naturalWidth = Measure(new TextBlock { Text = longPath }).Width;
+            Assert.IsTrue(naturalWidth > 420d && naturalWidth < limit, "前提：一行の自然な幅が、最小幅と上限の間にあります。");
+            var longBlock = (TextBlock)CustomTableView.CreateCellToolTipContent(longPath, 420d, growsToContent: true);
+            Size longSize = Measure(longBlock);
+            Assert.AreEqual(naturalWidth, longSize.Width, 0.5d, "長い一行の幅まで広がります。");
+            Assert.AreEqual(shortSize.Height, longSize.Height, 0.5d, "折り返しません。");
+
+            // 上限を超える一行は、上限の幅で折り返します。
+            string beyondLimit = new string('a', (int)Math.Ceiling(limit / characterWidth) + 40);
+            var wrappedBlock = (TextBlock)CustomTableView.CreateCellToolTipContent(beyondLimit, 420d, growsToContent: true);
+            Size wrappedSize = Measure(wrappedBlock);
+            Assert.AreEqual(TextWrapping.Wrap, wrappedBlock.TextWrapping);
+            Assert.IsTrue(wrappedSize.Width <= limit + 0.5d);
+            Assert.IsTrue(wrappedSize.Height > shortSize.Height + 0.5d, "上限を超える行は折り返します。");
+        });
+    }
+
+    /// <summary>
     /// 20万行の中ほど（行100500）を表示したとき、行グループの提供元への問合せ回数と、行集合の読取り回数が、グループの大きさ（1,000行と199,990行）によらず等しいことを確認します。
     /// 表示範囲は一つのグループの内部に収まるため、問合せは一回で、結合列の値の取得は表示中の部分の最初の行だけ（一回）、通常の列は表示行ごとです。
     /// </summary>

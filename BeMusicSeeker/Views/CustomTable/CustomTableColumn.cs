@@ -180,7 +180,8 @@ public sealed class CustomTableColumn
         bool autoTrimTooltip = true,
         Func<string> headerSelector = null,
         bool mergesRowGroup = false,
-        Func<object, bool> enabledSelector = null)
+        Func<object, bool> enabledSelector = null,
+        bool tooltipGrowsToContent = false)
     {
         Id = id;
         configuredHeader = header;
@@ -209,6 +210,7 @@ public sealed class CustomTableColumn
         EditTextSelector = editTextSelector;
         EditSuggestionsSelector = editSuggestionsSelector;
         TooltipTextWidth = NormalizeTooltipTextWidth(tooltipTextWidth);
+        TooltipGrowsToContent = tooltipGrowsToContent && TooltipTextWidth.HasValue;
         AutoTrimTooltip = autoTrimTooltip;
         MergesRowGroup = mergesRowGroup;
         EnabledSelector = enabledSelector;
@@ -257,7 +259,14 @@ public sealed class CustomTableColumn
 
     public int? EditOverlayWidth { get; }
 
+    /// <summary>ツールチップの文字の幅（DIP）です。指定がなければ、文字列をそのまま表示します。</summary>
     public double? TooltipTextWidth { get; }
+
+    /// <summary>
+    /// <see cref="TooltipTextWidth"/> を最小幅として、ツールチップを内容の幅まで広げるかです。
+    /// フルパスのように途中で折り返すと読みにくい行を持つ列に使います。偽なら <see cref="TooltipTextWidth"/> の固定幅で折り返します。
+    /// </summary>
+    public bool TooltipGrowsToContent { get; }
 
     public bool AutoTrimTooltip { get; }
 
@@ -615,7 +624,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Status", "STATUS", settings.Status, 1, "Status", TextAlignment.Left,
                 row => (row as DuplicateMergeCandidateRow)?.StatusText ?? string.Empty,
                 tooltipSelector: row => (row as DuplicateMergeCandidateRow)?.StatusTooltipText,
-                tooltipTextWidth: WrappedTooltipTextWidth, mergesRowGroup: true),
+                tooltipTextWidth: WrappedTooltipTextWidth, mergesRowGroup: true, tooltipGrowsToContent: true),
             new CustomTableColumn("Keep", "KEEP", settings.Keep, 2, null, TextAlignment.Center, row => string.Empty,
                 checkedSelector: row => (row as DuplicateMergeCandidateRow)?.IsKeep,
                 cellKind: CustomTableCellKind.RadioButton, autoTrimTooltip: false,
@@ -670,7 +679,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Status", "STATUS", settings.Status, 1, "Status", TextAlignment.Left,
                 row => (row as AudioDuplicateCandidateRow)?.StatusText ?? string.Empty,
                 tooltipSelector: row => (row as AudioDuplicateCandidateRow)?.StatusTooltipText,
-                tooltipTextWidth: WrappedTooltipTextWidth),
+                tooltipTextWidth: WrappedTooltipTextWidth, tooltipGrowsToContent: true),
             new CustomTableColumn("Conflicts", "CONFLICTS", settings.Conflicts, 2, "Conflicts", TextAlignment.Right,
                 row => (row as AudioDuplicateCandidateRow)?.ConflictsText ?? string.Empty, autoTrimTooltip: false),
             new CustomTableColumn("Path", "PATH", settings.Path, 3, "Path", TextAlignment.Left, row => (row as AudioDuplicateCandidateRow)?.Path ?? string.Empty),
