@@ -31,7 +31,8 @@ public sealed record OperationProgressRow(
 
     /// <summary>末尾の取消操作を表示するかを取得します。</summary>
     public bool CanCancel => Action is OperationProgressAction.CancelInstall
-        or OperationProgressAction.CancelUrlDownload or OperationProgressAction.CancelMaintenance;
+        or OperationProgressAction.CancelUrlDownload or OperationProgressAction.CancelMaintenance
+        or OperationProgressAction.CancelStartupUpdate;
 
 }
 
@@ -41,5 +42,6 @@ public enum OperationProgressAction
     None,
     CancelInstall,
     CancelUrlDownload,
-    CancelMaintenance
+    CancelMaintenance,
+    CancelStartupUpdate
 }

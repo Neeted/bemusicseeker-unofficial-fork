@@ -1049,10 +1049,8 @@ public sealed class DialogPresentationTests
         IExternalShellGateway? shell = null,
         IUiDialogService? dialogs = null)
     {
-        var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var dialog = new UpdateAvailableDialog(
             result ?? UpdateCheckResult.NoUpdate("1.0.0.0"),
-            progressHub,
             shell ?? ExternalShellGatewayPolicy.Current,
             dialogs ?? UndeclaredDialogs.Create());
         return CreateNativeFixture(
@@ -1061,8 +1059,7 @@ public sealed class DialogPresentationTests
                 ButtonWithAutomationId("UpdateApply", DialogButtonRole.Primary, "update affirmative"),
                 ButtonWithAutomationId("UpdateOpenReleasePage", DialogButtonRole.Quiet, "release page secondary action"),
                 ButtonWithAutomationId("UpdateClose", DialogButtonRole.Quiet, "update close"),
-            ],
-            cleanup: progressHub.Dispose);
+            ]);
     }
 
     private static PresentationFixture CreatePlayHistoryPresetFixture()

@@ -7,21 +7,18 @@ using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, IDisposable
+internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged
 {
-    private readonly OperationProgressHubViewModel progressHub;
     private UpdatePackageOption selectedPackage;
 
-    public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult, OperationProgressHubViewModel progressHub)
+    public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult)
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
-        this.progressHub = progressHub ?? throw new ArgumentNullException(nameof(progressHub));
         // 配信側が update.json の並び順で推奨を決めるため、並べ替えずに先頭を初期選択します。
         Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? [])
             .Where(asset => asset != null)
             .Select(UpdatePackageOption.Create));
         selectedPackage = Packages.FirstOrDefault();
-        progressHub.StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
@@ -52,9 +49,8 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public bool HasSelectableAssets => Packages.Count > 0;
 
-    public bool CanStartUpdate => HasSelectableAssets && progressHub?.StartupProgress.IsActive != true;
-
-    public string StartBlockedReason => CanStartUpdate ? string.Empty : Resources.UpdateDialog_StartupBlocked;
+    /// <summary>選択できるパッケージが1件以上あれば更新を始められます。起動時の初期化の進行は条件にしません。</summary>
+    public bool CanStartUpdate => HasSelectableAssets;
 
     public UpdateAssetInfo SelectedAsset => selectedPackage?.Asset;
 
@@ -70,20 +66,6 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
                 RaisePropertyChanged(nameof(CanStartUpdate));
                 RaisePropertyChanged(nameof(SelectedAsset));
             }
-        }
-    }
-
-    public void Dispose()
-    {
-        progressHub.StartupProgress.PropertyChanged -= StartupProgressPropertyChanged;
-    }
-
-    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(StartupProgressWorkflowOwner.IsActive))
-        {
-            RaisePropertyChanged(nameof(CanStartUpdate));
-            RaisePropertyChanged(nameof(StartBlockedReason));
         }
     }
 

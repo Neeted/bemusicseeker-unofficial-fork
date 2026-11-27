@@ -10,8 +10,10 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -36,7 +38,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             using var fixture = new StartupCompletionTestFixture.CompletionFixture(lifetime: lifetime);
             fixture.Owner.StartupUpdateWorkflow.NotifyClosing();
             using var ownership = new MainWindowTestLifetime(fixture.Owner, lifetime.ShutdownRequested.Task);
-            var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });
+            var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { }, () => { });
             MainWindow window = ownership.CreateWindow(() => new MainWindow(fixture.Owner, settingsWindowCreated: null, libraryReloadMenuTerminal: null,
                 regularLibraryTreeTerminal: null, maintenanceTreeTerminal: null, installTreeTerminal: null,
                 zeroNoteRecheckTerminal: null,
@@ -93,7 +95,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
     [TestMethod]
     public void ProgressStatusBar_RendersConcurrentRowsWithFlexibleLabelWidthAndMeasuredHeight()
     {
-        var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });
+        var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { }, () => { });
         RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
         {
             OperationProgressHubViewModel hub = viewModel.ProgressHub;
@@ -150,7 +152,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         CultureInfo? previous = Resources.Culture;
         try
         {
-            var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });
+            var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { }, () => { });
             RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
             {
                 ResourceService.Current.ChangeCulture("ja-JP");
@@ -227,14 +229,14 @@ public sealed class MainWindowProgressStatusBarWpfTests
         }
     }
 
-    /// <summary>導入・URL取得・メンテナンスの各進捗ボタンから対応する取消入口だけを一回呼ぶことを確認し、compiled行テンプレートで別作業を取り消す誤りを検出します。</summary>
+    /// <summary>導入・URL取得・メンテナンス・起動時の更新の各進捗ボタンから対応する取消入口だけを一回呼ぶことを確認し、compiled行テンプレートで別作業を取り消す誤りを検出します。</summary>
     [TestMethod]
     public void ProgressStatusBarButtons_InvokeEachRowsOwnerExactlyOnce()
     {
         var calls = new List<string>();
         var terminals = new MainWindowProgressStatusBarTerminals(
             () => calls.Add("install"), () => calls.Add("maintenance"),
-            () => calls.Add("url"));
+            () => calls.Add("url"), () => calls.Add("update"));
         RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
         {
             viewModel.ProgressHub.StartupProgress.ApplyPresentation(true, "startup", "", 1, 13);
@@ -243,7 +245,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
             {
                 new OperationProgressRow("install", "install", "", Action: OperationProgressAction.CancelInstall),
                 new OperationProgressRow("url", "url", "", Action: OperationProgressAction.CancelUrlDownload),
-                new OperationProgressRow("maintenance", "maintenance", "", Action: OperationProgressAction.CancelMaintenance)
+                new OperationProgressRow("maintenance", "maintenance", "", Action: OperationProgressAction.CancelMaintenance),
+                new OperationProgressRow("update", "update", "", Action: OperationProgressAction.CancelStartupUpdate)
             };
             rows.ApplyTemplate();
             host.UpdateLayout();
@@ -252,7 +255,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
             }
         });
-        CollectionAssert.AreEqual(new[] { "install", "url", "maintenance" }, calls);
+        CollectionAssert.AreEqual(new[] { "install", "url", "maintenance", "update" }, calls);
     }
 
     /// <summary>実URL取得を保持した間でも導入取消とURL取消を別主体へ届け、それぞれの終端通知を一回保つことを確認し、構成標準の取消接続が別作業を巻き込む誤りを検出します。</summary>
@@ -336,6 +339,270 @@ public sealed class MainWindowProgressStatusBarWpfTests
         finally
         {
             viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 実際の構成と実際の取得サービスで、更新ダイアログの選択の直後に始まった転送を状態表示バーの取消行から取り消す。
+    /// ローカルのHTTPサーバーがZIPの本文を一部だけ送って止めるため、取消行が現れ、状態表示バーの取消先を呼ぶと取消の終端になり、
+    /// 一時ファイルも検証済みZIPも残らず、宣言した更新ダイアログ以外のダイアログも更新ツールの準備もないことで、構成上の接続漏れや後始末漏れを検出する。
+    /// </summary>
+    /// <remarks>受信量の値は表明しません。アプリの場所はケース専有の一時領域です。</remarks>
+    [TestMethod]
+    public void StartupUpdateTransfer_IsCancelledThroughTheStatusBarTerminalAndLeavesNoPackage()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string appRoot = Path.Combine(workspace.RootDirectory, "update-app");
+        Directory.CreateDirectory(appRoot);
+        var server = new UpdatePackageServer();
+        try
+        {
+            var dialogs = new UpdateSelectionDialogService(server.CreateAsset());
+            var updater = new RecordingUpdaterProcessGateway();
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+                MainWindowViewModel viewModel = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(
+                        ApplicationPathSnapshot.FromExecutablePath(Path.Combine(appRoot, "BeMusicSeeker.exe")),
+                        server.ManifestUri.ToString()),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: dialogs,
+                    updaterProcessGateway: updater)
+                    .CreateMainWindowViewModelForTest();
+                var progressRow = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var terminal = new TaskCompletionSource<StartupUpdateWorkflowCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+                viewModel.StartupUpdateWorkflow.ProgressChanged += snapshot =>
+                {
+                    if (snapshot.IsActive && snapshot.CanCancel)
+                    {
+                        progressRow.TrySetResult(true);
+                    }
+                };
+                viewModel.StartupUpdateWorkflow.TerminalPublished += receipt => terminal.TrySetResult(receipt);
+                var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                ownership.Run(() =>
+                {
+                    // 窓の構築が、更新確認と、ダイアログの選択の直後の取得を開始する。初期化は始めないため、取得は初期化と並行したまま待つ。
+                    MainWindow window = ownership.CreateWindow(() => new MainWindow(
+                        viewModel,
+                        settingsWindowCreated: null,
+                        libraryReloadMenuTerminal: null,
+                        regularLibraryTreeTerminal: null,
+                        maintenanceTreeTerminal: null,
+                        installTreeTerminal: null,
+                        zeroNoteRecheckTerminal: null,
+                        folderAutoRenameTerminal: null,
+                        duplicateMaintenanceTerminal: null,
+                        maintenanceRescanTerminal: null,
+                        packageCatalogTerminal: null,
+                        pendingInstallEstimationTerminal: null,
+                        pendingInstallationTerminal: null,
+                        installedLocationRepairTerminal: null,
+                        pendingBulkMaintenanceTerminal: null,
+                        mainChartCellEditTerminal: null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(server.PartialBodySent.Task, "update-partial-body");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(progressRow.Task, "update-progress-row");
+
+                    OperationProgressRow row = viewModel.ProgressHub.Rows.Single(candidate => candidate.Key == "update");
+                    Assert.AreEqual(OperationProgressAction.CancelStartupUpdate, row.Action);
+                    Assert.IsTrue(row.CanCancel);
+                    Assert.IsFalse(terminal.Task.IsCompleted, "取得を保持している間に終端してはいけません。");
+
+                    MainWindowProgressStatusBarTerminals.Create(viewModel).Invoke(row.Action);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal.Task, "update-cancelled-terminal");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    Assert.AreEqual(StartupUpdateWorkflowOutcome.Cancelled, terminal.Task.Result.Outcome);
+                    Assert.IsFalse(viewModel.ProgressHub.Rows.Any(candidate => candidate.Key == "update"), "終端の後に行が残ってはいけません。");
+                    string downloads = Path.Combine(appRoot, "update_work", "downloads");
+                    Assert.IsFalse(Directory.Exists(downloads) && Directory.EnumerateFileSystemEntries(downloads).Any(),
+                        "一時ファイルも検証済みZIPも残してはいけません。");
+                    Assert.AreEqual(1, dialogs.UpdateDialogCount);
+                    Assert.AreEqual(0, dialogs.OtherDialogCount, "宣言した更新ダイアログ以外のダイアログを表示してはいけません。");
+                    Assert.IsNull(updater.Request, "更新ツールの準備を呼んではいけません。");
+                });
+            });
+        }
+        finally
+        {
+            server.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    /// <summary>更新ダイアログだけを宣言し、テストが選択結果を与える窓口です。それ以外の要求は数えて、失敗として表明します。</summary>
+    private sealed class UpdateSelectionDialogService(UpdateAssetInfo selection) : IUiDialogService
+    {
+        private int updateDialogCount;
+        private int otherDialogCount;
+
+        internal int UpdateDialogCount => Volatile.Read(ref updateDialogCount);
+
+        internal int OtherDialogCount => Volatile.Read(ref otherDialogCount);
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window
+        {
+            if (typeof(TWindow) == typeof(UpdateAvailableDialog) && selection is TResult value)
+            {
+                Interlocked.Increment(ref updateDialogCount);
+                return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.Accepted, value));
+            }
+            Interlocked.Increment(ref otherDialogCount);
+            throw new NotSupportedException("Only the update dialog is declared.");
+        }
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            throw new NotSupportedException();
+        }
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            throw new NotSupportedException();
+        }
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            throw new NotSupportedException();
+        }
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref otherDialogCount);
+            throw new NotSupportedException();
+        }
+    }
+
+    /// <summary>更新情報を返し、ZIPの本文はヘッダーと一部だけ送って、破棄まで止めるローカルのHTTPサーバーです。</summary>
+    private sealed class UpdatePackageServer : IAsyncDisposable
+    {
+        private const long PackageBytes = 1_048_576;
+        private const string PackageFileName = "BeMusicSeeker-status-bar-test.zip";
+        private readonly TcpListener listener = new(IPAddress.Loopback, 0);
+        private readonly CancellationTokenSource lifetime = new();
+        private readonly List<Task> connections = [];
+        private readonly Task acceptLoop;
+        private readonly int port;
+
+        internal UpdatePackageServer()
+        {
+            listener.Start();
+            port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            acceptLoop = AcceptAsync();
+        }
+
+        internal Uri ManifestUri => new($"http://127.0.0.1:{port}/update.json");
+
+        internal TaskCompletionSource<bool> PartialBodySent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>更新情報の先頭の資産と同じ内容の資産を作ります。</summary>
+        internal UpdateAssetInfo CreateAsset() => new()
+        {
+            FileName = PackageFileName,
+            Url = $"http://127.0.0.1:{port}/package.zip",
+            Sha256 = new string('a', 64),
+            SizeBytes = PackageBytes,
+            IncludesChartInfoMetadata = false
+        };
+
+        public async ValueTask DisposeAsync()
+        {
+            lifetime.Cancel();
+            listener.Stop();
+            Task[] pending;
+            lock (connections)
+            {
+                pending = [.. connections];
+            }
+            foreach (Task task in pending.Append(acceptLoop))
+            {
+                try { await task.ConfigureAwait(false); }
+                catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or SocketException or IOException) { }
+            }
+            lifetime.Dispose();
+        }
+
+        private async Task AcceptAsync()
+        {
+            while (!lifetime.IsCancellationRequested)
+            {
+                TcpClient client = await listener.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false);
+                Task connection = HandleAsync(client);
+                lock (connections)
+                {
+                    connections.Add(connection);
+                }
+            }
+        }
+
+        private async Task HandleAsync(TcpClient client)
+        {
+            using (client)
+            {
+                NetworkStream stream = client.GetStream();
+                string request = await ReadRequestHeadAsync(stream).ConfigureAwait(false);
+                if (request.StartsWith("GET /update.json", StringComparison.Ordinal))
+                {
+                    UpdateAssetInfo asset = CreateAsset();
+                    string manifest = "{\"version\":\"9999.0.0.0\",\"releasePageUrl\":\"http://127.0.0.1:" + port + "/release\","
+                        + "\"assets\":[{\"fileName\":\"" + asset.FileName + "\",\"url\":\"" + asset.Url + "\",\"sha256\":\"" + asset.Sha256
+                        + "\",\"sizeBytes\":" + asset.SizeBytes + ",\"includesChartInfoMetadata\":false}]}";
+                    byte[] body = Encoding.UTF8.GetBytes(manifest);
+                    await WriteAsync(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n").ConfigureAwait(false);
+                    await stream.WriteAsync(body, lifetime.Token).ConfigureAwait(false);
+                    await stream.FlushAsync(lifetime.Token).ConfigureAwait(false);
+                    return;
+                }
+
+                await WriteAsync(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: " + PackageBytes + "\r\nConnection: close\r\n\r\n").ConfigureAwait(false);
+                await stream.WriteAsync(new byte[4096], lifetime.Token).ConfigureAwait(false);
+                await stream.FlushAsync(lifetime.Token).ConfigureAwait(false);
+                PartialBodySent.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, lifetime.Token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task WriteAsync(NetworkStream stream, string text)
+            => await stream.WriteAsync(Encoding.ASCII.GetBytes(text), lifetime.Token).ConfigureAwait(false);
+
+        private async Task<string> ReadRequestHeadAsync(NetworkStream stream)
+        {
+            var head = new StringBuilder();
+            byte[] buffer = new byte[1];
+            while (!head.ToString().EndsWith("\r\n\r\n", StringComparison.Ordinal))
+            {
+                int read = await stream.ReadAsync(buffer, lifetime.Token).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    throw new IOException("The update client closed before sending a complete request.");
+                }
+                head.Append((char)buffer[0]);
+            }
+            return head.ToString();
         }
     }
 

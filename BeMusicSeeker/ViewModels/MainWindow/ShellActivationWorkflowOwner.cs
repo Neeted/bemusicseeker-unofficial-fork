@@ -38,7 +38,8 @@ internal sealed class ShellActivationWorkflowOwner
     internal Task<StartupInitializationResult> StartupCompletion => startupCompletion.Task;
 
     /// <summary>
-    /// constructorで開始可能な起動処理を一度だけ開始します。
+    /// constructorで開始可能な起動処理を一度だけ開始します。更新処理へは、まだ完了していない初期化の観測結果
+    /// （<see cref="StartupCompletion"/>）を渡し、更新ZIPの取得を初期化と並行させたまま起動の判断を合流させます。
     /// </summary>
     internal bool ActivateConstructedShell()
     {
@@ -47,7 +48,7 @@ internal sealed class ShellActivationWorkflowOwner
             return false;
         }
 
-        return startupUpdateWorkflow.Start();
+        return startupUpdateWorkflow.Start(startupCompletion.Task);
     }
 
     /// <summary>
@@ -87,7 +88,7 @@ internal sealed class ShellActivationWorkflowOwner
         {
             StartupInitializationResult result = await initialize();
             startupCompletion.TrySetResult(result);
-            return result.Outcome == StartupInitializationOutcome.Succeeded && result.CompletionPublished && result.Failure == null;
+            return result.IsCompletedSuccessfully;
         }
         catch (OperationCanceledException failure)
         {

@@ -14,6 +14,7 @@ internal sealed class MainWindowProgressStatusBarTerminals
 
     private readonly Action cancelMaintenanceRescan;
 
+    private readonly Action cancelStartupUpdate;
 
     /// <summary>
     /// 行ごとの取消先を初期化します。
@@ -23,11 +24,15 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// </param>
     /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
     /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
+    /// <param name="cancelStartupUpdate">起動時の更新ZIPの取得の取消先。</param>
     internal MainWindowProgressStatusBarTerminals(
         Action cancelInstallPipeline,
         Action cancelMaintenanceRescan,
-        Action cancelPlaylistUrlDownload)
+        Action cancelPlaylistUrlDownload,
+        Action cancelStartupUpdate)
     {
+        this.cancelStartupUpdate = cancelStartupUpdate
+            ?? throw new ArgumentNullException(nameof(cancelStartupUpdate));
         this.cancelPlaylistUrlDownload = cancelPlaylistUrlDownload
             ?? throw new ArgumentNullException(nameof(cancelPlaylistUrlDownload));
         this.cancelInstallPipeline = cancelInstallPipeline
@@ -49,6 +54,7 @@ internal sealed class MainWindowProgressStatusBarTerminals
             case OperationProgressAction.CancelInstall: cancelInstallPipeline(); break;
             case OperationProgressAction.CancelUrlDownload: cancelPlaylistUrlDownload(); break;
             case OperationProgressAction.CancelMaintenance: cancelMaintenanceRescan(); break;
+            case OperationProgressAction.CancelStartupUpdate: cancelStartupUpdate(); break;
         }
     }
 
@@ -68,7 +74,8 @@ internal sealed class MainWindowProgressStatusBarTerminals
         return CreateCore(
             viewModel.PlaylistWorkspace.CancelPlaylistUrlDownload,
             viewModel.PackageInstallWorkflow.CancelAll,
-            viewModel.MaintenanceRescanWorkflow.Cancel);
+            viewModel.MaintenanceRescanWorkflow.Cancel,
+            () => viewModel.StartupUpdateWorkflow.RequestCancel());
     }
 
     /// <summary>
@@ -77,19 +84,23 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
     /// <param name="cancelPackageInstall">パッケージ導入の取消先。</param>
     /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
+    /// <param name="cancelStartupUpdate">起動時の更新ZIPの取得の取消先。</param>
     /// <returns>各操作を一度だけ届ける行固有の操作先。</returns>
     internal static MainWindowProgressStatusBarTerminals CreateCore(
         Action cancelPlaylistUrlDownload,
         Action cancelPackageInstall,
-        Action cancelMaintenanceRescan)
+        Action cancelMaintenanceRescan,
+        Action cancelStartupUpdate)
     {
         ArgumentNullException.ThrowIfNull(cancelPlaylistUrlDownload);
         ArgumentNullException.ThrowIfNull(cancelPackageInstall);
         ArgumentNullException.ThrowIfNull(cancelMaintenanceRescan);
+        ArgumentNullException.ThrowIfNull(cancelStartupUpdate);
 
         return new MainWindowProgressStatusBarTerminals(
             cancelPackageInstall,
             cancelMaintenanceRescan,
-            cancelPlaylistUrlDownload);
+            cancelPlaylistUrlDownload,
+            cancelStartupUpdate);
     }
 }

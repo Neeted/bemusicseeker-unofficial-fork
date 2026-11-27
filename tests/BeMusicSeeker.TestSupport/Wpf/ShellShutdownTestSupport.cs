@@ -37,7 +37,7 @@ internal static class ShellShutdownTestSupport
             "startupBackgroundTaskScheduler");
         startupUpdate ??= new StartupUpdateWorkflowOwner(
                 () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
-                asset => Task.FromResult("package.zip"),
+                (asset, _, _) => Task.FromResult("package.zip"),
                 packagePath => new NoOpPreparedUpdaterLaunch(),
                 () => { },
                 packagePath => { },

@@ -2971,8 +2971,11 @@ BMS ディレクトリ一覧を見直し、親子関係になっている登録�
   <data name="UpdateDialog_PackageWithMetadataDescription" xml:space="preserve">
     <value>解析済みメタデータを同梱します。未所持譜面でもプレイリストでメタデータを閲覧できます。</value>
   </data>
-  <data name="UpdateDialog_StartupBlocked" xml:space="preserve">
-    <value>起動初期化が完了するまでアップデートを開始できません。</value>
+  <data name="Statusbar_progress_update_download_format" xml:space="preserve">
+    <value>更新をダウンロード中 {0} / {1}</value>
+  </data>
+  <data name="Statusbar_progress_update_waiting_initialization" xml:space="preserve">
+    <value>更新のダウンロード完了・初期化待ち</value>
   </data>
   <data name="UpdateDialog_UpdateButton" xml:space="preserve">
     <value>更新</value>

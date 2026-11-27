@@ -3,6 +3,8 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
@@ -17,6 +19,232 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OperationProgressHubViewModelTests
 {
+    /// <summary>
+    /// 起動時の更新ZIPの取得を、実際の管理主体と実際の接続で一行へ投影する。転送の開始直後（最初の進捗通知の前）から受信0と合計・取消操作を示し、
+    /// 受信量は後戻りせず、検証後は古い通知が届いても初期化待ちの行から戻らない。文言は新しい資源と入力値から作った期待値で比べる。
+    /// </summary>
+    [TestMethod]
+    public async Task StartupUpdateProgress_ShowsTransferThenWaitingRowWithoutGoingBackwards()
+    {
+        const long total = 4096;
+        using var rig = new StartupUpdateProgressRig(total);
+        try
+        {
+            Assert.IsTrue(rig.Owner.Start(rig.Initialization.Task));
+            await rig.PumpUntilAsync(() => rig.TransferEntered.Task.IsCompleted, rig.TransferEntered.Task);
+
+            OperationProgressRow row = rig.GetRow()!;
+            Assert.AreEqual(OperationProgressAction.CancelStartupUpdate, row.Action);
+            Assert.AreEqual(0d, row.Value);
+            Assert.AreEqual((double)total, row.Maximum);
+            Assert.AreEqual(rig.TransferLabel(0, total), row.Label);
+            Assert.AreEqual(rig.Asset.FileName, row.Detail);
+
+            rig.Progress!.Report(new UpdateDownloadProgress(50, total));
+            rig.Progress.Report(new UpdateDownloadProgress(30, total));
+            rig.PumpPending();
+            row = rig.GetRow()!;
+            Assert.AreEqual(50d, row.Value, "後から届いた小さい受信量で行が戻ってはいけません。");
+            Assert.AreEqual(rig.TransferLabel(50, total), row.Label);
+
+            rig.Release();
+            await rig.PumpUntilAsync(() => rig.GetRow()?.Label == BeMusicSeeker.Properties.Resources.Statusbar_progress_update_waiting_initialization);
+            row = rig.GetRow()!;
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Statusbar_progress_update_waiting_initialization, row.Label);
+            Assert.AreEqual(OperationProgressAction.CancelStartupUpdate, row.Action);
+
+            rig.Progress.Report(new UpdateDownloadProgress(60, total));
+            rig.PumpPending();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Statusbar_progress_update_waiting_initialization, rig.GetRow()!.Label,
+                "検証の後に古い通知が届いても、初期化待ちの行から戻ってはいけません。");
+        }
+        finally
+        {
+            await rig.FinishAsync();
+        }
+    }
+
+    /// <summary>
+    /// 取消を受け付けて取得を保持している間は、行を残して取消操作だけを外し、終端の後（取消と失敗のどちらでも）は行がなく、
+    /// その後に古い通知が届いても復活しない。取消済みの行へ再び取消を出す誤りと、終端後に行が残る誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("cancelled")]
+    [DataRow("failed")]
+    public async Task StartupUpdateProgress_KeepsRowWithoutCancelUntilTerminalAndNeverRevives(string terminal)
+    {
+        const long total = 4096;
+        using var rig = new StartupUpdateProgressRig(total);
+        try
+        {
+            Assert.IsTrue(rig.Owner.Start(rig.Initialization.Task));
+            await rig.PumpUntilAsync(() => rig.TransferEntered.Task.IsCompleted, rig.TransferEntered.Task);
+            Assert.IsNotNull(rig.GetRow());
+
+            if (terminal == "cancelled")
+            {
+                Assert.IsTrue(rig.Owner.RequestCancel());
+                rig.PumpPending();
+                OperationProgressRow row = rig.GetRow()!;
+                Assert.AreEqual(OperationProgressAction.None, row.Action, "取消を受け付けた後は取消操作を外します。");
+                Assert.IsFalse(row.CanCancel);
+                Assert.IsNull(rig.Receipt, "取得を保持している間は終端を公開してはいけません。");
+                rig.Release();
+            }
+            else
+            {
+                rig.Release(new InvalidOperationException("transfer failed"));
+            }
+
+            await rig.PumpUntilAsync(() => rig.Receipt != null);
+
+            Assert.AreEqual(
+                terminal == "cancelled" ? StartupUpdateWorkflowOutcome.Cancelled : StartupUpdateWorkflowOutcome.Failed,
+                rig.Receipt!.Outcome);
+            Assert.IsNull(rig.GetRow(), "終端の後に行を残してはいけません。");
+            rig.Progress!.Report(new UpdateDownloadProgress(100, total));
+            rig.PumpPending();
+            Assert.IsNull(rig.GetRow(), "終端の後の古い通知で行が復活してはいけません。");
+        }
+        finally
+        {
+            await rig.FinishAsync();
+        }
+    }
+
+    /// <summary>実際の更新の管理主体と進捗の行を接続し、UIへの配送を手で順に処理するための組立です。</summary>
+    private sealed class StartupUpdateProgressRig : IDisposable
+    {
+        private readonly ConcurrentQueue<Action> queue = new();
+        private TaskCompletionSource<bool> arrival = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<Exception?> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Task worker = Task.CompletedTask;
+
+        internal StartupUpdateProgressRig(long totalBytes)
+        {
+            Asset = new UpdateAssetInfo
+            {
+                FileName = "app.zip",
+                Url = "https://example.test/app.zip",
+                Sha256 = new string('a', 64),
+                SizeBytes = totalBytes,
+                IncludesChartInfoMetadata = false
+            };
+            var result = UpdateCheckResult.Available(
+                new Version(2, 0, 0, 0), "1.0.0.0", "2.0.0.0", [Asset], "https://example.test/releases/v2.0.0.0");
+            Hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+            Owner = new StartupUpdateWorkflowOwner(
+                () => Task.FromResult(result),
+                TransferAsync,
+                _ => new FakePreparedUpdaterLaunch(),
+                () => { },
+                _ => { },
+                action => worker = ConcurrencyProbe.StartDedicatedAsync(action),
+                action =>
+                {
+                    queue.Enqueue(action);
+                    Interlocked.Exchange(ref arrival, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously))
+                        .TrySetResult(true);
+                });
+            Hub.AttachStartupUpdateProgressSource(Owner);
+            Owner.PresentationRequested += request => request.Complete(Asset);
+            Owner.FailurePresentationRequested += _ => Task.CompletedTask;
+            Owner.BindShutdownPreparation(reason => Task.FromResult(new ShutdownPreparationResult(reason, 1L, false, 0)));
+            Owner.TerminalPublished += published => Receipt = published;
+        }
+
+        internal UpdateAssetInfo Asset { get; }
+
+        internal OperationProgressHubViewModel Hub { get; }
+
+        internal StartupUpdateWorkflowOwner Owner { get; }
+
+        internal TaskCompletionSource<StartupInitializationResult> Initialization { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource<bool> TransferEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal IProgress<UpdateDownloadProgress>? Progress { get; private set; }
+
+        internal StartupUpdateWorkflowCompletionReceipt? Receipt { get; private set; }
+
+        internal void Release(Exception? failure = null) => release.TrySetResult(failure);
+
+        internal OperationProgressRow? GetRow() => Hub.Rows.SingleOrDefault(row => row.Key == "update");
+
+        internal string TransferLabel(long received, long total) => string.Format(
+            BeMusicSeeker.Properties.Resources.Statusbar_progress_update_download_format,
+            FileSizeHelper.GetReadableFileSize(received),
+            FileSizeHelper.GetReadableFileSize(total));
+
+        /// <summary>この時点で配送を待っている処理を、受け付けた順に全て処理します。</summary>
+        internal void PumpPending()
+        {
+            while (queue.TryDequeue(out Action? action))
+            {
+                action();
+            }
+        }
+
+        /// <summary>
+        /// 配送の依頼を受け付けた順に処理しながら、条件が満たされるのを待ちます。局所的な制限時間は付けません。
+        /// 依頼を伴わずに満たされる条件には、起こすための合図を渡します。
+        /// </summary>
+        internal async Task PumpUntilAsync(Func<bool> condition, Task? wake = null)
+        {
+            while (true)
+            {
+                PumpPending();
+                if (condition())
+                {
+                    // 合図より前に依頼されていた配送は、合図の時点で受け付け済みなので、最後に処理し切る。
+                    PumpPending();
+                    return;
+                }
+                // 依頼の到着の待ちは、空の確認より先に取得して、確認と待ちの間の到着を取りこぼさない。
+                Task arrived = Volatile.Read(ref arrival).Task;
+                if (!queue.IsEmpty)
+                {
+                    continue;
+                }
+                await Task.WhenAny(arrived, wake ?? arrived, worker);
+                if (worker.IsCompleted)
+                {
+                    await worker;
+                    PumpPending();
+                    if (!condition())
+                    {
+                        throw new InvalidOperationException("The update workflow ended before the expected condition.");
+                    }
+                    return;
+                }
+            }
+        }
+
+        internal async Task FinishAsync()
+        {
+            Release();
+            Owner.NotifyClosing();
+            // 終端の受領は、手で処理する配送の中で確定するため、処理しながら作業と終端を待つ。
+            await PumpUntilAsync(() => Owner.WaitForIdleAsync().IsCompleted && Owner.WaitForTerminalAsync().IsCompleted);
+            await worker;
+        }
+
+        public void Dispose() => Hub.Dispose();
+
+        private async Task<string> TransferAsync(UpdateAssetInfo asset, CancellationToken token, IProgress<UpdateDownloadProgress> progress)
+        {
+            Progress = progress;
+            TransferEntered.TrySetResult(true);
+            Exception? failure = await release.Task.ConfigureAwait(false);
+            if (failure != null)
+            {
+                throw failure;
+            }
+            token.ThrowIfCancellationRequested();
+            return "package.zip";
+        }
+    }
+
     /// <summary>見積中に導入・URL取得を開始すると各進捗と取消先を同時に表示し、URL終端後も稼働中の導入行を維持します。</summary>
     [TestMethod]
     public void InstallPipelinePresentation_ShowsAcquisitionInstallAndEstimateTogether()

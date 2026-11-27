@@ -800,7 +800,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ?? throw new InvalidOperationException("MainWindowViewModel is required to present the update dialog.");
             UiWindowDialogResult<UpdateAssetInfo> dialogResult = await dialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway, dialogService),
+                    () => new UpdateAvailableDialog(request.Result, viewModel.ExternalShellGateway, dialogService),
                     dialog => dialog.SelectedAsset,
                     this));
             ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");

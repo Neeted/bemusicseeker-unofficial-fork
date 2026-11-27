@@ -1,5 +1,4 @@
 using BeMusicSeeker.Models.Update;
-using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -47,8 +46,7 @@ public sealed class UpdateAvailableDialogViewModelTests
             ],
             "https://example.test/releases/v2.2.0.0");
 
-        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
+        var viewModel = new UpdateAvailableDialogViewModel(result);
 
         CollectionAssert.AreEqual(
             new[] { "b-app.zip", "a-with-metadata.zip", "c-app.zip" },
@@ -61,50 +59,26 @@ public sealed class UpdateAvailableDialogViewModelTests
     }
 
     /// <summary>
-    /// 起動処理の進行中だけ更新適用を禁止して理由を表示し、完了後の再受付と接続して起動との競合を許す誤りを検出する。
+    /// 更新の開始は、選択できるパッケージが1件以上あることだけを条件にする。起動時の初期化の進行を条件に加えて、
+    /// 初期化中の更新を禁止する誤りと、パッケージがない更新案内で開始を許す誤りを検出する。
     /// </summary>
     [TestMethod]
-    public void StartupProgressFromProgressHubBlocksAndUnblocksApply()
+    public void CanStartUpdate_DependsOnlyOnSelectablePackages()
     {
-        var result = UpdateCheckResult.Available(
-            new Version(2, 2, 0, 0),
-            "2.1.0.0",
-            "2.2.0.0",
-            [new UpdateAssetInfo
-            {
-                FileName = "app.zip",
-                Url = "https://example.test/app.zip",
-                Sha256 = new string('a', 64),
-                SizeBytes = 1,
-                IncludesChartInfoMetadata = false
-            }],
-            "https://example.test/releases/v2.2.0.0");
-        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
+        UpdateAssetInfo asset = new()
+        {
+            FileName = "app.zip",
+            Url = "https://example.test/app.zip",
+            Sha256 = new string('a', 64),
+            SizeBytes = 1,
+            IncludesChartInfoMetadata = false
+        };
+        var withPackage = new UpdateAvailableDialogViewModel(UpdateCheckResult.Available(
+            new Version(2, 2, 0, 0), "2.1.0.0", "2.2.0.0", [asset], "https://example.test/releases/v2.2.0.0"));
+        var withoutPackage = new UpdateAvailableDialogViewModel(UpdateCheckResult.Available(
+            new Version(2, 2, 0, 0), "2.1.0.0", "2.2.0.0", [], "https://example.test/releases/v2.2.0.0"));
 
-        Assert.IsTrue(viewModel.CanStartUpdate);
-        progressHub.StartupProgress.ApplyPresentation(true, "startup", "", 0.0, 1.0);
-        Assert.IsFalse(viewModel.CanStartUpdate);
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_StartupBlocked, viewModel.StartBlockedReason);
-        progressHub.StartupProgress.ApplyPresentation(false, null, null, 0.0, 1.0);
-        Assert.IsTrue(viewModel.CanStartUpdate);
-    }
-
-    /// <summary>
-    /// 破棄後は起動進捗の変更を通知せず、寿命が終わったダイアログへの購読が残る誤りを検出する。
-    /// </summary>
-    [TestMethod]
-    public void DisposeStopsListeningToProgressHub()
-    {
-        var result = UpdateCheckResult.NoUpdate("1.0.0.0");
-        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
-        int notifications = 0;
-        viewModel.PropertyChanged += (_, _) => notifications++;
-
-        viewModel.Dispose();
-        progressHub.StartupProgress.ApplyPresentation(true, "startup", "", 0.0, 1.0);
-
-        Assert.AreEqual(0, notifications);
+        Assert.IsTrue(withPackage.CanStartUpdate);
+        Assert.IsFalse(withoutPackage.CanStartUpdate);
     }
 }

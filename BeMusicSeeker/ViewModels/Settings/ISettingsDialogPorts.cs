@@ -38,7 +38,14 @@ internal enum StartupInitializationOutcome
 internal sealed record StartupInitializationResult(StartupInitializationOutcome Outcome,
     StartupSettingsSnapshot Settings = null, long OperationToken = 0L, bool CompletionPublished = false, Exception Failure = null, IReadOnlyList<SettingsDeficiency> Deficiencies = null,
     StartupRequiredInitializationResult RequiredResult = null, LeapYearFolderRepairNotification RepairNotification = null,
-    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, ScoreAdoptionNotification ScoreNotification = null);
+    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, ScoreAdoptionNotification ScoreNotification = null)
+{
+    /// <summary>
+    /// 必須処理とUIの適用に成功し、この結果の完了を公開済みで、元の失敗も伴わないかを取得します。
+    /// 通常起動の成否の判定と、起動完了を待つ更新処理の合流条件が同じ式を共用します。任意の案内の表示成否は含みません。
+    /// </summary>
+    internal bool IsCompletedSuccessfully => Outcome == StartupInitializationOutcome.Succeeded && CompletionPublished && Failure == null;
+}
 
 internal interface ISettingsDialogStatePort
 {

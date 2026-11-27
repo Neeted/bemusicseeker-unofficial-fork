@@ -5,6 +5,7 @@ using System.Text.Json;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Runtime;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
@@ -189,7 +190,7 @@ public sealed class ApplicationScenarioObservationTests
             var notStarted = (ScenarioCommandFailed)await peer.Send(new ScenarioStartupUpdateCommand(1));
             StringAssert.Contains(notStarted.Failure.Message, "has not started", "未開始が失敗の理由でなければなりません。");
             var gate = new TaskCompletionSource<UpdateCheckResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new StartupUpdateWorkflowOwner(() => gate.Task, _ => Task.FromResult(string.Empty),
+            var owner = new StartupUpdateWorkflowOwner(() => gate.Task, (_, _, _) => Task.FromResult(string.Empty),
                 _ => throw new InvalidOperationException("Unexpected updater launch."), () => { }, _ => { },
                 action => Task.Run(action), action => action());
             // 実modelの更新確認は通常構成では開始状態を制御できないため、観測経路を変えずにownerだけを差し替えます。
@@ -200,7 +201,7 @@ public sealed class ApplicationScenarioObservationTests
                 .SetValue(model, owner);
             var replacedNotStarted = (ScenarioCommandFailed)await peer.Send(new ScenarioStartupUpdateCommand(2));
             StringAssert.Contains(replacedNotStarted.Failure.Message, "has not started", "未開始が失敗の理由でなければなりません。");
-            Assert.IsTrue(owner.Start());
+            Assert.IsTrue(owner.Start(StartupUpdateInitializationTestSupport.SucceededTask()));
             await peer.Write(new ScenarioStartupUpdateCommand(3));
             // 同じreaderの後続要求が先に応答した時点で、実行中の要求は終端まで保留されている。
             Assert.IsInstanceOfType<ScenarioTableStateCompleted>(await peer.Send(new ScenarioTableStateCommand(4)));

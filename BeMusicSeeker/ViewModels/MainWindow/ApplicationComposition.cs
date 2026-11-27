@@ -902,7 +902,7 @@ internal sealed class MainWindowChildComposition
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
             () => updateCheckService.CheckAsync(updateManifestUrl),
-            asset => updateDownloadService.DownloadAndVerifyAsync(asset),
+            (asset, cancellationToken, progress) => updateDownloadService.DownloadAndVerifyAsync(asset, cancellationToken, progress),
             updateDownloadService.PrepareUpdaterLaunch,
             updateDownloadService.CleanupPreviousWorkDirectory,
             packagePath => updateDownloadService.TryDeleteDownloadedPackage(
@@ -913,6 +913,7 @@ internal sealed class MainWindowChildComposition
             message => NLogWrapper.FileLogger?.Info(message),
             exception => NLogWrapper.FileLogger?.Warn(exception, "startup_update warning"),
             exception => NLogWrapper.FileLogger?.Error(exception, "startup_update error"));
+        ProgressHub.AttachStartupUpdateProgressSource(StartupUpdateWorkflow);
         ElevatedProcessWarningWorkflow = new ElevatedProcessWarningWorkflowOwner(
             ProcessElevationProbe.IsCurrentProcessElevated,
             (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context),

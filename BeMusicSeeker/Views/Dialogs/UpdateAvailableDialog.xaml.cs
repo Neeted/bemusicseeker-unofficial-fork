@@ -19,22 +19,19 @@ public partial class UpdateAvailableDialog : ThemedWindow
 
     /// <summary>更新案内とリンク起動を所有し、起動失敗を同じ所有通知先で一度案内する画面を作ります。</summary>
     /// <param name="updateCheckResult">表示する更新確認結果。</param>
-    /// <param name="progressHub">更新開始の可否に使う既存起動進捗。</param>
     /// <param name="externalShellGateway">正確な配布ページを開くshell窓口。</param>
     /// <param name="dialogs">所有通知先。null は許されません。</param>
     internal UpdateAvailableDialog(
         UpdateCheckResult updateCheckResult,
-        OperationProgressHubViewModel progressHub,
         IExternalShellGateway externalShellGateway,
         IUiDialogService dialogs)
     {
         InitializeComponent();
-        viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, progressHub);
+        viewModel = new UpdateAvailableDialogViewModel(updateCheckResult);
         this.externalShellGateway = externalShellGateway
             ?? throw new ArgumentNullException(nameof(externalShellGateway));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         DataContext = viewModel;
-        Closed += (_, _) => viewModel.Dispose();
     }
 
     internal UpdateAssetInfo SelectedAsset => viewModel.SelectedAsset;

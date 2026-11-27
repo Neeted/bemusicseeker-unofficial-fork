@@ -2234,7 +2234,9 @@ public class Resources
 
     public static string UpdateDialog_PackageWithMetadataDescription => ResourceManager.GetString("UpdateDialog_PackageWithMetadataDescription", resourceCulture);
 
-    public static string UpdateDialog_StartupBlocked => ResourceManager.GetString("UpdateDialog_StartupBlocked", resourceCulture);
+    public static string Statusbar_progress_update_download_format => ResourceManager.GetString("Statusbar_progress_update_download_format", resourceCulture);
+
+    public static string Statusbar_progress_update_waiting_initialization => ResourceManager.GetString("Statusbar_progress_update_waiting_initialization", resourceCulture);
 
     public static string UpdateDialog_UpdateButton => ResourceManager.GetString("UpdateDialog_UpdateButton", resourceCulture);
 

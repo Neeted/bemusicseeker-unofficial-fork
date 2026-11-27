@@ -21,7 +21,7 @@ public sealed class CurrentToNextUpdateDesktopTests
     /// 条件: catalogのCurrentを専有コピーへ展開し、保持領域・管理外・旧管理ファイルの目印と、appの外のprofile・譜面3件を置く。
     /// ケース所有のloopback配信がNextの実bytesと実サイズ・SHA-256のmanifest(通常版1件)を返す。test sessionでCurrentを起動し、
     /// 更新ダイアログの適用をUIAで実行する。外部shellは記録窓口へ差し替わる。
-    /// 期待結果: ダイアログは現在版=Current・最新版=Next・Next ZIPの項目1件(選択済み)を表示し、起動成功後に適用が有効になる。
+    /// 期待結果: ダイアログは現在版=Current・最新版=Next・Next ZIPの項目1件(選択済み)を表示し、適用が有効になる。
     /// 適用で配布ページのURLがちょうど1回記録され、packageを1回取得し、更新確認はAppliedで終端してCurrentがexit 0で退出する。
     /// 別PIDの新版が`app`の実行ファイルから同じ引数で再起動し、タイトルがNextになる。新版の更新確認はNoUpdateで、配信の要求は
     /// manifest・package・manifestの3件だけである。検索が通り、通常Closeで新版もexit 0、所有Job全体が終端する。

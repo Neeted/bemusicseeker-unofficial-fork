@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using Livet;
 using Ribbit.Logging;
 
@@ -22,6 +23,8 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
     private DuplicateMaintenanceProgressSnapshot duplicateMaintenanceProgress;
     private bool duplicateMaintenanceProgressSourceAttached;
+    private StartupUpdateProgressSnapshot startupUpdateProgress = StartupUpdateProgressSnapshot.Inactive;
+    private bool startupUpdateProgressSourceAttached;
     private bool workflowProgressSourcesAttached;
     private bool playlistProgressSourcesAttached;
     private long startupBackgroundOperationToken;
@@ -87,6 +90,26 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
         duplicateMaintenanceProgressSourceAttached = true;
         duplicateMaintenanceWorkflow.ProgressChanged += status => { duplicateMaintenanceProgress = status; RaiseRowsChanged(); };
+    }
+
+    /// <summary>
+    /// 起動時の更新ZIPの取得を、取消操作つきの一行へ接続します。
+    /// 管理主体がUIスレッドで変更不能な表示値を発行し、最新の値だけを保持して行を作るため、受信時に配送し直しません。
+    /// </summary>
+    internal void AttachStartupUpdateProgressSource(StartupUpdateWorkflowOwner startupUpdateWorkflow)
+    {
+        ArgumentNullException.ThrowIfNull(startupUpdateWorkflow);
+        if (startupUpdateProgressSourceAttached)
+        {
+            throw new InvalidOperationException("Startup update progress source is already attached.");
+        }
+
+        startupUpdateProgressSourceAttached = true;
+        startupUpdateWorkflow.ProgressChanged += snapshot =>
+        {
+            startupUpdateProgress = snapshot ?? StartupUpdateProgressSnapshot.Inactive;
+            RaiseRowsChanged();
+        };
     }
 
     /// <summary>プレイリストの生産元別通知を、その画面の排出先へ接続します。</summary>
@@ -410,6 +433,10 @@ public sealed class OperationProgressHubViewModel : ViewModel
             {
                 rows.Add(CreateChartInfoBackfillRow(pair.Key, pair.Value.Counts));
             }
+            if (startupUpdateProgress.IsActive)
+            {
+                rows.Add(CreateStartupUpdateRow(startupUpdateProgress));
+            }
             if (playlistUrlDownloadStatus.IsActive)
             {
                 PlaylistUrlDownloadStatusSnapshot status = playlistUrlDownloadStatus;
@@ -495,6 +522,23 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 .ThenBy(GetChildOrder).ThenBy(row => row.Key, StringComparer.Ordinal).ToList();
             return rows;
         }
+    }
+
+    /// <summary>更新ZIPの取得の行を現在の資源で作ります。転送中は受信済み量と合計、検証後は初期化待ちを示し、取消を受け付けた後は操作だけを外します。</summary>
+    private static OperationProgressRow CreateStartupUpdateRow(StartupUpdateProgressSnapshot status)
+    {
+        OperationProgressAction action = status.CanCancel ? OperationProgressAction.CancelStartupUpdate : OperationProgressAction.None;
+        if (status.Phase == StartupUpdateProgressPhase.WaitingForInitialization)
+        {
+            return new("update", BeMusicSeeker.Properties.Resources.Statusbar_progress_update_waiting_initialization, status.FileName,
+                1, 1, Action: action, HasGauge: false);
+        }
+
+        long total = Math.Max(0, status.TotalBytes);
+        long received = Math.Clamp(status.ReceivedBytes, 0, total);
+        return new("update", string.Format(BeMusicSeeker.Properties.Resources.Statusbar_progress_update_download_format,
+                FileSizeHelper.GetReadableFileSize(received), FileSizeHelper.GetReadableFileSize(total)), status.FileName,
+            received, Math.Max(1, total), total <= 0, action);
     }
 
     /// <summary>共通行の有無に応じてステータスバー全体を表示します。</summary>
@@ -658,7 +702,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
             return 0;
         }
 
-        if (key == "startup_background")
+        if (key is "startup_background" or "update")
         {
             return 1;
         }

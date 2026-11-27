@@ -48,7 +48,7 @@ v3.1.0.0以前のアプリは、`releaseTag`（`v{version}`）・`schemaVersion`
 
 ### 取得と適用の受付
 
-起動時に非同期で更新を確認し、現在より新しい版があればダイアログを表示します。資産は更新情報の順に並べ、先頭を初期選択とします。適用ボタンは `ProgressHub.StartupProgress.IsActive=false` のときだけ有効です。適用操作ではリリースページも開きます。
+起動時に非同期で更新を確認し、現在より新しい版があればダイアログを表示します。資産は更新情報の順に並べ、先頭を初期選択とします。適用ボタンは、選択できるパッケージが1件以上あれば、起動時の初期化の進行中でも有効です。適用操作ではリリースページも開き、開けたらダイアログは選択結果を返して閉じます。開けなかった場合は閉じず、取得も始めません。
 
 選択したZIPは `update_work/downloads/` へ取得し、サイズとSHA-256の両方を検証します。実行中のアプリは自分のファイルを置き換えません。配布物に含まれる単一ファイルの `BeMusicSeeker.Updater.exe` を `update_work/current/` へコピーして起動します。
 
@@ -61,6 +61,29 @@ v3.1.0.0以前のアプリは、`releaseTag`（`v{version}`）・`schemaVersion`
 - 途中切断・期限切れ・取消・書込み失敗・サイズ不一致・ハッシュ不一致・HTTPエラーのすべてで、本文のストリームを閉じてから自分が作った `.download` を消し、完成名のファイルを残しません。保留中の実I/Oが終わってからTaskが完了し、回収の失敗で元の失敗・取消を置き換えません。同名の完成ファイルが転送前から存在する場合、開始時には消さず、成功時は置き換え、失敗・取消時は触りません。
 - 受信済み量と合計（資産の `SizeBytes`）を進捗として通知できます。通知は受信量と経過時間でまとめ、読取り回数に比例しません。返したTaskの完了後には通知しません。
 - 不正なファイル名は、HTTP要求と `update_work` 配下のディレクトリ作成のどちらよりも前に `UpdateManifestValidationException` で拒否します。
+
+#### 取得の開始と初期化との合流
+
+ダイアログが選択結果を返した直後に、起動時の初期化の完了を待たず、ZIPの取得を始めます。押下前には取得しません。更新ツールの起動を確定するまでの判断は、`StartupUpdateWorkflowOwner` が管理主体のlock内で一度だけ行います。
+
+- 更新ツールの起動準備と起動は、ZIPのサイズ・SHA-256の検証の成功と、初期化の成功がそろった時点で一度だけ行います。どちらが先でも同じです。初期化の成功は、`ShellActivationWorkflowOwner.StartupCompletion` の結果が `StartupInitializationResult.IsCompletedSuccessfully`（`Outcome` が `Succeeded`、`CompletionPublished` が真、`Failure` が空）であることです。起動完了後の案内ダイアログを閉じた後に確定し、任意の起動後処理の完了は待ちません。
+- 初期化が成功以外（失敗・設定要求・終了要求・退出要求・例外・取消・案内の表示失敗を伴う成功・完了未公開）で終わった場合は、自動適用へ進みません。転送中なら取得を取り消してその終わりを待ち、検証済みZIPがあれば破棄します。更新ツールは起動せず、失敗の表示・案内・アプリの終了要求も出しません。初期化の結果と退出の経路は変えず、更新の取消が初期化を止めることもありません。ダイアログの選択の時点ですでに成功以外で終わっていれば、取得を始めません。
+- 初期化の完了の待ちは、この実行の取消で解ける待ちで行い、初期化のTask自体の終端は待ちません。取得の終わり、取消付きの待ちの終わり、一時物（`.download` と検証済みZIP）の回収の後にだけ、終端を一度だけ公開します。
+- 取得・検証の失敗（通信失敗・期限切れ・サイズ・ハッシュの不一致）は、初期化の完了を待たず直ちに失敗として公開し、失敗の表示を要求して起動しません。初期化結果の待ちは自分の取消で解いてから公開し、その後に初期化が成功以外で終わっても結果を変えません。
+- ZIPの取得・検証が成功した後に更新ツールを起動しない全経路（終了・明示取消・初期化の成功以外・起動準備の失敗、および起動後に終了が先着して起動を中止した経路）では、検証済みZIPを終端の公開より前に破棄します。
+
+終端の種類は `StartupUpdateWorkflowOutcome` を使い、新しい種類を設けません。明示取消と、初期化が成功以外で終わったための取消は `Cancelled`、終了の通知による取消は `Closing` です。原因が重なった場合は、管理主体のlock内で最初に記録した原因で決め、その後に別の原因が届いても変えません。
+
+#### 進捗と明示取消
+
+メイン画面の進捗表示に、取得を1行で出します。
+
+- 転送中は、転送開始の時点（最初の進捗通知の前）から、受信済み量と合計（資産の `SizeBytes`）と取消操作を示します。ZIPの検証が先に済んで初期化を待つ間は、「ダウンロード完了・初期化待ち」と取消操作を示します。
+- 表示値は、管理主体が注入されたUIへの配送を通して、UIスレッドで変更不能な値として発行します。同期の進捗通知は最新値を保持し、未配送の印でUIへの配送を一件にまとめ、配送先ではその時点の状態から値を作ります。受信量と段階は後戻りせず、段階が変わった後や終端の後の古い通知で行が戻ったり復活したりしません。
+- 取消を受け付けた後は、終端まで行を残して取消操作だけを外します。終端の後に行は消えます。更新ツールの起動を確定した後は取消操作を出しません。
+- 明示取消は転送中と初期化待ちのどちらでも受け付け、HTTP・ファイルI/O・初期化結果の待ちへ伝えます。回収の後に `Cancelled` を公開し、失敗は表示しません。更新ダイアログは再表示しません（更新確認は起動ごとに一度です）。取消の後に初期化が成功しても起動しません。起動を確定した後の取消は効果がありません。
+
+更新ツールの起動前の通常終了は、更新の取消として扱います（[終了仕様](../runtime/shutdown.md#更新の取得中の通常終了)）。
 
 ### 終了前の合意
 
@@ -109,7 +132,7 @@ Windowsでは完成名への変更後も、移動用の `DELETE` 権限を持つ
 sequenceDiagram
     participant App as 実行中アプリ
     participant Updater as 更新ツール
-    App->>App: ZIPのサイズ・SHA-256を検証
+    App->>App: ZIPのサイズ・SHA-256の検証と初期化の成功がそろう
     App->>Updater: 待機状態で起動
     Updater-->>App: updater-ready.txt
     App->>App: 終了要求の先着受付を試みる
@@ -244,6 +267,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
 | マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadOptionalInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・既存の意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（実配布payload）](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（reparse専用）](../../../tests/BeMusicSeeker.Compatibility.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
+| 取得の開始・初期化との合流・進捗行・明示取消・終了前の取消 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs)、[`ShellActivationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellActivationWorkflowOwner.cs)、[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs)、[`UpdateAvailableDialogViewModel`](../../../BeMusicSeeker/ViewModels/Update/UpdateAvailableDialogViewModel.cs) | [`UpdateAvailableDialogViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateAvailableDialogViewModelTests.cs) は、押せる条件がパッケージの有無だけであることを確認する。[`StartupUpdateWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs) は、実際の管理主体と取消・進捗を受ける取得の代替で、ダイアログの完了の直後だけに取得が始まること、初期化とZIPのどちらが先でも起動準備・起動が一度だけであること、初期化が成功以外の場合・明示取消・終了通知を、転送中と初期化待ちの両段階で、取得の保持中は終端が出ず、解放後に検証済みZIPの削除、`Cancelled` または `Closing` の終端の順で、起動準備・失敗の表示・アプリの終了要求がないこと、取消後の初期化の成功で起動しないこと、起動確定後の取消が効果を持たないこと、終了通知の呼出し元のスレッドで後続処理が走らないこと、取得の失敗が初期化の完了を待たず `Failed` になることを確認する。[`ShellActivationWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/ShellActivationWorkflowOwnerTests.cs) は、実際の接続で成功以外の全種類の結果が起動処理のTaskと起動完了の結果を変えないこと、成功では初期化の処理が戻った後だけ起動準備に進むことを確認する。[`OperationProgressHubViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/OperationProgressHubViewModelTests.cs) は、手で順に処理する配送で、転送開始直後の行、受信量と段階が戻らないこと、取消受付後に操作だけが外れること、終端後に行がなく復活しないことを確認する。実際の構成と取得サービスでの取消行と回収は [`MainWindowProgressStatusBarWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs)、終了との接続は [`ShellShutdownWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs) が分担する。 |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdaterProcessGatewayTests.cs)、[`UpdaterProcessGatewayTests`（Windowsの実プロセス検査）](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | ZIPの逐次転送・固定期限・取消・失敗時の回収 | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `DownloadAndVerifyAsync` | [`UpdateDownloadServiceTransferTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTransferTests.cs) は、実の `HttpClient` 経路・実ファイル・手動時計で、累計300秒超でも受信が続けば成功し書込みの時間を期限へ含めないこと、ヘッダー・本文の30秒期限と呼出し側の取消が各段階へ伝わり保留中の実I/Oの終了までTaskが完了しないこと、短い本文・超過・ハッシュ不一致・途中切断・書込み失敗・HTTP 404で一時ファイルと完成名を残さず本文を閉じること、進捗が受信中に始まり回数がまとまり完了後に増えないこと、不正なファイル名が要求とディレクトリ作成の前に拒否されることを確認する。 |
 | 起動時回収・同期ロックの寿命・本来の失敗通知 | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `CleanupPreviousWorkDirectory`、`StartupUpdateWorkflowOwner` | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` はjournal・receiptなしで解放済みlock/currentの元bytes保持とdownloads回収・同じロックパスの再利用を、`CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt` は実排他保持中の本来のreceipt通知・lock/current/未確認receipt保持・downloads回収・確認後だけの消費を確認する。`StartupUpdateWorkflowOwnerTests.Start_CleansUpWithHeldTransactionLockAndPublishesNoUpdateTerminal` は実service清掃から実ownerの確認・NoUpdate終端までロック解放前に待ち、確認1回・終端1回・失敗提示なしを確認する。`CleanupFailurePublishesFailureBeforeCheckingForUpdates` は実download削除失敗の原因保持・提示1回・確認なしを分担する。receipt提示成功後の確認・提示失敗/延期/終了中の未確認保持は既存ownerケースが担う。実CLIのready・proceed前不変・適用・実再起動・journal退役は既存のProgram/Gateway検証が担い、標準compositionとactivationへの清掃接続は静的に点検する。これらの分担は単独では連続した流れの検証ではなく、失敗記録の公開から次回起動の通知・閉じた後だけの消費・配信を切り替えた次の更新までの連続した流れは、[`UpdateRestartFailureDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/UpdateRestartFailureDesktopTests.cs)のSC-15Cが担う。 |

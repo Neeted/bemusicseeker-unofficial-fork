@@ -505,7 +505,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 checkEntered.Set();
                 return checkRelease.Task;
             },
-            asset => Task.FromResult("package.zip"),
+            (asset, _, _) => Task.FromResult("package.zip"),
             packagePath => new NoOpPreparedUpdaterLaunch(),
             () => { },
             packagePath => { },
@@ -514,7 +514,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
 
-        Assert.IsTrue(startupUpdate.Start());
+        Assert.IsTrue(startupUpdate.Start(StartupUpdateInitializationTestSupport.SucceededTask()));
         checkEntered.Wait();
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
@@ -552,7 +552,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             "https://example.test/releases/v2.0.0.0");
         var startupUpdate = new StartupUpdateWorkflowOwner(
             () => Task.FromResult(available),
-            asset =>
+            (asset, _, _) =>
             {
                 events.Add("download");
                 return Task.FromResult("package.zip");
@@ -573,7 +573,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
 
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
-        Assert.IsTrue(startupUpdate.Start());
+        Assert.IsTrue(startupUpdate.Start(StartupUpdateInitializationTestSupport.SucceededTask()));
         startEntered.Wait();
         Assert.IsFalse(owner.IsShutdownPreparationStarted);
 
@@ -642,7 +642,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         int aborted = 0;
         var startupUpdate = new StartupUpdateWorkflowOwner(
             () => Task.FromResult(CreateAvailableUpdateResult()),
-            _ => Task.FromResult("package.zip"),
+            (_, _, _) => Task.FromResult("package.zip"),
             _ => new PreparedUpdaterLaunch(() => new UpdaterLaunchReceipt(
                 () => aborted++, () => proceeded++)),
             () => { },
@@ -657,7 +657,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             settingsEditSession: settingsSession);
         owner.OperationModeRestartRequested += () => Assert.Fail("先に受理した更新終了を置き換えてはいけません。");
 
-        Assert.IsTrue(startupUpdate.Start());
+        Assert.IsTrue(startupUpdate.Start(StartupUpdateInitializationTestSupport.SucceededTask()));
         await startupUpdate.WaitForTerminalAsync();
         Assert.IsTrue(startupUpdate.IsShutdownPreparationStarted);
         Assert.IsFalse(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "later-mode")));
@@ -682,7 +682,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         int launchAbortCount = 0;
         var startupUpdate = new StartupUpdateWorkflowOwner(
             () => Task.FromResult(CreateAvailableUpdateResult()),
-            asset =>
+            (asset, _, _) =>
             {
                 Interlocked.Increment(ref downloadCount);
                 return Task.FromResult("package.zip");
@@ -725,7 +725,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
 
         try
         {
-            Assert.IsTrue(startupUpdate.Start());
+            Assert.IsTrue(startupUpdate.Start(StartupUpdateInitializationTestSupport.SucceededTask()));
             await TestUiDispatcherHost.AwaitNotificationAsync(launchEntered.Task, startupUpdate.WaitForIdleAsync(), "shell-shutdown.update-launch");
             if (modeRestart)
             {
@@ -1908,6 +1908,163 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             // 完了済みTaskでも、呼出側の同期部分をUIで実行しない契約を確認します。
             CloseProcess();
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// 更新ツールの起動前の通常終了（ウィンドウを閉じる・動作モード変更の再起動・アプリデータの撤去）を、転送中でも初期化待ちでも受理し、
+    /// 更新の取消として扱う。取得の保持中は閉鎖の受領が完了せず、解放後に完了し、終端は終了の種類が一回、起動準備・失敗の表示はなく、
+    /// 初期化の結果は未完了のまま待ちが残らない。実際のShell終了処理と実際の更新の管理主体を接続して確認する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("close", false)]
+    [DataRow("close", true)]
+    [DataRow("mode", false)]
+    [DataRow("mode", true)]
+    [DataRow("uninstall", false)]
+    [DataRow("uninstall", true)]
+    public async Task ShutdownBeforeUpdaterLaunch_CancelsTransferAndWaitsForRecovery(string kind, bool waitingStage)
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var harness = new StartupUpdateTransferHarness(bindShutdownPreparation: false, holdUntilReleased: true);
+        var initialization = new TaskCompletionSource<StartupInitializationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settingsSession = new RecordingSettingsEditSession();
+        var dialogs = new FileDbReportRecordingDialogs();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            startupUpdate: harness.Owner,
+            settingsEditSession: settingsSession,
+            restartFailureDialogs: dialogs);
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        owner.OperationModeRestartRequested += () => close = owner.RequestWindowCloseAsync();
+        try
+        {
+            Assert.IsTrue(harness.Owner.Start(initialization.Task));
+            await harness.AwaitAsync(harness.TransferEntered.Task, "transfer");
+            if (waitingStage)
+            {
+                harness.Release();
+                await harness.AwaitAsync(harness.WaitingObserved.Task, "waiting");
+            }
+
+            switch (kind)
+            {
+                case "close":
+                    close = owner.RequestWindowCloseAsync();
+                    break;
+                case "mode":
+                    Assert.IsTrue(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(
+                        EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true },
+                        "history-update-cancel")));
+                    break;
+                default:
+                    Assert.IsTrue(await owner.RequestApplicationDataUninstallAsync(
+                        new ApplicationDataUninstallWorkflowOwner(dialogs, new FailingUninstallStore()), "captured.db"));
+                    close = owner.RequestWindowCloseAsync();
+                    break;
+            }
+            Assert.IsNotNull(close, "終了の要求は受理され、閉鎖の受領を得る必要があります。");
+
+            if (!waitingStage)
+            {
+                await harness.AwaitAsync(harness.CancelObserved.Task, "cancel");
+                Assert.IsFalse(close.IsCompleted, "取得の終わりより先に終了が完了してはいけません。");
+                Assert.IsNull(harness.Receipt, "取得を保持している間は終端を公開してはいけません。");
+                Assert.AreEqual(0, harness.DeleteCount);
+                harness.Release();
+            }
+
+            ShellShutdownWorkflowCompletionReceipt receipt = await close;
+
+            Assert.IsTrue(receipt.PreparationSucceeded);
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Closing, harness.Receipt!.Outcome);
+            Assert.AreEqual(1, harness.TerminalCount);
+            Assert.AreEqual(waitingStage ? 1 : 0, harness.DeleteCount);
+            Assert.AreEqual(0, harness.PrepareCount);
+            Assert.AreEqual(0, harness.FailureCount);
+            Assert.AreEqual(0, harness.ShutdownRequestCount);
+            Assert.IsFalse(initialization.Task.IsCompleted, "初期化の結果を待たずに終了できる必要があります。");
+            Assert.IsFalse(harness.Owner.IsShutdownPreparationStarted);
+        }
+        finally
+        {
+            harness.Release();
+            await harness.FinishAsync();
+            if (close != null) { await close; }
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 初期化が成功以外で終わって取消を回収している最中に閉鎖が来ても、閉鎖は取得の終わりまで待ち、終端は一回だけで、
+    /// 先に受け付けた原因の取消のままになる。終了の通知が後から来ても終端の種類を終了へ変えない。
+    /// </summary>
+    [TestMethod]
+    public async Task ClosingDuringInitializationCancelRecovery_KeepsTheEarlierCancelledCause()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var harness = new StartupUpdateTransferHarness(bindShutdownPreparation: false, holdUntilReleased: true);
+        var initialization = new TaskCompletionSource<StartupInitializationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: harness.Owner);
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        try
+        {
+            Assert.IsTrue(harness.Owner.Start(initialization.Task));
+            await harness.AwaitAsync(harness.TransferEntered.Task, "transfer");
+            initialization.SetResult(new StartupInitializationResult(StartupInitializationOutcome.ExitRequested));
+            await harness.AwaitAsync(harness.CancelObserved.Task, "cancel");
+
+            close = owner.RequestWindowCloseAsync();
+            Assert.IsFalse(close.IsCompleted, "取得の終わりより先に閉鎖が完了してはいけません。");
+            Assert.IsNull(harness.Receipt);
+            harness.Release();
+            await close;
+
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Cancelled, harness.Receipt!.Outcome);
+            Assert.AreEqual(1, harness.TerminalCount);
+            Assert.AreEqual(0, harness.PrepareCount);
+            Assert.AreEqual(0, harness.FailureCount);
+        }
+        finally
+        {
+            harness.Release();
+            await harness.FinishAsync();
+            if (close != null) { await close; }
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 更新の明示取消を受け付けても、シェルは閉鎖中にならず、終了準備も始まらない。更新だけが取消で終端する。
+    /// </summary>
+    [TestMethod]
+    public async Task ExplicitUpdateCancel_DoesNotCloseTheShellOrStartShutdownPreparation()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var harness = new StartupUpdateTransferHarness(bindShutdownPreparation: false, holdUntilReleased: true);
+        var initialization = new TaskCompletionSource<StartupInitializationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: harness.Owner);
+        try
+        {
+            Assert.IsTrue(harness.Owner.Start(initialization.Task));
+            await harness.AwaitAsync(harness.TransferEntered.Task, "transfer");
+
+            Assert.IsTrue(harness.Owner.RequestCancel());
+            await harness.AwaitAsync(harness.CancelObserved.Task, "cancel");
+            harness.Release();
+            await harness.AwaitAsync(harness.Terminal.Task, "terminal");
+
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Cancelled, harness.Receipt!.Outcome);
+            Assert.IsFalse(owner.IsClosingOrClosed);
+            Assert.IsFalse(owner.IsShutdownPreparationStarted);
+            Assert.IsFalse(owner.IsShutdownPreparationRunning);
+            Assert.AreEqual(0, harness.ShutdownRequestCount);
+        }
+        finally
+        {
+            harness.Release();
+            await harness.FinishAsync();
+            viewModel.SettingDialog.Dispose();
         }
     }
 

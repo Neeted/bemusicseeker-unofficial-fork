@@ -3380,7 +3380,7 @@ public partial class MainWindowViewModel : ViewModel,
     internal async Task<bool> InitializeAsync()
     {
         StartupInitializationResult result = await InitializeRenderedShellAsync();
-        return result.Outcome == StartupInitializationOutcome.Succeeded && result.CompletionPublished && result.Failure == null;
+        return result.IsCompletedSuccessfully;
     }
 
     /// <summary>実Windowの初期化と既存bool入口が共用する本番処理です。観測のため別の初期化を実行しません。</summary>
