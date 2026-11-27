@@ -197,7 +197,7 @@ public sealed class FolderMergeJunctionRefusalTests
                 if (shape == "single-folder-nested")
                 {
                     Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[0].Status);
-                    Assert.AreEqual(1, result.Groups[0].TrashedChartCount);
+                    Assert.AreEqual(1, result.Groups[0].DeletedChartCount);
                     Assert.IsTrue(Directory.EnumerateFileSystemEntries(external).Select(Path.GetFileName).SequenceEqual(["target.wav"]));
                     string[] after = FolderMergeLinkFixture.Snapshot(roots);
                     Assert.IsTrue(after.Any(line => line.StartsWith("L|folder/Link|", StringComparison.Ordinal)), "ジャンクションは変わりません。");

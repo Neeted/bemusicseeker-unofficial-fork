@@ -260,7 +260,7 @@ public partial class BMSLibrary
 
     /// <summary>
     /// 重複音源フォルダを、一つの共通受付でまとめて整理し、保持している探索の結果を更新します。
-    /// フォルダごとに、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルをごみ箱へ送ります。
+    /// フォルダごとに、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルを、要求の削除方法（ごみ箱へ移動、または完全に削除）で削除します。
     /// </summary>
     /// <remarks>
     /// 音源キーの集合は変わらないため、変更セッションを開かず、カタログ・DB・索引・LR2同期への反映と必須保守を行わず、結果を失効させません。
@@ -291,7 +291,7 @@ public partial class BMSLibrary
 
     /// <summary>
     /// 整理の結果を、保持している探索の結果へ反映します。変更があれば、受付の解放後に呼ぶ通知を返します。
-    /// 完了・一部完了のフォルダの衝突名を、送れなかった名前だけにし、衝突名が残らないフォルダは除きます。
+    /// 完了・一部完了のフォルダの衝突名を、削除できなかった名前だけにし、衝突名が残らないフォルダは除きます。
     /// 衝突名の集合（大文字小文字を無視）が変わって残るフォルダは新しい <see cref="DuplicateGroup"/> インスタンスにし、
     /// 集合が変わらないフォルダと、スキップ・未処理のフォルダは同じインスタンスのままにします。
     /// </summary>
@@ -326,7 +326,7 @@ public partial class BMSLibrary
                     updated.Add(current);
                     continue;
                 }
-                string[] remaining = [.. folderResult.UnsentNames
+                string[] remaining = [.. folderResult.FailedNames
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Order(StringComparer.OrdinalIgnoreCase)];
                 if (remaining.Length == 0)

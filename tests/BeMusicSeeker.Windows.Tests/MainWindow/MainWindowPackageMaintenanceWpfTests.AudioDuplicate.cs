@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -107,7 +108,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：整理候補一覧のノードの選択で、専用の表（KEEPの列がなくCONFLICTSの列があり、統合候補一覧の表は出ない）と、一行の操作の行が表示され、
-    /// 操作の行は「衝突整理」のコンボボックス（既定は「OGGを残す」）、「表示中をすべて選択」「表示中をすべて解除」「選択フォルダを確認」「選択フォルダを整理」を持つ。
+    /// 操作の行は「衝突整理」のコンボボックス（既定は「OGGを残す」）、続けて「削除」のラベルとコンボボックス（既定は「ごみ箱へ移動」、選択肢・ツールチップはリソースの文言）、
+    /// 「表示中をすべて選択」「表示中をすべて解除」「選択フォルダを確認」「選択フォルダを整理」を持つ。
     /// 優先統合先・簡易チェック・同等性検査のチェック・分裂配置の探索条件の行は出ない。ノードの選択は結果が現在のものでなければ探索する。
     /// 検出する誤り：統合候補一覧の表・操作の行の流用、KEEP列の混入、CONFLICTS列の欠落、重複用の行の混入、操作の既定値の誤り。
     /// </summary>
@@ -147,8 +149,19 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var panel = (StackPanel)bar.Child;
             string[] ids = [.. panel.Children.OfType<FrameworkElement>().Select(element => System.Windows.Automation.AutomationProperties.GetAutomationId(element))];
             CollectionAssert.AreEqual(
-                new[] { string.Empty, "AudioDuplicateCandidateCollisionCleanup", "AudioDuplicateCandidateSelectVisible", "AudioDuplicateCandidateClearVisible", "AudioDuplicateCandidateVerify", "AudioDuplicateCandidateOrganize" },
-                ids, "操作の行は一行で、衝突整理・選択・解除・確認・整理の順。");
+                new[]
+                {
+                    string.Empty, "AudioDuplicateCandidateCollisionCleanup", string.Empty, "AudioDuplicateCandidateDeleteMode",
+                    "AudioDuplicateCandidateSelectVisible", "AudioDuplicateCandidateClearVisible", "AudioDuplicateCandidateVerify", "AudioDuplicateCandidateOrganize"
+                },
+                ids, "操作の行は一行で、衝突整理のラベル・衝突整理・削除のラベル・削除・選択・解除・確認・整理の順。");
+            var deleteMode = (ComboBox)window.FindName("audioDuplicateCandidateDeleteModeComboBox");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method, ((TextBlock)panel.Children[panel.Children.IndexOf(deleteMode) - 1]).Text, "削除のラベル");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, deleteMode.SelectedValue, "削除の既定は「ごみ箱へ移動」。");
+            CollectionAssert.AreEqual(
+                new[] { Resources.Duplicate_merge_candidate_delete_method_recycle_bin, Resources.Duplicate_merge_candidate_delete_method_permanent },
+                deleteMode.Items.OfType<ComboBoxItem>().Select(item => (string)item.Content).ToArray());
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method_tooltip, deleteMode.ToolTip);
             var combo = (ComboBox)window.FindName("audioDuplicateCandidateCollisionCleanupComboBox");
             Assert.AreEqual(AudioDuplicateCollisionCleanupMode.KeepOgg, combo.SelectedValue, "既定は「OGGを残す」。");
             CollectionAssert.AreEqual(
@@ -189,7 +202,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// 保証：実画面のボタンから、実際のWAV/OGG（同等な内容）を、実ワークフロー・実際の検査器・実ライブラリで、確認→STATUS→整理の順に通す。
     /// 確認でSTATUSが「安全（WAV/OGG同等）」になりSELECTがオフになる。整理は確認ダイアログを経て、削除の窓口の代替（実ファイルを消す記録つきの窓口）へ捨てる形式（OGGを残すので.wav）だけを送り、
     /// 衝突名が残らないフォルダは結果から消えて、一覧は行0件・ノードが消えた状態へ作り直される。結果の案内は確認・整理で一回ずつ。
-    /// 検出する誤り：実ボタンとワークフローの未接続、STATUSの未反映、捨てる形式の取り違え、整理後の一覧の作り直しの欠落・ノードの残存。
+    /// 整理の前に実際の「削除」のコンボボックスで「完全に削除」を選び、WAVの削除が完全に削除の指定で窓口へ渡ること、確認の警告用の本文の先頭行と警告アイコン、結果の「完全に削除しました」の行、
+    /// 重複・分裂配置の一覧の「削除」がごみ箱へ移動のままであることも確認する。
+    /// 検出する誤り：実ボタンとワークフローの未接続、STATUSの未反映、捨てる形式の取り違え、整理後の一覧の作り直しの欠落・ノードの残存、
+    /// 実画面の選択が窓口の指定まで届かない、別の一覧への値の波及。
     /// </summary>
     [TestMethod]
     public void AudioDuplicateCandidateList_RealButtonsVerifyThenOrganizeEquivalentPair()
@@ -218,6 +234,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(string.Format(Resources.Audio_duplicate_verify_result_format, 1, 1, 0, 0), dialogs.Messages.Last().MessageBoxText);
             Assert.IsTrue(File.Exists(wav) && File.Exists(ogg), "確認はファイルを変えない");
 
+            // 実際のコンボボックスで「完全に削除」を選んでから整理する。重複・分裂配置の一覧の値は変わらない。
+            var deleteMode = (ComboBox)window.FindName("audioDuplicateCandidateDeleteModeComboBox");
+            deleteMode.SelectedItem = deleteMode.Items.OfType<ComboBoxItem>()
+                .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_delete_method_permanent));
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, list.DeleteMethod, "選択は整理候補一覧の管理主体へ届く");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, viewModel.DuplicateMergeCandidateList.DeleteMethod);
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, viewModel.SplitPlacementMergeCandidateList.DeleteMethod);
             int messagesBeforeOrganize = dialogs.Messages.Count;
             ClickButton(window, "audioDuplicateCandidateSelectVisibleButton");
             AwaitHandler(() => ClickButton(window, "audioDuplicateCandidateOrganizeButton"), "audio duplicate organize toolbar");
@@ -229,8 +252,18 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsFalse(File.Exists(wav), "OGGを残し、WAVを捨てる");
             Assert.IsTrue(File.Exists(ogg));
             Assert.AreEqual(1, deleted.Count);
+            CollectionAssert.AreEqual(new[] { Microsoft.VisualBasic.FileIO.RecycleOption.DeletePermanently }, mutations.FileRecycleOptions.ToArray(),
+                "WAVの削除が、完全に削除の指定で窓口へ渡る");
+            Assert.AreEqual(
+                string.Join(Environment.NewLine, string.Format(Resources.Audio_duplicate_organize_confirm_pairs_format, 1, 1), Resources.Audio_duplicate_organize_confirm_keep_ogg_permanent),
+                dialogs.ConfirmRequest!.MessageBoxText);
+            Assert.AreEqual(Resources.Duplicate_batch_organize_confirm_permanent_warning, dialogs.ConfirmRequest.WarningMessageBoxText.Split(Environment.NewLine)[0], "警告の先頭行");
+            Assert.AreEqual(MessageBoxImage.Warning, dialogs.ConfirmRequest.Icon, "他の警告がなくても警告のアイコン");
             Assert.AreEqual(1, dialogs.Messages.Count - messagesBeforeOrganize, "整理の結果の案内は一回");
             StringAssert.StartsWith(dialogs.Messages.Last().MessageBoxText, string.Format(Resources.Audio_duplicate_organize_result_format, 1, 1, 0, 0, 0));
+            StringAssert.Contains(dialogs.Messages.Last().MessageBoxText, string.Format(Resources.Audio_duplicate_organize_result_deleted_format, 1));
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, viewModel.DuplicateMergeCandidateList.DeleteMethod, "重複の一覧の値は変わらない");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, viewModel.SplitPlacementMergeCandidateList.DeleteMethod, "分裂配置の一覧の値は変わらない");
             Assert.AreEqual(0, library.AudioDuplicateFolders!.Count, "衝突名が残らないフォルダは結果から消える");
             Assert.AreEqual(0, list.RowSet.Count, "一覧は行0件へ作り直される");
             Assert.IsTrue(library.OperationAdmission.CanEnter, "受付を解放している");

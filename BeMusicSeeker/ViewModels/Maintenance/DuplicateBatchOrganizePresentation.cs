@@ -19,6 +19,7 @@ internal static class DuplicateBatchOrganizePresentation
     /// <summary>
     /// 捕捉した対象から、モデルの要求を作ります。グループの順は渡された順（一覧の表示順）で、
     /// 各グループはKEEPと、KEEP以外のフォルダをPATH昇順（大文字小文字を無視）に並べた移動元を持ちます。一フォルダのグループの移動元は空です。
+    /// 削除方法は、全対象で捕捉時点の同じ値を、操作全体で一つ持ちます。
     /// </summary>
     internal static DuplicateBatchOrganizeRequest CreateRequest(IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets)
     {
@@ -32,8 +33,14 @@ internal static class DuplicateBatchOrganizePresentation
                     .Where(folder => !string.Equals(folder, target.KeepFolder, StringComparison.OrdinalIgnoreCase))
                     .Order(StringComparer.OrdinalIgnoreCase),
                 CreateAudioCollisionCleanup(target));
-        }));
+        }), GetDeleteMethod(targets));
     }
+
+    /// <summary>
+    /// 捕捉した対象の削除方法です。「削除」の値は全対象で捕捉時点の同じ値のため、先頭の対象から読みます。対象がなければ、既定のごみ箱へ移動です。
+    /// </summary>
+    internal static DuplicateOrganizeDeleteMethod GetDeleteMethod(IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets)
+        => targets.Count == 0 ? DuplicateOrganizeDeleteMethod.MoveToRecycleBin : targets[0].DeleteMethod;
 
     /// <summary>
     /// 捕捉した対象から、WAV・OGGの衝突整理の指定を作ります。指定するのは、捕捉時点の「衝突整理」が両方残す以外で、二フォルダ以上あり、
@@ -69,14 +76,15 @@ internal static class DuplicateBatchOrganizePresentation
             GetRepresentativeFolderName(progress.KeepDirectory));
 
     /// <summary>
-    /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行、
-    /// 衝突整理を指定するグループがあるときだけ残す形式ごとの衝突整理の行の順です。
-    /// 警告用の本文（警告色で表示する部分）は、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
+    /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、重複した譜面の削除の行、
+    /// 衝突整理を指定するグループがあるときだけ残す形式ごとの衝突整理の行の順です。削除の行は、削除方法がごみ箱へ移動なら「ごみ箱へ送ります」、完全に削除なら「完全に削除します」の文言です。
+    /// 警告用の本文（警告色で表示する部分）は、削除方法が完全に削除のときだけ先頭に元に戻せない旨の行、
+    /// 続いて、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
     /// 衝突整理の指定の名前に同等と判定していない名前を含むグループがあるときだけその件数の行、一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があるときだけ上書きの行、
     /// 連番名で保持される.bmx/.txtの衝突があるときだけ連番名の行を、この順に並べ、該当がなければnullです。
     /// </summary>
     /// <param name="overwrite">確認文を作る時点の上書きの設定です。衝突の行の文言を決めます。</param>
-    /// <param name="hasWarning">未確認または要注意のグループを含む（確認ダイアログのアイコンを警告にする）場合はtrueです。</param>
+    /// <param name="hasWarning">未確認または要注意のグループを含む（続行のチェックを求める）場合はtrueです。完全に削除だけを理由にはtrueにしません（そのときのアイコンは呼出し側が警告にします）。</param>
     /// <param name="warningMessage">警告用の本文です。該当する行がなければnullです。</param>
     internal static string CreateConfirmationMessage(
         IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, DuplicateMergeOverwriteSettings overwrite,
@@ -115,7 +123,8 @@ internal static class DuplicateBatchOrganizePresentation
         {
             lines.Add(string.Format(Resources.Duplicate_batch_organize_confirm_merge_format, mergeGroups, sourceFolders));
         }
-        lines.Add(Resources.Duplicate_batch_organize_confirm_trash);
+        bool permanent = GetDeleteMethod(targets) == DuplicateOrganizeDeleteMethod.DeletePermanently;
+        lines.Add(permanent ? Resources.Duplicate_batch_organize_confirm_permanent : Resources.Duplicate_batch_organize_confirm_trash);
         // 衝突整理の値は全対象で捕捉時点の同じ値です。指定を作る条件はCreateRequestと同じ規則で数えます。
         DuplicateBatchAudioCollisionCleanup[] audioCleanups = [.. targets.Select(CreateAudioCollisionCleanup)];
         int audioCleanupGroups = audioCleanups.Count(cleanup => cleanup != null);
@@ -129,14 +138,23 @@ internal static class DuplicateBatchOrganizePresentation
         }
         if (audioCleanupGroups > 0)
         {
+            bool keepOgg = targets[0].CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepOgg;
             lines.Add(string.Format(
-                targets[0].CollisionCleanup == DuplicateMergeCollisionCleanupMode.KeepOgg
-                    ? Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format
-                    : Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format,
+                (keepOgg, permanent) switch
+                {
+                    (true, false) => Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_format,
+                    (false, false) => Resources.Duplicate_batch_organize_confirm_audio_keep_wav_format,
+                    (true, true) => Resources.Duplicate_batch_organize_confirm_audio_keep_ogg_permanent_format,
+                    (false, true) => Resources.Duplicate_batch_organize_confirm_audio_keep_wav_permanent_format
+                },
                 audioCleanupGroups));
         }
         hasWarning = unverified + caution > 0;
         var warnings = new List<string>();
+        if (permanent)
+        {
+            warnings.Add(Resources.Duplicate_batch_organize_confirm_permanent_warning);
+        }
         if (unverified > 0 && caution > 0)
         {
             warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution));
@@ -168,11 +186,14 @@ internal static class DuplicateBatchOrganizePresentation
     }
 
     /// <summary>
-    /// 結果の案内を作ります。見出しは五区分（0件の区分も含む）の件数、ごみ箱へ送った譜面があれば合計、衝突整理で音源をごみ箱へ送っていればその件数、取消されていれば取消の行を続け、
+    /// 結果の案内を作ります。見出しは五区分（0件の区分も含む）の件数、削除した譜面があれば合計、衝突整理で音源を削除していればその件数、取消されていれば取消の行を続け、
+    /// 削除の行の文言は、要求の削除方法（ごみ箱へ送った／完全に削除した）に従い、
     /// 完了以外のグループを要求順に最大 <see cref="MaxDetailGroups"/> 件まで「KEEP：状態（理由）」と残った移動元ごとの「移動元：理由」で並べます。
     /// </summary>
+    /// <param name="deleteMethod">整理の要求の削除方法です。削除の行の文言を決めます。</param>
     /// <param name="allCompleted">全グループが完了で、取消も削除の失敗もない場合はtrueです。案内のアイコンの選択に使います。</param>
-    internal static string CreateResultMessage(DuplicateBatchOrganizeResult result, out bool allCompleted)
+    internal static string CreateResultMessage(
+        DuplicateBatchOrganizeResult result, DuplicateOrganizeDeleteMethod deleteMethod, out bool allCompleted)
     {
         ArgumentNullException.ThrowIfNull(result);
         IReadOnlyList<DuplicateBatchOrganizeGroupResult> groups = result.Groups;
@@ -188,15 +209,18 @@ internal static class DuplicateBatchOrganizePresentation
                 Count(DuplicateBatchOrganizeGroupStatus.Failed),
                 Count(DuplicateBatchOrganizeGroupStatus.Unprocessed))
         };
-        int trashed = groups.Sum(group => group.TrashedChartCount);
-        if (trashed > 0)
+        bool permanent = deleteMethod == DuplicateOrganizeDeleteMethod.DeletePermanently;
+        int deleted = groups.Sum(group => group.DeletedChartCount);
+        if (deleted > 0)
         {
-            lines.Add(string.Format(Resources.Duplicate_batch_organize_result_trashed_format, trashed));
+            lines.Add(string.Format(
+                permanent ? Resources.Duplicate_batch_organize_result_deleted_format : Resources.Duplicate_batch_organize_result_trashed_format, deleted));
         }
-        int trashedAudio = groups.Sum(group => group.TrashedAudioCount);
-        if (trashedAudio > 0)
+        int deletedAudio = groups.Sum(group => group.DeletedAudioCount);
+        if (deletedAudio > 0)
         {
-            lines.Add(string.Format(Resources.Duplicate_batch_organize_result_trashed_audio_format, trashedAudio));
+            lines.Add(string.Format(
+                permanent ? Resources.Duplicate_batch_organize_result_deleted_audio_format : Resources.Duplicate_batch_organize_result_trashed_audio_format, deletedAudio));
         }
         if (result.Canceled)
         {
@@ -205,7 +229,7 @@ internal static class DuplicateBatchOrganizePresentation
 
         // 確定に失敗した操作では、物理的に成功していたグループがすべて失敗になり、統合した移動元は確定していない側へ移ります。
         bool commitFailed = !result.Receipt.SessionReceipt.DurableCommit
-            && groups.Any(group => group.TrashedChartCount > 0
+            && groups.Any(group => group.DeletedChartCount > 0
                 || group.RetainedSources.Any(retained => retained.Reason == DuplicateBatchOrganizeSourceReason.NotCommitted));
         DuplicateBatchOrganizeGroupResult[] incomplete = [.. groups.Where(group => group.Status != DuplicateBatchOrganizeGroupStatus.Completed)];
         if (incomplete.Length > 0)
@@ -229,7 +253,7 @@ internal static class DuplicateBatchOrganizePresentation
         {
             lines.Add(string.Format(Resources.Duplicate_batch_organize_result_more_format, incomplete.Length - MaxDetailGroups));
         }
-        allCompleted = incomplete.Length == 0 && !result.Canceled && groups.All(group => group.TrashFailureCount == 0 && group.AudioTrashFailureCount == 0);
+        allCompleted = incomplete.Length == 0 && !result.Canceled && groups.All(group => group.DeleteFailureCount == 0 && group.AudioDeleteFailureCount == 0);
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -243,16 +267,16 @@ internal static class DuplicateBatchOrganizePresentation
         {
             return group.SkipReason == DuplicateBatchOrganizeSkipReason.None ? null : SkipReasonText(group.SkipReason);
         }
-        // 確定の失敗によって失敗になったグループ（統合済みの移動元が確定していない扱いになった、またはごみ箱へ送った譜面がある）だけに付けます。
+        // 確定の失敗によって失敗になったグループ（統合済みの移動元が確定していない扱いになった、または削除した譜面がある）だけに付けます。
         bool failedByCommit = commitFailed && group.Status == DuplicateBatchOrganizeGroupStatus.Failed
-            && (group.TrashedChartCount > 0
+            && (group.DeletedChartCount > 0
                 || group.RetainedSources.Any(retained => retained.Reason == DuplicateBatchOrganizeSourceReason.NotCommitted));
         if (failedByCommit)
         {
             // 個別の削除の失敗と重なっても、確定されていないことが利用者にとって重要なため、確定の失敗を優先します。
             return Resources.Duplicate_batch_organize_reason_commit_failure;
         }
-        return group.TrashFailureCount > 0 || group.AudioTrashFailureCount > 0 ? Resources.Duplicate_batch_organize_reason_delete_failure : null;
+        return group.DeleteFailureCount > 0 || group.AudioDeleteFailureCount > 0 ? Resources.Duplicate_batch_organize_reason_delete_failure : null;
     }
 
     /// <summary>グループの状態の文言です。</summary>

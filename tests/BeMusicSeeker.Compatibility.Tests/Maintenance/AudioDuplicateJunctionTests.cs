@@ -124,7 +124,7 @@ public sealed class AudioDuplicateJunctionTests
                 Assert.AreEqual(AudioDuplicateOrganizeStatus.Skipped, result.Folders[0].Status);
                 Assert.AreEqual(DuplicateBatchOrganizeSkipReason.LinkFound, result.Folders[0].SkipReason);
                 Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, result.Folders[1].Status);
-                Assert.AreEqual(1, result.Folders[1].TrashedCount);
+                Assert.AreEqual(1, result.Folders[1].DeletedCount);
                 CollectionAssert.AreEqual(new[] { Path.Combine(plain, "x.wav") }, mutations.ShellDeletedFiles.ToArray());
                 CollectionAssert.AreEqual(targetBefore.Keys.Order().ToArray(), Contents(external).Keys.Order().ToArray(), "リンク先は変わりません。");
                 Assert.AreEqual("wav", File.ReadAllText(Path.Combine(external, "x.wav")));

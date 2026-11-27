@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -74,6 +75,7 @@ public sealed class AudioDuplicateCandidateListOwner : ViewModel, ICandidateList
     private int visibleFolderCount;
     private int selectedFolderCount;
     private AudioDuplicateCollisionCleanupMode collisionCleanupMode;
+    private DuplicateOrganizeDeleteMethod deleteMethod;
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
     /// <param name="openDirectory">フォルダをエクスプローラーで開く窓口です。</param>
@@ -223,8 +225,23 @@ public sealed class AudioDuplicateCandidateListOwner : ViewModel, ICandidateList
     }
 
     /// <summary>
+    /// 整理で捨てる形式の音源を、ごみ箱へ移動するか完全に削除するか（削除）です。既定はごみ箱へ移動で、<see cref="CollisionCleanupMode"/> と同じく、アプリの起動中だけ保持し、ライブラリの交換後も残ります。
+    /// 設定へは保存しません。整理の対象の捕捉と同じ時点で一度だけ読み、整理の途中の変更は進行中の整理へ影響しません。確認には使いません。切替えで案内は出しません。
+    /// </summary>
+    public DuplicateOrganizeDeleteMethod DeleteMethod
+    {
+        get => deleteMethod;
+        set
+        {
+            if (deleteMethod == value) { return; }
+            deleteMethod = value;
+            RaisePropertyChanged(nameof(DeleteMethod));
+        }
+    }
+
+    /// <summary>
     /// 接続中のライブラリを知らせます。別のライブラリへ交換した場合と解除した場合は、すべてのフォルダの状態と採用済みの行を破棄して非表示にします。
-    /// 衝突整理・並べ替え・検索語・除外語は保ちます。
+    /// 衝突整理・削除・並べ替え・検索語・除外語は保ちます。
     /// </summary>
     internal void AttachLibrary(object value)
     {
@@ -429,7 +446,7 @@ public sealed class AudioDuplicateCandidateListOwner : ViewModel, ICandidateList
     }
 
     private AudioDuplicateCandidateTarget CaptureTarget(AudioDuplicateCandidateState state)
-        => new(state.Group, state.Folder, state.Inspection, collisionCleanupMode);
+        => new(state.Group, state.Folder, state.Inspection, collisionCleanupMode, deleteMethod);
 
     /// <summary>
     /// 確認結果を、複数のフォルダ分まとめてUIスレッドで書き込みます。現在の状態表にないフォルダの結果は捨てます。

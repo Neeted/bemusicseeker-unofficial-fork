@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -1570,6 +1571,39 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, fixture.Owner.CollisionCleanupMode, "ライブラリの交換後も保ちます。");
         Assert.AreEqual(2, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.CollisionCleanupMode)),
             "値が変わった二回だけ通知し、同じ値の設定と交換では通知しません。");
+    }
+
+    /// <summary>
+    /// 保証：「削除」の値は既定でごみ箱へ移動で、変わったときだけ変更を通知し（同じ値の設定では通知しない）、ライブラリを交換しても保つ。対象の捕捉は捕捉時点の値を持ち、以後の変更は捕捉した値へ影響しない。
+    /// 「衝突整理」の値とは独立している。
+    /// 検出する誤り：既定がごみ箱へ移動以外、ライブラリの交換での値の消失・既定への復帰、変更の通知の欠落・重複、捕捉した値の後からの変化、衝突整理の値との連動。
+    /// </summary>
+    [TestMethod]
+    public void DeleteMethod_DefaultsToRecycleBinAndKeepsValueAcrossLibraryExchange()
+    {
+        var fixture = new Fixture();
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, fixture.Owner.DeleteMethod, "既定はごみ箱へ移動です。");
+
+        fixture.Adopt(Group(@"C:\S\a1", @"C:\S\a2"));
+        fixture.Owner.SelectVisible();
+        fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin;
+        Assert.AreEqual(0, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.DeleteMethod)), "既定と同じ値の設定では通知しません。");
+        fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+        fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> captured = fixture.Owner.CaptureSelectedGroups();
+        fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin;
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, captured.Single().DeleteMethod, "捕捉した値は後の変更で変わりません。");
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, fixture.Owner.CaptureSelectedGroups().Single().DeleteMethod);
+        Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, fixture.Owner.CollisionCleanupMode, "衝突整理の値は連動しません。");
+
+        fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+        fixture.Owner.AttachLibrary(new object());
+
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, fixture.Owner.DeleteMethod, "ライブラリの交換後も保ちます。");
+        Assert.AreEqual(3, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.DeleteMethod)),
+            "値が変わった三回だけ通知し、同じ値の設定と交換では通知しません。");
     }
 
     /// <summary>

@@ -523,6 +523,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// プレースホルダー、同等性検査のチェック、衝突整理の名前・説明・選択肢が現在の言語に追従し、チェックと選択の値は保たれる。
     /// 切替え先の言語で書き込んだ同等の結果（STATUSの付記とツールチップの最後の文）は、元の言語へ戻すと戻した言語で読める。終わったら元の言語へ戻す。
     /// 検出する誤り：画面内の旧スタイル（個別の配色・テンプレート・無効時の不透明度）の残り、標準部品のままのチェックボックス、
+    /// 「削除」のアクセシブル名・ツールチップ・選択肢（ごみ箱へ移動・完全に削除）も現在の言語に追従し、選択値（完全に削除）は保たれる。
     /// 起動時の言語のまま残る文言、書込み時点の言語で固定した付記・ツールチップ、固定文字列の付記・ツールチップ、言語の変更で一覧の状態（SELECT）や
     /// チェック・選択の値が失われる誤り。
     /// </summary>
@@ -540,6 +541,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
             var audioEquivalence = (CheckBox)window.FindName("duplicateCandidateAudioEquivalenceCheckBox");
             var collisionCleanup = (ComboBox)window.FindName("duplicateCandidateCollisionCleanupComboBox");
+            var deleteMode = (ComboBox)window.FindName("duplicateCandidateDeleteModeComboBox");
             var excludeEditor = (KeywordSearchEditor)window.FindName("duplicateCandidateExcludeEditor");
             var excludePlaceholder = (TextBlock)window.FindName("duplicateCandidateExcludePlaceholder");
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
@@ -571,6 +573,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             audioEquivalence.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
             collisionCleanup.SelectedItem = collisionCleanup.Items.Cast<ComboBoxItem>()
                 .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_collision_cleanup_keep_wav));
+            deleteMode.SelectedItem = deleteMode.Items.Cast<ComboBoxItem>()
+                .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_delete_method_permanent));
             string previous = Resources.Culture?.Name ?? "ja-JP";
             string other = previous == "en-US" ? "ja-JP" : "en-US";
             // 切替え先の言語で読んだ付記とツールチップの最後の文です。元の言語へ戻した後の文言と異なることで、言語の往復を判別できる前提を確かめます。
@@ -611,6 +615,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(audioEquivalence.IsChecked == true && candidates.AudioEquivalenceEnabled, "言語の変更で同等性検査の値は保たれます。");
                 Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "言語の変更で衝突整理の選択は保たれます。");
                 Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, candidates.CollisionCleanupMode);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method, AutomationProperties.GetName(deleteMode), "削除のアクセシブル名は現在の言語です。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method_tooltip, deleteMode.ToolTip, "削除のツールチップは現在の言語です。");
+                CollectionAssert.AreEqual(
+                    new[] { Resources.Duplicate_merge_candidate_delete_method_recycle_bin, Resources.Duplicate_merge_candidate_delete_method_permanent },
+                    deleteMode.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray(), "削除の選択肢は現在の言語です。");
+                Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, deleteMode.SelectedValue, "言語の変更で削除の選択は保たれます。");
+                Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, candidates.DeleteMethod);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, candidates.RowSet[2].StatusText, "未確認のグループは未確認のままです。");
                 // 未確認のグループへ、全衝突が同等の安全な結果を書き込み、付記とツールチップの最後の文も現在の言語で作られることを確かめる。
                 DuplicateMergeVerificationResult equivalentResult = new(
@@ -653,6 +664,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsTrue(audioEquivalence.IsChecked == true && candidates.AudioEquivalenceEnabled, "言語を戻しても同等性検査の値は保たれます。");
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "言語を戻しても衝突整理の選択は保たれます。");
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, candidates.CollisionCleanupMode);
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method, AutomationProperties.GetName(deleteMode), "削除のアクセシブル名は戻した言語です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method_tooltip, deleteMode.ToolTip);
+            CollectionAssert.AreEqual(
+                new[] { Resources.Duplicate_merge_candidate_delete_method_recycle_bin, Resources.Duplicate_merge_candidate_delete_method_permanent },
+                deleteMode.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray(), "削除の選択肢は戻した言語です。");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, deleteMode.SelectedValue, "言語を戻しても削除の選択は保たれます。");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, candidates.DeleteMethod);
         });
     }
 
@@ -778,8 +796,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// 初期はチェックなし・「両方残す」で、チェックを入れても案内は増えない。「選択グループを確認」でSTATUSが「安全（WAV/OGG同等）」になり、
     /// ツールチップの最後の文が1組を示す。三つの選択肢の選択は値へ届き、案内を出さず、STATUSを変えない。「OGGを残す」でSELECTを入れて整理すると、
     /// 確認文にOGGを残す行が1グループで出て、結果の案内に音源1件の行が出る。KEEP側にはOGGが元のバイト列で残りWAVはなくなり、ごみ箱へ送った音源はKEEP側のWAVだけで、移動元のフォルダは消える。
+    /// 「削除」は既定の「ごみ箱へ移動」のままで、削除の窓口へ渡った指定がすべて「ごみ箱へ送る」である（このテストはごみ箱のまま残す）。
     /// 検出する誤り：チェック・選択の未接続、チェックの値が確認へ届かない、同等の付記・ツールチップの欠落、選択の切替えでの案内・STATUSの変化、
-    /// 選択の値が整理へ届かない、残す形式と削除する形式の取り違え、移動元の音源のごみ箱への誤送、結果の案内の欠落。
+    /// 選択の値が整理へ届かない、残す形式と削除する形式の取り違え、移動元の音源のごみ箱への誤送、結果の案内の欠落、既定で完全削除の指定が渡る誤り。
     /// </summary>
     [TestMethod]
     public void CandidateList_AudioEquivalenceCheckAndCollisionCleanupCarryRealWavOggFromVerificationToTrash()
@@ -818,6 +837,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
                 Assert.IsFalse(audioEquivalence.IsChecked, "初期はチェックなしです。");
                 Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, collisionCleanup.SelectedValue, "初期は「両方残す」です。");
+                Assert.AreEqual(
+                    DuplicateOrganizeDeleteMethod.MoveToRecycleBin,
+                    ((ComboBox)window.FindName("duplicateCandidateDeleteModeComboBox")).SelectedValue, "削除の初期の表示は「ごみ箱へ移動」です。");
                 audioEquivalence.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true);
                 Assert.IsTrue(candidates.AudioEquivalenceEnabled);
                 Assert.AreEqual(0, dialogs.Messages.Count, "チェックを入れても案内は出ません。");
@@ -860,6 +882,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 string[] trashedAudio = [.. trashed.Where(path => path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))];
                 CollectionAssert.AreEqual(new[] { Path.Combine(keep, "bgm", "a.wav") }, trashedAudio, "ごみ箱へ送った音源はKEEP側のWAVだけです。");
                 Assert.IsFalse(Directory.Exists(source), "移動元のフォルダは消えています。");
+                Assert.IsTrue(
+                    mutations.FileRecycleOptions.Count > 0
+                    && mutations.FileRecycleOptions.All(option => option == Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin),
+                    "既定の削除方法（ごみ箱へ移動）では、削除の窓口へ渡った指定がすべて「ごみ箱へ送る」です。");
             }, dialogService: dialogs, fileMutations: mutations);
         }
         finally { BassAudioRuntime.Shutdown(); }

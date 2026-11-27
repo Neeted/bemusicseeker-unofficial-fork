@@ -249,6 +249,8 @@ internal static class OwnedChartCollectionTestSupport
         internal List<string> DirectoryDeletePaths { get; } = [];
         /// <summary>実際のごみ箱へ接続せず要求された削除方針を記録する。</summary>
         internal List<RecycleOption> DirectoryRecycleOptions { get; } = [];
+        /// <summary>実際のごみ箱へ接続せず、ファイル削除（<see cref="DeleteFileShell"/>）で要求された削除方針を、呼出しごとに記録する。</summary>
+        internal List<RecycleOption> FileRecycleOptions { get; } = [];
         /// <summary>実行されたファイル移転要求の件数です。</summary>
         internal int FileMoveCalls { get; private set; }
         /// <summary>固定した物理元パスを実際の移転入口で観測します。</summary>
@@ -327,6 +329,7 @@ internal static class OwnedChartCollectionTestSupport
         public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
             FileDeleteCalls++;
+            FileRecycleOptions.Add(recycleOption);
             BeforeFileDelete?.Invoke(filePath);
             DeleteFileDirect(filePath, options);
         }

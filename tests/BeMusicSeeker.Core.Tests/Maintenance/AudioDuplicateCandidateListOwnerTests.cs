@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
@@ -104,6 +105,13 @@ public sealed class AudioDuplicateCandidateListOwnerTests
         AudioDuplicateCandidateListOwner owner = CreateOwner();
         Adopt(owner, library, [a, b]);
         owner.CollisionCleanupMode = AudioDuplicateCollisionCleanupMode.KeepWav;
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, owner.DeleteMethod, "削除の既定はごみ箱へ移動");
+        var changed = new List<string?>();
+        owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        owner.DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin;
+        owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+        owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+        Assert.AreEqual(1, changed.Count(name => name == nameof(AudioDuplicateCandidateListOwner.DeleteMethod)), "値が変わったときだけ通知する");
         owner.SearchText = "path:S";
         Verify(owner, a, Inspection(AudioDuplicateInspectionStage.Caution, ["x"], []));
         owner.ToggleSelect(owner.RowSet.Single(row => row.Path == a.Folder));
@@ -128,6 +136,7 @@ public sealed class AudioDuplicateCandidateListOwnerTests
         Assert.AreEqual(0, owner.RowSet.Count);
         Assert.IsFalse(owner.TryGetState(a.Group, out _), "ライブラリの交換ですべて破棄");
         Assert.AreEqual(AudioDuplicateCollisionCleanupMode.KeepWav, owner.CollisionCleanupMode, "衝突整理は交換後も保つ");
+        Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, owner.DeleteMethod, "削除は交換後も保つ");
         Assert.AreEqual("path:S", owner.SearchText);
     }
 
@@ -237,6 +246,7 @@ public sealed class AudioDuplicateCandidateListOwnerTests
 
         IReadOnlyList<AudioDuplicateCandidateTarget> targets = owner.CaptureSelectedFolders();
         owner.CollisionCleanupMode = AudioDuplicateCollisionCleanupMode.KeepWav;
+        owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
         owner.ClearVisible();
 
         CollectionAssert.AreEqual(new[] { b.Folder, a.Folder }, targets.Select(target => target.Folder).ToArray(), "表示順");
@@ -244,6 +254,7 @@ public sealed class AudioDuplicateCandidateListOwnerTests
         Assert.AreEqual(AudioDuplicateInspectionStage.Caution, targets[1].Inspection!.Stage);
         CollectionAssert.AreEqual(new[] { "x", "y" }, targets[1].Inspection!.CollisionNames.ToArray(), "同等でない名前を含む、確認が確定した衝突名のすべて");
         Assert.IsTrue(targets.All(target => target.CollisionCleanup == AudioDuplicateCollisionCleanupMode.KeepOgg), "捕捉時点の衝突整理");
+        Assert.IsTrue(targets.All(target => target.DeleteMethod == DuplicateOrganizeDeleteMethod.MoveToRecycleBin), "捕捉時点の削除（後の変更は影響しない）");
         Assert.AreEqual(2, owner.CaptureFoldersOfRows([owner.RowSet[0], owner.RowSet[0], owner.RowSet[1]]).Count, "SELECTによらず、フォルダごとに一度");
     }
 

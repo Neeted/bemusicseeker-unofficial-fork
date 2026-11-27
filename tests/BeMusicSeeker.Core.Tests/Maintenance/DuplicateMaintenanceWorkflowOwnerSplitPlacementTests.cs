@@ -374,7 +374,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
     }
 
     /// <summary>
-    /// 保証：分裂配置の一覧からの整理は、その一覧の「衝突整理」の値を使い、重複の一覧の値を使わない。
+    /// 保証：分裂配置の一覧からの整理は、その一覧の「衝突整理」と「削除」の値を使い、重複の一覧の値を使わない。
     /// 検出する誤り：重複の一覧の値の使用、分裂配置の一覧の値の無視。
     /// </summary>
     [TestMethod]
@@ -387,6 +387,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
                 DuplicateMergeVerificationStage.Safe, [], EquivalentAudioNames: ["x"], AllAudioCollisionsEquivalent: true, WavOggCollisionNames: ["x"]));
             fixture.SplitList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepWav;
             fixture.DuplicateList.CollisionCleanupMode = DuplicateMergeCollisionCleanupMode.KeepOgg;
+            fixture.SplitList.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+            fixture.DuplicateList.DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin;
             fixture.SplitList.SelectVisible();
             fixture.SplitList.SearchText = Path.GetFileName(fixture.State(safe).Folders[0]);
 
@@ -397,6 +399,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             Assert.IsNotNull(cleanup, "分裂配置の一覧の値（WAVを残す）で指定します。");
             Assert.AreEqual(".ogg", cleanup.DiscardExtension, "重複の一覧の値（OGGを残す）は使いません。");
             CollectionAssert.AreEqual(new[] { "x" }, cleanup.Names.ToArray());
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, fixture.Store.Requests.Single().DeleteMethod,
+                "分裂配置の一覧の「削除」（完全に削除）を使い、重複の一覧の値（ごみ箱へ移動）は使いません。");
         });
     }
 

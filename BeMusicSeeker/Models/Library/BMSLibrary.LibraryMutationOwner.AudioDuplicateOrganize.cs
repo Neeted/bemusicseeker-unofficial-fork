@@ -11,13 +11,13 @@ namespace BeMusicSeeker.Models;
 internal sealed partial class LibraryMutationOwner
 {
     /// <summary>
-    /// 重複音源フォルダを、一つの共通受付でまとめて整理します。フォルダごとに、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルをごみ箱へ送ります。
+    /// 重複音源フォルダを、一つの共通受付でまとめて整理します。フォルダごとに、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルを、要求の削除方法（ごみ箱へ移動、または完全に削除）で削除します。
     /// 音源キーの集合は変わらないため、変更セッションを開かず、カタログ・DB・索引・LR2同期への反映と必須保守を行いません。
     /// </summary>
     /// <remarks>
     /// Busy・カタログ未収束・管理出力（プレイリスト出力）の保護を取れない場合は、物理変更の前に操作全体を未適用で返し、全フォルダを未処理にします。
     /// 管理出力の保護は、要求の全フォルダの和集合で、最初の物理変更の前に一回だけ取ります。
-    /// 名前ごとの観測と削除は、重複グループの一括整理の衝突整理と同じ部品（<see cref="DuplicateAudioCollisionCleaner"/>）を使い、個別の失敗は送れなかった数に数えて続行します。
+    /// 名前ごとの観測と削除は、重複グループの一括整理の衝突整理と同じ部品（<see cref="DuplicateAudioCollisionCleaner"/>）を使い、個別の失敗は削除できなかった数に数えて続行します。
     /// この部品が受けない例外は、結果を返さずに呼出し側へ伝え、<paramref name="publishResult"/> を呼びません。
     /// </remarks>
     /// <param name="request">処理するフォルダ。順序が処理順です。</param>
@@ -51,7 +51,7 @@ internal sealed partial class LibraryMutationOwner
         }
 
         var totalStopwatch = Stopwatch.StartNew();
-        LogInstallPerformance("audio_duplicate_organize start op=" + operationId + " folders=" + request.Folders.Count);
+        LogInstallPerformance("audio_duplicate_organize start op=" + operationId + " folders=" + request.Folders.Count + " deleteMethod=" + request.DeleteMethod);
         List<Action> postLeaseNotifications = [];
         AudioDuplicateOrganizeResult result;
         long[] cleanupMilliseconds;
@@ -105,7 +105,7 @@ internal sealed partial class LibraryMutationOwner
             AudioDuplicateOrganizeFolder folder = request.Folders[index];
             ReportAudioDuplicateOrganizeProgress(progress, new AudioDuplicateOrganizeProgress(index + 1, total, folder.Folder));
             // 部品が受けない例外は、結果を返さずに呼出し側へ伝えます。
-            results[index] = OrganizeAudioDuplicateFolder(folder, out cleanupMilliseconds[index]);
+            results[index] = OrganizeAudioDuplicateFolder(folder, request.DeleteMethod, out cleanupMilliseconds[index]);
         }
         for (int index = 0; index < total; index++)
         {
@@ -135,7 +135,7 @@ internal sealed partial class LibraryMutationOwner
     /// <summary>
     /// 一つのフォルダを処理します。パスが空・正規化できない、存在しない、本体がリンクまたはリンクを確認できない場合は、ファイルを変えずにスキップします。
     /// </summary>
-    private AudioDuplicateOrganizeFolderResult OrganizeAudioDuplicateFolder(AudioDuplicateOrganizeFolder folder, out long cleanupMilliseconds)
+    private AudioDuplicateOrganizeFolderResult OrganizeAudioDuplicateFolder(AudioDuplicateOrganizeFolder folder, DuplicateOrganizeDeleteMethod deleteMethod, out long cleanupMilliseconds)
     {
         cleanupMilliseconds = 0;
         string path = folder.Folder;
@@ -161,17 +161,18 @@ internal sealed partial class LibraryMutationOwner
         DuplicateAudioCollisionCleanupOutcome outcome = DuplicateAudioCollisionCleaner.Cleanup(
             path,
             folder.Cleanup,
+            deleteMethod,
             fileMutationService,
             targetOnlyFileMutationOptions,
             logFileWarning,
-            "audio_duplicate_organize_trash_failed");
+            "audio_duplicate_organize_delete_failed");
         cleanupMilliseconds = outcome.Milliseconds;
         return new AudioDuplicateOrganizeFolderResult(
             path,
             outcome.FailureCount == 0 ? AudioDuplicateOrganizeStatus.Completed : AudioDuplicateOrganizeStatus.PartiallyCompleted,
             DuplicateBatchOrganizeSkipReason.None,
             null,
-            outcome.TrashedCount,
+            outcome.DeletedCount,
             outcome.FailedNames);
     }
 
@@ -192,7 +193,7 @@ internal sealed partial class LibraryMutationOwner
                 + " names=" + request.Folders[index].Cleanup.Names.Count
                 + " status=" + folder.Status
                 + (folder.SkipReason == DuplicateBatchOrganizeSkipReason.None ? string.Empty : " skipReason=" + folder.SkipReason + " skipPath=" + folder.SkipPath)
-                + " trashed=" + folder.TrashedCount
+                + " deleted=" + folder.DeletedCount
                 + " failed=" + folder.FailureCount
                 + " ms=" + cleanupMilliseconds[index]);
         }

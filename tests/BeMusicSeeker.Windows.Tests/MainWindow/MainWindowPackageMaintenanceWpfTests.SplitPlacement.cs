@@ -254,7 +254,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// <summary>
     /// 保証：分裂配置のツリーの子の先頭に統合候補一覧のノード（リソースの見出し）が現れ、選ぶと共用の専用の表が分裂配置の一覧主体へ束縛される。
     /// 表示中は譜面一覧の表・メインの検索欄・件数表示・保留の操作バー・プレイログの集計バーを出さない。
-    /// 検索欄・除外欄・SELECTのセル・簡易チェックのチェック・優先統合先は分裂配置の一覧主体にだけ作用し、重複の一覧へ切り替えると重複の値、戻ると分裂配置の値が現れる。
+    /// 検索欄・除外欄・SELECTのセル・簡易チェックのチェック・優先統合先・「削除」の選択は分裂配置の一覧主体にだけ作用し、重複の一覧へ切り替えると重複の値（削除はごみ箱へ移動）、戻ると分裂配置の値（完全に削除）が現れる。
+    /// 「削除」のラベルとコンボボックスは同等性検査の行の末尾にあり、選択肢はリソースの文言で、切替えで案内を出さない。
     /// 検出する誤り：ノードの欠落・位置・見出し、重複の一覧主体への束縛の残り、二つの一覧の状態の共有、切替えでの値の取り違え、ライブラリの交換での状態の残存。
     /// </summary>
     [TestMethod]
@@ -278,6 +279,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
             var audioEquivalence = (CheckBox)window.FindName("duplicateCandidateAudioEquivalenceCheckBox");
             var collisionCleanup = (ComboBox)window.FindName("duplicateCandidateCollisionCleanupComboBox");
+            var deleteMode = (ComboBox)window.FindName("duplicateCandidateDeleteModeComboBox");
             var audioRow = (FrameworkElement)window.FindName("duplicateCandidateAudioEquivalenceRow");
             var criteriaRow = (FrameworkElement)window.FindName("splitPlacementCriteriaRow");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
@@ -344,6 +346,24 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, split.CollisionCleanupMode);
             Assert.AreEqual(1, dialogs.Messages.Count, "同等性検査・衝突整理の切替えで案内は増えません。");
 
+            // 削除：同じ上段の行の末尾に、ラベルとコンボボックスが分裂配置の一覧でも見え、選択が分裂配置の一覧主体にだけ届く。
+            Assert.IsTrue(deleteMode.IsVisible, "分裂配置の一覧でも削除の選択が見える");
+            Assert.AreSame(audioRow, deleteMode.Parent, "削除の選択は同等性検査の行にある");
+            Assert.AreEqual(((Panel)audioRow).Children.Count - 1, ((Panel)audioRow).Children.IndexOf(deleteMode), "削除の選択は行の末尾");
+            Assert.IsInstanceOfType<TextBlock>(((Panel)audioRow).Children[((Panel)audioRow).Children.IndexOf(deleteMode) - 1], "直前はラベル");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method, ((TextBlock)((Panel)audioRow).Children[((Panel)audioRow).Children.IndexOf(deleteMode) - 1]).Text);
+            Assert.AreEqual("DuplicateCandidateDeleteMode", System.Windows.Automation.AutomationProperties.GetAutomationId(deleteMode));
+            CollectionAssert.AreEqual(
+                new[] { Resources.Duplicate_merge_candidate_delete_method_recycle_bin, Resources.Duplicate_merge_candidate_delete_method_permanent },
+                deleteMode.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray(), "選択肢の文言はリソースと一致する");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_delete_method_tooltip, deleteMode.ToolTip);
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, deleteMode.SelectedValue, "前提：削除は既定でごみ箱へ移動");
+            deleteMode.SelectedItem = deleteMode.Items.Cast<ComboBoxItem>()
+                .Single(item => Equals(item.Content, Resources.Duplicate_merge_candidate_delete_method_permanent));
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, split.DeleteMethod, "選択は分裂配置の一覧主体へ届く");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, duplicate.DeleteMethod, "重複の一覧の値は変わらない");
+            Assert.AreEqual(1, dialogs.Messages.Count, "削除の切替えで案内は増えません。");
+
             // 重複の一覧へ切り替える：重複の一覧主体の値（独立した状態）が現れ、分裂配置の一覧の値は変わらない。
             SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(duplicateRoot));
             TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -361,6 +381,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, collisionCleanup.SelectedValue, "重複の一覧の衝突整理は既定のまま");
             Assert.IsFalse(duplicate.AudioEquivalenceEnabled);
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, duplicate.CollisionCleanupMode);
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, deleteMode.SelectedValue, "重複へ切り替えるとごみ箱へ移動");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, split.DeleteMethod, "分裂配置の削除は変わらない");
             Assert.AreEqual(4, table.ItemsSource.Count);
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "重複の一覧の件数");
             Click(table, 2, "Select");
@@ -380,6 +402,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsTrue(quickCompare.IsChecked);
             Assert.IsTrue(audioEquivalence.IsChecked, "分裂配置の同等性検査の値が戻る");
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepWav, collisionCleanup.SelectedValue, "分裂配置の衝突整理の値が戻る");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, deleteMode.SelectedValue, "分裂配置の削除の値が戻る（完全に削除）");
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, duplicate.DeleteMethod);
             Assert.IsFalse(duplicate.AudioEquivalenceEnabled);
             Assert.AreEqual(DuplicateMergeCollisionCleanupMode.KeepBoth, duplicate.CollisionCleanupMode);
             Assert.AreEqual(1, split.SelectedGroupCount);

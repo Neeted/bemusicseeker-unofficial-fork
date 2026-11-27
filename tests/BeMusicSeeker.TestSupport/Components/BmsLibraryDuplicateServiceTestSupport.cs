@@ -79,13 +79,25 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public Action<string>? BeforeDeleteDirectory { get; set; }
 
-        /// <summary>ごみ箱へ送る削除（<see cref="DeleteFileShell"/>）に成功したファイルを、実行順に記録します。実際のごみ箱は使わず、ファイルを直接削除します。</summary>
+        /// <summary>
+        /// <see cref="DeleteFileShell"/> による削除に成功したファイルを、削除方法の指定（ごみ箱へ移動、または完全に削除）を問わず実行順に記録します。
+        /// 実際のごみ箱は使わず、ファイルを直接削除します。削除方法は <see cref="ShellDeleteFileCalls"/> で観測します。
+        /// </summary>
         public List<string> ShellDeletedFiles { get; } = [];
+
+        /// <summary>
+        /// <see cref="DeleteFileShell"/> の呼出しを、失敗した呼出しも含めて実行順に、パスと削除方法の指定（<see cref="RecycleOption"/>）で記録します。
+        /// 実際のごみ箱は使わないため、削除方法はこの記録で観測します。<see cref="ShellDeletedFiles"/> の意味は変えません。
+        /// </summary>
+        public List<(string Path, RecycleOption RecycleOption)> ShellDeleteFileCalls { get; } = [];
+
+        /// <summary><see cref="DeleteDirectoryShell"/> の呼出しを、実行順にパスと削除方法の指定で記録します。入力元の後片付けなどが削除方法の指定を受けないことの観測に使います。</summary>
+        public List<(string Path, RecycleOption RecycleOption)> ShellDeleteDirectoryCalls { get; } = [];
 
         /// <summary>trueを返すパスのファイルの移動・複製（移動元のパス、移動先のパス）を失敗させます。既存の<see cref="FailNextMutationCount"/>とは独立です。統合の物理処理は元を残すため、複製で移します。</summary>
         public Func<string, string, bool>? FailFileTransferWhen { get; set; }
 
-        /// <summary>trueを返すパスのファイルの、ごみ箱へ送る削除を失敗させます。失敗した削除は記録せず、ファイルを残します。</summary>
+        /// <summary>trueを返すパスのファイルの <see cref="DeleteFileShell"/> による削除を、削除方法の指定を問わず失敗させます。失敗した削除は <see cref="ShellDeletedFiles"/> に記録せず、ファイルを残します。</summary>
         public Func<string, bool>? FailDeleteFileShellWhen { get; set; }
 
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
@@ -173,6 +185,7 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            ShellDeleteFileCalls.Add((filePath, recycleOption));
             if (FailDeleteFileShellWhen?.Invoke(filePath) == true)
             {
                 throw new IOException("The test recycle-bin delete failed for the configured path.");
@@ -193,6 +206,7 @@ internal static class BmsLibraryDuplicateServiceTestSupport
 
         public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            ShellDeleteDirectoryCalls.Add((directoryPath, recycleOption));
             DeleteDirectoryDirect(directoryPath, recursive: true, options);
         }
 

@@ -202,8 +202,8 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
 
     /// <summary>
     /// 一括整理の確認を表示します。確認を表示しない設定（<c>ShowDuplicateFileCheckConfirmMsg</c>）でも、常に一度表示します。
-    /// OKとキャンセルがあり、既定はキャンセルです。未確認または要注意のグループを含むときだけ、警告アイコンを表示し、チェックを入れるまでOKを無効にします。
-    /// 未確認・要注意と、内容が異なる同名のファイルの扱い（確認文を作る時点の上書きの設定に合わせた説明）は、警告用の本文（警告色の部分）に表示します。
+    /// OKとキャンセルがあり、既定はキャンセルです。未確認または要注意のグループを含むときだけ、チェックを入れるまでOKを無効にします。警告アイコンは、それに加えて削除方法が完全に削除のときにも表示します。
+    /// 完全に削除の警告と、未確認・要注意と、内容が異なる同名のファイルの扱い（確認文を作る時点の上書きの設定に合わせた説明）は、警告用の本文（警告色の部分）に表示します。
     /// </summary>
     private async Task<ConfirmationDecision> ConfirmBatchOrganizeAsync(
         IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, DuplicateMergeOverwriteSettings overwrite)
@@ -212,12 +212,14 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         {
             string message = DuplicateBatchOrganizePresentation.CreateConfirmationMessage(
                 targets, overwrite, out bool hasWarning, out string warningMessage);
+            // 完全に削除は元に戻せないため、他の警告がなくてもアイコンを警告にします。続行のチェックは従来の条件（未確認・要注意）のままです。
+            bool permanentDelete = DuplicateBatchOrganizePresentation.GetDeleteMethod(targets) == DuplicateOrganizeDeleteMethod.DeletePermanently;
             return await ConfirmAsync(
                 new UiConfirmationRequest(
                     message,
                     Resources.Confirm,
                     MessageBoxButton.OKCancel,
-                    hasWarning ? MessageBoxImage.Warning : MessageBoxImage.Question,
+                    hasWarning || permanentDelete ? MessageBoxImage.Warning : MessageBoxImage.Question,
                     MessageBoxResult.Cancel,
                     warningMessageBoxText: warningMessage)
                 {
@@ -413,7 +415,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             return new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.NotAdmitted, model, failure);
         }
         ConsumeSelectOfProcessedGroups(run, model);
-        await ShowBatchOrganizeResultAsync(model);
+        await ShowBatchOrganizeResultAsync(model, run.Request.DeleteMethod);
         return new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.Completed, model, failure);
     }
 
@@ -456,11 +458,11 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     }
 
     /// <summary>結果を一度だけ案内します。表示の失敗は診断へ残すだけで、整理の結果を変えません。</summary>
-    private async Task ShowBatchOrganizeResultAsync(DuplicateBatchOrganizeResult model)
+    private async Task ShowBatchOrganizeResultAsync(DuplicateBatchOrganizeResult model, DuplicateOrganizeDeleteMethod deleteMethod)
     {
         try
         {
-            string message = DuplicateBatchOrganizePresentation.CreateResultMessage(model, out bool allCompleted);
+            string message = DuplicateBatchOrganizePresentation.CreateResultMessage(model, deleteMethod, out bool allCompleted);
             UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateInformation(
                 message, Resources.Duplicate_batch_organize_title, completedSuccessfully: allCompleted));
             UiDialogRoute.ThrowIfNotShown(result, "Duplicate batch organize result notification");

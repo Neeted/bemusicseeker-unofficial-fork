@@ -3396,6 +3396,14 @@ public class Resources
     public static string Duplicate_merge_candidate_collision_cleanup_keep_ogg => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_keep_ogg", resourceCulture);
     /// <summary>「衝突整理」の選択肢「WAVを残す」です。</summary>
     public static string Duplicate_merge_candidate_collision_cleanup_keep_wav => ResourceManager.GetString("Duplicate_merge_candidate_collision_cleanup_keep_wav", resourceCulture);
+    /// <summary>統合候補一覧・整理候補一覧の「削除」の選択欄のラベルです。</summary>
+    public static string Duplicate_merge_candidate_delete_method => ResourceManager.GetString("Duplicate_merge_candidate_delete_method", resourceCulture);
+    /// <summary>「削除」の選択欄のツールチップです。</summary>
+    public static string Duplicate_merge_candidate_delete_method_tooltip => ResourceManager.GetString("Duplicate_merge_candidate_delete_method_tooltip", resourceCulture);
+    /// <summary>「削除」の選択肢「ごみ箱へ移動」です。</summary>
+    public static string Duplicate_merge_candidate_delete_method_recycle_bin => ResourceManager.GetString("Duplicate_merge_candidate_delete_method_recycle_bin", resourceCulture);
+    /// <summary>「削除」の選択肢「完全に削除」です。</summary>
+    public static string Duplicate_merge_candidate_delete_method_permanent => ResourceManager.GetString("Duplicate_merge_candidate_delete_method_permanent", resourceCulture);
     /// <summary>統合候補一覧のSTATUSで使う「要注意」の段階名です。</summary>
     public static string Duplicate_merge_candidate_status_caution => ResourceManager.GetString("Duplicate_merge_candidate_status_caution", resourceCulture);
     /// <summary>統合候補一覧のSTATUSで使う「統合不可」の段階名です。</summary>
@@ -3508,12 +3516,20 @@ public class Resources
     public static string Duplicate_batch_organize_confirm_merge_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_merge_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、同じフォルダにある重複した譜面をごみ箱へ送る旨の行です。</summary>
     public static string Duplicate_batch_organize_confirm_trash => ResourceManager.GetString("Duplicate_batch_organize_confirm_trash", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同じフォルダにある重複した譜面を完全に削除する旨の行です。</summary>
+    public static string Duplicate_batch_organize_confirm_permanent => ResourceManager.GetString("Duplicate_batch_organize_confirm_permanent", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でOGGを残しWAVをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_audio_keep_ogg_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_ogg_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でWAVを残しOGGをごみ箱へ送る旨の行です。{0}は指定するグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_audio_keep_wav_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_wav_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でOGGを残しWAVを完全に削除する旨の行です。{0}は指定するグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_audio_keep_ogg_permanent_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_ogg_permanent_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同名で衝突したWAVとOGGの衝突整理でWAVを残しOGGを完全に削除する旨の行です。{0}は指定するグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_audio_keep_wav_permanent_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_keep_wav_permanent_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文の警告用の本文で、衝突整理の指定に同等と判定されていない同名のWAVとOGGを含み、それも一方だけが残る旨の行です。{0}はそのグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_audio_unequal_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_audio_unequal_format", resourceCulture);
+    /// <summary>一括整理と重複音源の整理の確認文の警告用の本文の先頭に、「完全に削除」を選んだときだけ加える行です。</summary>
+    public static string Duplicate_batch_organize_confirm_permanent_warning => ResourceManager.GetString("Duplicate_batch_organize_confirm_permanent_warning", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認と要注意のグループを含む旨の行です。{0}は未確認、{1}は要注意のグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_unverified_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_caution_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、未確認のグループだけを含む旨の行です。{0}は未確認のグループ数です。</summary>
@@ -3534,6 +3550,10 @@ public class Resources
     public static string Duplicate_batch_organize_result_trashed_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_format", resourceCulture);
     /// <summary>重複グループの一括整理の結果へ加える、衝突整理でごみ箱へ送った音源の合計の行です。{0}は件数です。</summary>
     public static string Duplicate_batch_organize_result_trashed_audio_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_audio_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、完全に削除した重複した譜面の数を示す行です。{0}は譜面の数です。</summary>
+    public static string Duplicate_batch_organize_result_deleted_format => ResourceManager.GetString("Duplicate_batch_organize_result_deleted_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果へ加える、衝突整理で完全に削除した音源の合計の行です。{0}は件数です。</summary>
+    public static string Duplicate_batch_organize_result_deleted_audio_format => ResourceManager.GetString("Duplicate_batch_organize_result_deleted_audio_format", resourceCulture);
     /// <summary>重複グループの一括整理を取り消した旨を、結果へ加える文言です。</summary>
     public static string Duplicate_batch_organize_result_canceled => ResourceManager.GetString("Duplicate_batch_organize_result_canceled", resourceCulture);
     /// <summary>重複グループの一括整理の結果で、詳細の最大件数を超えたグループをログへ案内する行です。{0}は超えたグループ数です。</summary>
@@ -3662,6 +3682,10 @@ public class Resources
     public static string Audio_duplicate_organize_confirm_keep_ogg => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_ogg", resourceCulture);
     /// <summary>整理の確認文で、WAVを残してOGGをごみ箱へ送ることを示す行です。</summary>
     public static string Audio_duplicate_organize_confirm_keep_wav => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_wav", resourceCulture);
+    /// <summary>整理の確認文で、OGGを残してWAVを完全に削除することを示す行です。</summary>
+    public static string Audio_duplicate_organize_confirm_keep_ogg_permanent => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_ogg_permanent", resourceCulture);
+    /// <summary>整理の確認文で、WAVを残してOGGを完全に削除することを示す行です。</summary>
+    public static string Audio_duplicate_organize_confirm_keep_wav_permanent => ResourceManager.GetString("Audio_duplicate_organize_confirm_keep_wav_permanent", resourceCulture);
     /// <summary>整理の確認文の警告用の本文で、要注意のフォルダを含むことを示す行の書式です。{0}は要注意のフォルダ数です。</summary>
     public static string Audio_duplicate_organize_confirm_caution_format => ResourceManager.GetString("Audio_duplicate_organize_confirm_caution_format", resourceCulture);
     /// <summary>整理の確認文の警告用の本文で、同等と判定されていない組も一方だけが残ることを示す行の書式です。{0}は要注意のフォルダ数です。</summary>
@@ -3672,6 +3696,8 @@ public class Resources
     public static string Audio_duplicate_organize_result_format => ResourceManager.GetString("Audio_duplicate_organize_result_format", resourceCulture);
     /// <summary>整理候補一覧からの整理の結果の案内で、ごみ箱へ送った音源の合計の書式です。{0}は件数です。</summary>
     public static string Audio_duplicate_organize_result_trashed_format => ResourceManager.GetString("Audio_duplicate_organize_result_trashed_format", resourceCulture);
+    /// <summary>整理候補一覧からの整理の結果の案内で、完全に削除した音源の合計の書式です。{0}は件数です。</summary>
+    public static string Audio_duplicate_organize_result_deleted_format => ResourceManager.GetString("Audio_duplicate_organize_result_deleted_format", resourceCulture);
     /// <summary>整理候補一覧からの整理の結果の案内で、詳細を省略したフォルダ数の書式です。{0}は省略した数です。</summary>
     public static string Audio_duplicate_organize_result_more_format => ResourceManager.GetString("Audio_duplicate_organize_result_more_format", resourceCulture);
     /// <summary>プレイリストの未所持行の右クリックメニューで、その曲の本体フォルダと推定した所持フォルダを並べるサブメニューの見出しです。</summary>

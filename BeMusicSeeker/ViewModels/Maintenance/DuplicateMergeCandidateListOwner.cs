@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -69,6 +70,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel, ICandidateList
     private bool quickCompareEnabled;
     private bool audioEquivalenceEnabled;
     private DuplicateMergeCollisionCleanupMode collisionCleanupMode;
+    private DuplicateOrganizeDeleteMethod deleteMethod;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
@@ -260,6 +262,21 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel, ICandidateList
             if (collisionCleanupMode == value) { return; }
             collisionCleanupMode = value;
             RaisePropertyChanged(nameof(CollisionCleanupMode));
+        }
+    }
+
+    /// <summary>
+    /// 一括整理で削除するファイル（重複した譜面と、衝突整理の音源）を、ごみ箱へ移動するか完全に削除するか（削除）です。既定はごみ箱へ移動で、<see cref="CollisionCleanupMode"/> と同じく、
+    /// アプリの起動中だけ保持し、ライブラリの交換後も残ります。設定へは保存しません。対象の捕捉と同じ時点で一度だけ読み、整理の途中の変更は進行中の整理へ影響しません。切替えで案内は出さず、安全性の確認には使いません。
+    /// </summary>
+    public DuplicateOrganizeDeleteMethod DeleteMethod
+    {
+        get => deleteMethod;
+        set
+        {
+            if (deleteMethod == value) { return; }
+            deleteMethod = value;
+            RaisePropertyChanged(nameof(DeleteMethod));
         }
     }
 
@@ -645,7 +662,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel, ICandidateList
     }
 
     private DuplicateMergeCandidateGroupTarget CaptureTarget(DuplicateMergeCandidateGroupState state)
-        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders], state.Verification, collisionCleanupMode);
+        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders], state.Verification, collisionCleanupMode, deleteMethod);
 
     /// <summary>
     /// 現在の状態表の全グループ（検索で非表示のグループと確認対象外のグループを含む）のフォルダを捕捉します。

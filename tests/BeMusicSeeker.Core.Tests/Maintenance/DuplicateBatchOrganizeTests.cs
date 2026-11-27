@@ -59,7 +59,7 @@ public sealed class DuplicateBatchOrganizeTests
                 Assert.IsTrue(result.Admitted);
                 Assert.IsTrue(result.Receipt.MergeApplied, result.Receipt.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
-                Assert.AreEqual(0, result.Groups.Sum(group => group.TrashedChartCount));
+                Assert.AreEqual(0, result.Groups.Sum(group => group.DeletedChartCount));
                 Assert.IsFalse(Directory.Exists(batch.At("A")) || Directory.Exists(batch.At("B")) || Directory.Exists(batch.At("C")));
                 AssertSameTree(stepwise.Tree(), batch.Tree());
                 CollectionAssert.AreEquivalent(stepwise.SongRows(), batch.SongRows());
@@ -129,8 +129,8 @@ public sealed class DuplicateBatchOrganizeTests
 
                 DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, group.Status);
-                Assert.AreEqual(3, group.TrashedChartCount);
-                Assert.AreEqual(0, group.TrashFailureCount);
+                Assert.AreEqual(3, group.DeletedChartCount);
+                Assert.AreEqual(0, group.DeleteFailureCount);
                 CollectionAssert.AreEqual(new[] { rig.At("A") }, group.MergedSources.ToArray());
                 CollectionAssert.AreEquivalent(new[] { newShort, longName, bmsonDrop }, rig.Mutations.ShellDeletedFiles.ToArray());
                 Assert.IsTrue(File.Exists(oldLong) && File.Exists(shortName) && File.Exists(bmsonKeep));
@@ -181,7 +181,7 @@ public sealed class DuplicateBatchOrganizeTests
 
                 DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, group.Status);
-                Assert.AreEqual(1, group.TrashedChartCount);
+                Assert.AreEqual(1, group.DeletedChartCount);
                 CollectionAssert.AreEqual(new[] { moving }, rig.Mutations.ShellDeletedFiles.ToArray(),
                     "KEEP に既にある主ハッシュの譜面は、移動元の重複整理でごみ箱へ送りません。");
                 Assert.AreEqual(1, rig.CountDirectCharts("K", "m"));
@@ -218,8 +218,8 @@ public sealed class DuplicateBatchOrganizeTests
                 DuplicateBatchOrganizeResult result = rig.Organize([("F", []), ("G", [])]);
 
                 Assert.IsTrue(result.Groups.All(group => group.IsSingleFolder && group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
-                Assert.AreEqual(1, result.Groups[0].TrashedChartCount);
-                Assert.AreEqual(0, result.Groups[1].TrashedChartCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedChartCount);
+                Assert.AreEqual(0, result.Groups[1].DeletedChartCount);
                 Assert.AreEqual(0, result.Groups[0].MergedSources.Count);
                 CollectionAssert.AreEqual(new[] { duplicate }, rig.Mutations.ShellDeletedFiles.ToArray());
                 Assert.IsTrue(File.Exists(nested), "直下でない譜面は整理しません。");
@@ -268,10 +268,10 @@ public sealed class DuplicateBatchOrganizeTests
                 DuplicateBatchOrganizeResult result = rig.Organize([("F", []), ("K", ["S"])]);
 
                 Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
-                Assert.AreEqual(1, result.Groups[0].TrashedChartCount);
-                Assert.AreEqual(0, result.Groups[0].TrashFailureCount);
-                Assert.AreEqual(0, result.Groups[1].TrashedChartCount);
-                Assert.AreEqual(0, result.Groups[1].TrashFailureCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedChartCount);
+                Assert.AreEqual(0, result.Groups[0].DeleteFailureCount);
+                Assert.AreEqual(0, result.Groups[1].DeletedChartCount);
+                Assert.AreEqual(0, result.Groups[1].DeleteFailureCount);
                 CollectionAssert.AreEqual(new[] { yNewer }, rig.Mutations.ShellDeletedFiles.ToArray());
                 Assert.AreEqual(xExistingBytes, File.ReadAllText(xExisting));
                 Assert.AreEqual(yOlderBytes, File.ReadAllText(yOlder));
@@ -927,10 +927,10 @@ public sealed class DuplicateBatchOrganizeTests
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Failed, result.Groups[0].Status);
                 Assert.AreEqual(0, result.Groups[0].MergedSources.Count);
                 Assert.AreEqual(DuplicateBatchOrganizeSourceReason.NotCommitted, result.Groups[0].RetainedSources.Single().Reason);
-                Assert.AreEqual(1, result.Groups[0].TrashedChartCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedChartCount);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Skipped, result.Groups[1].Status);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Failed, result.Groups[2].Status);
-                Assert.AreEqual(1, result.Groups[2].TrashedChartCount);
+                Assert.AreEqual(1, result.Groups[2].DeletedChartCount);
                 CollectionAssert.AreEquivalent(new[] { keepDuplicate, folderDuplicate }, rig.Mutations.ShellDeletedFiles.ToArray());
                 Assert.IsTrue(File.Exists(rig.At("A1\\a1.bms")) && File.Exists(rig.At("A1\\res.wav")), "確定に失敗した操作は、入力元の後片付けを行いません。");
                 CollectionAssert.IsSubsetOf(
@@ -993,8 +993,8 @@ public sealed class DuplicateBatchOrganizeTests
             Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
             Assert.IsTrue(result.Receipt.MergeApplied);
             Assert.IsTrue(result.Receipt.MaintenanceHadUpdates);
-            string[] expectedTrashed = [.. Enumerable.Range(1, groupCount).SelectMany(index => new[] { Path.Combine(rig.At("K" + index), "k2.bms"), Path.Combine(rig.At("A" + index), "b.bms") })];
-            CollectionAssert.AreEquivalent(expectedTrashed, rig.Mutations.ShellDeletedFiles.ToArray(), "残る譜面は更新日時と名前の長さの規則だけで決まります。");
+            string[] expectedDeleted = [.. Enumerable.Range(1, groupCount).SelectMany(index => new[] { Path.Combine(rig.At("K" + index), "k2.bms"), Path.Combine(rig.At("A" + index), "b.bms") })];
+            CollectionAssert.AreEquivalent(expectedDeleted, rig.Mutations.ShellDeletedFiles.ToArray(), "残る譜面は更新日時と名前の長さの規則だけで決まります。");
             using LR2SongDBExtended db = rig.OpenSongReadOnly();
             for (int index = 1; index <= groupCount; index++)
             {
@@ -1168,7 +1168,7 @@ public sealed class DuplicateBatchOrganizeTests
         Assert.IsFalse(result.Receipt.MergeApplied);
         Assert.AreEqual(0, result.Receipt.SessionReceipt.ConfirmedChangeCount);
         Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Unprocessed
-            && group.MergedSources.Count == 0 && group.RetainedSources.Count == 0 && group.TrashedChartCount == 0));
+            && group.MergedSources.Count == 0 && group.RetainedSources.Count == 0 && group.DeletedChartCount == 0));
         Assert.AreEqual(0, progress.Count);
         Assert.AreEqual(expectedNoticeCount, notices.Snapshot().Count, "既存の案内の件数が一致しません。");
     }
@@ -1221,7 +1221,7 @@ public sealed class DuplicateBatchOrganizeTests
     [TestMethod]
     [DataRow(".wav", DisplayName = "OGGを残す")]
     [DataRow(".ogg", DisplayName = "WAVを残す")]
-    public void OrganizeDuplicateGroups_AudioCollisionCleanup_TrashesDiscardFormatOnlyWhereBothFormsExistInKeep(string discard)
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_DeletesDiscardFormatOnlyWhereBothFormsExistInKeep(string discard)
     {
         string keepExtension = discard == ".wav" ? ".ogg" : ".wav";
         WithTemporarySongDb(databaseScope, songDbPath =>
@@ -1256,9 +1256,9 @@ public sealed class DuplicateBatchOrganizeTests
 
                 DuplicateBatchOrganizeGroupResult group = result.Groups.Single();
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, group.Status);
-                Assert.AreEqual(3, group.TrashedAudioCount);
-                Assert.AreEqual(0, group.AudioTrashFailureCount);
-                Assert.AreEqual(1, group.TrashedChartCount);
+                Assert.AreEqual(3, group.DeletedAudioCount);
+                Assert.AreEqual(0, group.AudioDeleteFailureCount);
+                Assert.AreEqual(1, group.DeletedChartCount);
                 CollectionAssert.AreEqual(
                     new[] { "k\\a" + discard, "k\\sub\\s" + discard, "k\\up" + discard }.Order(StringComparer.Ordinal).ToArray(),
                     ShellDeletedAudio(rig));
@@ -1351,10 +1351,10 @@ public sealed class DuplicateBatchOrganizeTests
                     "skipped" => DuplicateBatchOrganizeGroupStatus.Skipped,
                     _ => DuplicateBatchOrganizeGroupStatus.PartiallyCompleted
                 }, group.Status);
-                Assert.AreEqual(0, group.AudioTrashFailureCount);
+                Assert.AreEqual(0, group.AudioDeleteFailureCount);
                 if (scenario == "retained-source")
                 {
-                    Assert.AreEqual(1, group.TrashedAudioCount, "統合できた移動元がある KEEP は整理します。");
+                    Assert.AreEqual(1, group.DeletedAudioCount, "統合できた移動元がある KEEP は整理します。");
                     CollectionAssert.AreEqual(new[] { "k\\a.wav" }, ShellDeletedAudio(rig));
                     Assert.IsFalse(File.Exists(rig.At("K\\a.wav")));
                     Assert.AreEqual("k-ogg", File.ReadAllText(rig.At("K\\a.ogg")));
@@ -1363,7 +1363,7 @@ public sealed class DuplicateBatchOrganizeTests
                 }
                 else
                 {
-                    Assert.AreEqual(0, group.TrashedAudioCount);
+                    Assert.AreEqual(0, group.DeletedAudioCount);
                     Assert.AreEqual(0, ShellDeletedAudio(rig).Length);
                     Assert.AreEqual("k-wav", File.ReadAllText(rig.At("K\\a.wav")));
                     Assert.AreEqual("k-ogg", File.ReadAllText(rig.At("K\\a.ogg")));
@@ -1381,7 +1381,7 @@ public sealed class DuplicateBatchOrganizeTests
     /// 失敗が一件以上あるグループは一部完了で、確定は成立します。失敗で整理を止める誤りと、失敗を完了として報告する誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void OrganizeDuplicateGroups_AudioCollisionCleanup_TrashFailureKeepsTheFileCountsItAndContinues()
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_DeleteFailureKeepsTheFileCountsItAndContinues()
     {
         WithTemporarySongDb(databaseScope, songDbPath =>
         {
@@ -1411,11 +1411,11 @@ public sealed class DuplicateBatchOrganizeTests
                     });
 
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
-                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
-                Assert.AreEqual(1, result.Groups[0].AudioTrashFailureCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedAudioCount);
+                Assert.AreEqual(1, result.Groups[0].AudioDeleteFailureCount);
                 Assert.IsTrue(File.Exists(rig.At("K1\\x.wav")) && !File.Exists(rig.At("K1\\y.wav")));
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
-                Assert.AreEqual(2, result.Groups[1].TrashedAudioCount);
+                Assert.AreEqual(2, result.Groups[1].DeletedAudioCount);
                 Assert.IsFalse(File.Exists(rig.At("K2\\x.wav")) || File.Exists(rig.At("K2\\y.wav")));
                 Assert.IsTrue(result.Receipt.MergeApplied);
                 Assert.IsTrue(result.Receipt.HasDurableCommit);
@@ -1435,7 +1435,7 @@ public sealed class DuplicateBatchOrganizeTests
     [TestMethod]
     [DataRow("null-char", DisplayName = "NUL文字を含む名前")]
     [DataRow("reserved-char", DisplayName = "予約文字を含む名前")]
-    public void OrganizeDuplicateGroups_AudioCollisionCleanup_UnobservableNameCountsAsFailureWithoutTrashAndContinues(string kind)
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_UnobservableNameCountsAsFailureWithoutDeleteAndContinues(string kind)
     {
         string bad = kind == "null-char" ? "bad\0name" : "bad|name";
         WithTemporarySongDb(databaseScope, songDbPath =>
@@ -1461,13 +1461,13 @@ public sealed class DuplicateBatchOrganizeTests
                     });
 
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
-                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
-                Assert.AreEqual(1, result.Groups[0].AudioTrashFailureCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedAudioCount);
+                Assert.AreEqual(1, result.Groups[0].AudioDeleteFailureCount);
                 Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
                 Assert.IsTrue(File.Exists(rig.At("K1\\x.ogg")));
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
-                Assert.AreEqual(1, result.Groups[1].TrashedAudioCount);
-                Assert.AreEqual(0, result.Groups[1].AudioTrashFailureCount);
+                Assert.AreEqual(1, result.Groups[1].DeletedAudioCount);
+                Assert.AreEqual(0, result.Groups[1].AudioDeleteFailureCount);
                 Assert.IsTrue(result.Receipt.HasDurableCommit);
                 Assert.IsFalse(rig.Mutations.ShellDeletedFiles.Any(path => path.Contains(bad, StringComparison.Ordinal)),
                     "観測できなかった名前の削除を試みてはいけません。");
@@ -1484,7 +1484,7 @@ public sealed class DuplicateBatchOrganizeTests
     /// 確定の失敗で数を0へ戻す誤りと、物理的に送った音源を数えない誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void OrganizeDuplicateGroups_AudioCollisionCleanup_CountKeepsActualTrashesOnCommitFailure()
+    public void OrganizeDuplicateGroups_AudioCollisionCleanup_CountKeepsActualDeletesOnCommitFailure()
     {
         WithTemporarySongDb(databaseScope, songDbPath =>
         {
@@ -1507,8 +1507,8 @@ public sealed class DuplicateBatchOrganizeTests
 
                 Assert.IsFalse(result.Receipt.HasDurableCommit);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Failed, result.Groups[0].Status);
-                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
-                Assert.AreEqual(0, result.Groups[0].AudioTrashFailureCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedAudioCount);
+                Assert.AreEqual(0, result.Groups[0].AudioDeleteFailureCount);
                 Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
                 Assert.IsTrue(File.Exists(rig.At("K1\\x.ogg")));
             }
@@ -1560,16 +1560,79 @@ public sealed class DuplicateBatchOrganizeTests
                     });
 
                 Assert.IsTrue(result.Canceled);
-                Assert.AreEqual(1, result.Groups[0].TrashedAudioCount);
-                Assert.AreEqual(1, result.Groups[1].TrashedAudioCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedAudioCount);
+                Assert.AreEqual(1, result.Groups[1].DeletedAudioCount);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Unprocessed, result.Groups[2].Status);
-                Assert.AreEqual(0, result.Groups[2].TrashedAudioCount);
+                Assert.AreEqual(0, result.Groups[2].DeletedAudioCount);
                 Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")) || File.Exists(rig.At("K2\\x.wav")));
                 Assert.IsTrue(File.Exists(rig.At("K3\\x.wav")) && File.Exists(rig.At("K3\\x.ogg")));
             }
             finally
             {
                 rig.Library.RequestShutdown("batch-audio-cleanup-cancel");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 削除方法は一回の要求で一つで、重複整理（移動元直下・KEEP直下・一フォルダのグループ）で削除する譜面と、衝突整理で捨てる音源のすべてが、
+    /// 削除の窓口へ同じ指定（ごみ箱へ送る、または完全に削除）で渡ります。入力元の後片付けなどの一括整理はディレクトリをシェル経由で削除せず、入力元の後片付けにこの指定は流れ込みません。
+    /// 削除するファイルの集合・残るファイルとバイト列・DBの行・削除した数と失敗の数・各グループの状態は、どちらの方法でも同じです。
+    /// 一部の削除だけ別の指定になる誤り、指定を窓口へ渡さない誤り、削除方法によって削除の対象や結果が変わる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin, DisplayName = "ごみ箱へ移動")]
+    [DataRow(DuplicateOrganizeDeleteMethod.DeletePermanently, Microsoft.VisualBasic.FileIO.RecycleOption.DeletePermanently, DisplayName = "完全に削除")]
+    public void OrganizeDuplicateGroups_DeleteMethod_AppliesToEveryKindOfDeletionAndChangesNothingElse(
+        DuplicateOrganizeDeleteMethod method, Microsoft.VisualBasic.FileIO.RecycleOption expectedOption)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            // KEEP直下の重複（kk.bms）、移る主ハッシュの移動元直下の重複（mm.bms）、一フォルダのグループの重複（ff.bms）、衝突整理で捨てる音源（K直下のa.wav）の四種類を含める。
+            rig.Chart("K", "k.bms", "k");
+            rig.Chart("K", "kk.bms", "k");
+            rig.Resource("K", "a.wav", "keep-wav", BaseTime);
+            rig.Chart("A", "m.bms", "m");
+            rig.Chart("A", "mm.bms", "m");
+            rig.Resource("A", "a.ogg", "source-ogg", BaseTime);
+            rig.Chart("F", "f.bms", "f");
+            rig.Chart("F", "ff.bms", "f");
+            rig.Start();
+            try
+            {
+                DuplicateBatchOrganizeResult result = rig.Organize(
+                    [("K", ["A"]), ("F", [])],
+                    cleanups: new Dictionary<string, DuplicateBatchAudioCollisionCleanup> { ["K"] = Cleanup(".wav", "a") },
+                    deleteMethod: method);
+
+                // 削除の窓口へ渡った指定は、四種類の削除のすべてで、選んだ方法の一種類だけです。
+                (string Path, Microsoft.VisualBasic.FileIO.RecycleOption RecycleOption)[] calls = [.. rig.Mutations.ShellDeleteFileCalls];
+                CollectionAssert.AreEquivalent(
+                    new[] { rig.At("K\\kk.bms"), rig.At("A\\mm.bms"), rig.At("F\\ff.bms"), rig.At("K\\a.wav") },
+                    calls.Select(call => call.Path).ToArray());
+                Assert.IsTrue(calls.All(call => call.RecycleOption == expectedOption), "削除の指定が、選んだ削除方法と一致しません。");
+                // 一括整理は、ディレクトリをシェル経由（削除方法の指定を受ける窓口）で削除しません。入力元の後片付けは別の削除経路を使うため、削除方法の指定は流れ込みません。
+                Assert.AreEqual(0, rig.Mutations.ShellDeleteDirectoryCalls.Count, "一括整理はディレクトリをシェル経由で削除しません。");
+
+                // 削除方法によらない結果。
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[0].Status);
+                Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
+                Assert.AreEqual(2, result.Groups[0].DeletedChartCount);
+                Assert.AreEqual(1, result.Groups[0].DeletedAudioCount);
+                Assert.AreEqual(1, result.Groups[1].DeletedChartCount);
+                Assert.IsTrue(result.Groups.All(group => group.DeleteFailureCount == 0 && group.AudioDeleteFailureCount == 0));
+                CollectionAssert.AreEquivalent(
+                    new[] { "K\\k.bms", "K\\m.bms", "K\\a.ogg", "F\\f.bms" },
+                    rig.Tree().Keys.ToArray());
+                Assert.AreEqual("source-ogg", File.ReadAllText(rig.At("K\\a.ogg")));
+                Assert.IsFalse(Directory.Exists(rig.At("A")), "統合した移動元のフォルダは、削除方法によらず後片付けされます。");
+                string[] rows = [.. rig.SongRows().Select(pair => pair.Key)];
+                CollectionAssert.AreEquivalent(new[] { "F\\f.bms", "K\\k.bms", "K\\m.bms" }, rows);
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-delete-method");
             }
         });
     }
@@ -1683,11 +1746,13 @@ public sealed class DuplicateBatchOrganizeTests
             Action<DuplicateBatchOrganizeProgress>? progress = null,
             CancellationToken cancellationToken = default,
             LibraryOperationNotices? notices = null,
-            IReadOnlyDictionary<string, DuplicateBatchAudioCollisionCleanup>? cleanups = null)
+            IReadOnlyDictionary<string, DuplicateBatchAudioCollisionCleanup>? cleanups = null,
+            DuplicateOrganizeDeleteMethod deleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin)
             => Library.OrganizeDuplicateGroups(
                 new DuplicateBatchOrganizeRequest(groups.Select(group => new DuplicateBatchOrganizeGroup(
                     Path.Combine(Root, group.Keep), group.Sources.Select(source => Path.Combine(Root, source)),
-                    cleanups != null && cleanups.TryGetValue(group.Keep, out DuplicateBatchAudioCollisionCleanup? cleanup) ? cleanup : null))),
+                    cleanups != null && cleanups.TryGetValue(group.Keep, out DuplicateBatchAudioCollisionCleanup? cleanup) ? cleanup : null)),
+                    deleteMethod),
                 1,
                 notices ?? new LibraryOperationNotices(),
                 progress,

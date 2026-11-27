@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
@@ -82,21 +83,23 @@ internal sealed record DuplicateMergeCandidateGroupInitial(
 /// <param name="RegisteredFolders">グループ内の登録範囲のフォルダ。一覧の構築時に捕捉した値です。</param>
 /// <param name="Verification">捕捉した時点の確認結果。一括整理の確認文が、未確認・要注意・衝突の有無を数える入力です。</param>
 /// <param name="CollisionCleanup">捕捉した時点の「衝突整理」の値。一括整理が、WAV・OGGの衝突整理を指定するかと残す形式を決める入力です。</param>
+/// <param name="DeleteMethod">捕捉した時点の「削除」の値。一括整理の確認文・要求・結果の案内が、削除するファイルの削除方法として共通に使う入力です。</param>
 internal sealed record DuplicateMergeCandidateGroupTarget(
     DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed,
     IReadOnlyList<string> RegisteredFolders, DuplicateMergeVerificationResult Verification = null,
-    DuplicateMergeCollisionCleanupMode CollisionCleanup = DuplicateMergeCollisionCleanupMode.KeepBoth);
+    DuplicateMergeCollisionCleanupMode CollisionCleanup = DuplicateMergeCollisionCleanupMode.KeepBoth,
+    DuplicateOrganizeDeleteMethod DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin);
 
-/// <summary>統合候補一覧の「衝突整理」の値です。同名で衝突したWAVとOGGの、一括整理での扱いを決めます。同等性の判定によりません。</summary>
+/// <summary>統合候補一覧の「衝突整理」の値です。同名で衝突したWAVとOGGの、一括整理での扱いを決めます。同等性の判定によりません。捨てる形式は、「削除」の値の方法で削除します。</summary>
 public enum DuplicateMergeCollisionCleanupMode
 {
     /// <summary>両方残します（既定）。</summary>
     KeepBoth,
 
-    /// <summary>OGGを残し、WAVをごみ箱へ送ります。</summary>
+    /// <summary>OGGを残し、WAVを削除します。</summary>
     KeepOgg,
 
-    /// <summary>WAVを残し、OGGをごみ箱へ送ります。</summary>
+    /// <summary>WAVを残し、OGGを削除します。</summary>
     KeepWav
 }
 

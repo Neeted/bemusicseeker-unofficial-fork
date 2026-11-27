@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 
@@ -36,13 +37,13 @@ public sealed class AudioDuplicateCandidateColumnSettings
     public PlaylistSummaryColumnSettings.ColumnLayout Artist { get; } = new() { Width = 200 };
 }
 
-/// <summary>整理候補一覧の「衝突整理」の値です。どちらの形式をごみ箱へ送るかを決めます。</summary>
+/// <summary>整理候補一覧の「衝突整理」の値です。どちらの形式を削除するかを決めます。削除方法は「削除」の値によります。</summary>
 public enum AudioDuplicateCollisionCleanupMode
 {
-    /// <summary>OGGを残し、WAVをごみ箱へ送ります（既定）。</summary>
+    /// <summary>OGGを残し、WAVを削除します（既定）。</summary>
     KeepOgg,
 
-    /// <summary>WAVを残し、OGGをごみ箱へ送ります。</summary>
+    /// <summary>WAVを残し、OGGを削除します。</summary>
     KeepWav
 }
 
@@ -92,8 +93,10 @@ internal sealed record AudioDuplicateCandidateInitial(DuplicateGroup Group, stri
 /// <param name="Folder">フォルダのパス。</param>
 /// <param name="Inspection">捕捉した時点の確認結果。未確認はnullです。</param>
 /// <param name="CollisionCleanup">捕捉した時点の「衝突整理」の値。</param>
+/// <param name="DeleteMethod">捕捉した時点の「削除」の値。整理の確認文・要求・結果の案内が、捨てる形式の音源の削除方法として共通に使う入力です。</param>
 internal sealed record AudioDuplicateCandidateTarget(
-    DuplicateGroup Group, string Folder, AudioDuplicateFolderInspection Inspection, AudioDuplicateCollisionCleanupMode CollisionCleanup)
+    DuplicateGroup Group, string Folder, AudioDuplicateFolderInspection Inspection, AudioDuplicateCollisionCleanupMode CollisionCleanup,
+    DuplicateOrganizeDeleteMethod DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin)
 {
     /// <summary>未確認のフォルダかです。</summary>
     internal bool IsUnverified => Inspection == null;

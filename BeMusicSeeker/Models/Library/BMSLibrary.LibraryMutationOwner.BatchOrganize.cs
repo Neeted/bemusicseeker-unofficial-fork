@@ -48,7 +48,7 @@ internal sealed partial class LibraryMutationOwner
         }
 
         var totalStopwatch = Stopwatch.StartNew();
-        LogInstallPerformance("duplicate_batch_organize start op=" + operationId + " groups=" + request.Groups.Count);
+        LogInstallPerformance("duplicate_batch_organize start op=" + operationId + " groups=" + request.Groups.Count + " deleteMethod=" + request.DeleteMethod);
         List<Action> postLeaseNotifications = [];
         DuplicateBatchOrganizeOperation operation = null;
         DuplicateBatchOrganizeResult result;
@@ -166,7 +166,7 @@ internal sealed partial class LibraryMutationOwner
             states = [.. request.Groups.Select(group => new GroupState(group))];
         }
 
-        /// <summary>確定事実のうち、物理的に成功した変更（統合またはごみ箱への削除）が一つでもあったかどうかです。</summary>
+        /// <summary>確定事実のうち、物理的に成功した変更（統合または重複譜面の削除）が一つでもあったかどうかです。</summary>
         internal bool HadPhysicalChange { get; private set; }
 
         /// <summary>全グループを処理し、一回だけ確定して、必須保守までを行います。</summary>
@@ -372,9 +372,9 @@ internal sealed partial class LibraryMutationOwner
                     DirectCharts(state.KeepKey));
                 if (deletions.Count > 0)
                 {
-                    TrashCharts(state, deletions);
+                    DeleteCharts(state, deletions);
                 }
-                state.Status = state.TrashFailureCount == 0
+                state.Status = state.DeleteFailureCount == 0
                     ? DuplicateBatchOrganizeGroupStatus.Completed
                     : DuplicateBatchOrganizeGroupStatus.PartiallyCompleted;
                 return;
@@ -483,7 +483,7 @@ internal sealed partial class LibraryMutationOwner
 
         /// <summary>
         /// 移動元一件を処理します。移動元ごとの事前拒否は理由付きで残して継続し、予期しない物理失敗だけがfalseを返して全体を止めます。
-        /// 順序は、事前確認 → 実際に移すハッシュに限った移動元直下の重複整理 → ごみ箱へ送れた譜面を除いた統合です。
+        /// 順序は、事前確認 → 実際に移すハッシュに限った移動元直下の重複整理 → 削除できた譜面を除いた統合です。
         /// </summary>
         private bool ProcessSource(int groupIndex, GroupState state, int sourceIndex)
         {
@@ -509,7 +509,7 @@ internal sealed partial class LibraryMutationOwner
             }
 
             // 「既に所持」を理由に移動を省く主ハッシュは、所持側の実ファイルの裏付けを確かめます。取れなければ、移動元の最後のコピーを
-            // 消さないよう、直下の重複のごみ箱送りを含む物理変更の前にこの移動元を見送り、独立した次の移動元へ進みます。
+            // 消さないよう、直下の重複の削除を含む物理変更の前にこの移動元を見送り、独立した次の移動元へ進みます。
             // 所持の基準は全予定移動元の配下を除いてあり、操作内で配置に成功した譜面だけが加わります。存在確認はロックの外で行います。
             string unverifiedChartPath = BmsLibraryPackageInstallService.FindUnverifiedAlreadyOwnedChartPath(
                 prepared.Charts, ownershipOverlay, ownershipOverlay, [source]);
@@ -522,15 +522,15 @@ internal sealed partial class LibraryMutationOwner
             List<ChartFile> duplicates = SelectSourceDuplicates(state, sourceIndex, prepared);
             if (duplicates.Count > 0)
             {
-                // 型の衝突など、統合が事前に拒否する移動元では、ごみ箱へ送らず、重複した譜面も残します。
+                // 型の衝突など、統合が事前に拒否する移動元では、削除せず、重複した譜面も残します。
                 // 拒否しない場合だけ、同じ事前確認を通した後で削除し、削除に成功した譜面は統合の入力から除きます。
                 PackageInstallSessionMoveResult probe = Move(prepared, keep, probeOnly: true, out bool preflightPassed, out _);
                 if (!preflightPassed)
                 {
                     return HandleMoveFailure(groupIndex, state, sourceIndex, probe);
                 }
-                HashSet<string> trashed = TrashCharts(state, duplicates);
-                prepared.Charts.RemoveAll(chart => trashed.Contains(chart.Path));
+                HashSet<string> deleted = DeleteCharts(state, duplicates);
+                prepared.Charts.RemoveAll(chart => deleted.Contains(chart.Path));
             }
 
             PackageInstallSessionMoveResult physicalMove = Move(prepared, keep, probeOnly: false, out _, out LibraryCatalogMutationFacts catalogFacts);
@@ -672,13 +672,13 @@ internal sealed partial class LibraryMutationOwner
             List<ChartFile> deletions = DuplicateChartCleanupSelector.SelectDeletions(DirectCharts(state.KeepKey));
             if (deletions.Count > 0)
             {
-                TrashCharts(state, deletions);
+                DeleteCharts(state, deletions);
             }
         }
 
         /// <summary>
-        /// 衝突整理の指定があり、移動元を一つ以上統合できたグループで、KEEP に同名の WAV と OGG が両方とも実在する名前の、捨てる形式のファイルをごみ箱へ送ります。
-        /// 残す形式が実在しない名前は変えず、音源を復号・比較しません。ファイルは一件ずつ、譜面の削除と同じ窓口・設定で送ります。
+        /// 衝突整理の指定があり、移動元を一つ以上統合できたグループで、KEEP に同名の WAV と OGG が両方とも実在する名前の、捨てる形式のファイルを、要求の削除方法で削除します。
+        /// 残す形式が実在しない名前は変えず、音源を復号・比較しません。ファイルは一件ずつ、譜面の削除と同じ窓口・設定で削除します。
         /// </summary>
         /// <remarks>
         /// 音源キーの集合は変わらないため、変更セッションへ事実を加えず、索引・通知へ追加の反映をしません。
@@ -695,12 +695,13 @@ internal sealed partial class LibraryMutationOwner
             DuplicateAudioCollisionCleanupOutcome outcome = DuplicateAudioCollisionCleaner.Cleanup(
                 state.Group.KeepDirectory,
                 cleanup,
+                request.DeleteMethod,
                 owner.fileMutationService,
                 owner.targetOnlyFileMutationOptions,
                 owner.logFileWarning,
-                "duplicate_batch_organize_audio_trash_failed");
-            state.TrashedAudioCount += outcome.TrashedCount;
-            state.AudioTrashFailureCount += outcome.FailureCount;
+                "duplicate_batch_organize_audio_delete_failed");
+            state.DeletedAudioCount += outcome.DeletedCount;
+            state.AudioDeleteFailureCount += outcome.FailureCount;
             state.AudioCleanupMilliseconds = outcome.Milliseconds;
         }
 
@@ -710,17 +711,17 @@ internal sealed partial class LibraryMutationOwner
                 : [];
 
         /// <summary>
-        /// 重複した譜面をごみ箱へ送り、確定事実を操作全体のセッションへ加えます（行パス通知の方針は抑止）。
+        /// 重複した譜面を要求の削除方法で削除し、確定事実を操作全体のセッションへ加えます（行パス通知の方針は抑止）。
         /// 個別の削除の失敗は停止の理由にせず、失敗した譜面は残して数えます。フォルダ全体の承認は常に空です。
         /// </summary>
-        /// <returns>ごみ箱へ送れた譜面のパス。</returns>
-        private HashSet<string> TrashCharts(GroupState state, IReadOnlyList<ChartFile> charts)
+        /// <returns>削除できた譜面のパス。</returns>
+        private HashSet<string> DeleteCharts(GroupState state, IReadOnlyList<ChartFile> charts)
         {
             state.Attempted = true;
             var prepared = new LibraryChartRemovalPreflight(charts, [], [], charts.Count, 0);
             LibraryCatalogMutationFacts catalogFacts = owner.ExecuteLibraryChartRemovalAfterAdmission(
                 prepared,
-                sendToRecycleBin: true,
+                sendToRecycleBin: request.DeleteMethod.ToRecycleOption() == Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
                 approvedWholeFolderDeletePaths: [],
                 mutationCapability,
                 out LibraryPackageReferenceFacts packageReferenceFacts,
@@ -737,17 +738,17 @@ internal sealed partial class LibraryMutationOwner
             AppendLibraryChartRemovalToSession(
                 session, catalogFacts, packageReferenceFacts, filesystemOutcome, deletedFolderPaths,
                 LibraryStorageRowPathNotificationPolicy.Suppressed);
-            var trashed = new HashSet<string>(
+            var deleted = new HashSet<string>(
                 filesystemOutcome.Targets.Where(target => target.State == LibraryChartRemovalState.Confirmed).Select(target => target.Path),
                 StringComparer.OrdinalIgnoreCase);
-            removedChartPaths.UnionWith(trashed);
-            state.TrashedChartCount += trashed.Count;
-            state.TrashFailureCount += charts.Count - trashed.Count;
-            if (trashed.Count > 0)
+            removedChartPaths.UnionWith(deleted);
+            state.DeletedChartCount += deleted.Count;
+            state.DeleteFailureCount += charts.Count - deleted.Count;
+            if (deleted.Count > 0)
             {
                 HadPhysicalChange = true;
             }
-            return trashed;
+            return deleted;
         }
 
         /// <summary>統合が成功した KEEP の保守対象を、確定後・入力元の後片付け前に、一度のロックで集める必須の後処理を一つだけ登録します。</summary>
@@ -824,17 +825,17 @@ internal sealed partial class LibraryMutationOwner
                     + " merged=" + string.Join("|", result.MergedSources)
                     + " retained=" + string.Join("|", result.RetainedSources.Select(retained => retained.Directory + ":" + retained.Reason
                         + (retained.Detail == null ? string.Empty : "(" + retained.Detail + ")")))
-                    + " trashed=" + result.TrashedChartCount
-                    + " trashFailed=" + result.TrashFailureCount
+                    + " deleted=" + result.DeletedChartCount
+                    + " deleteFailed=" + result.DeleteFailureCount
                     + (request.Groups[index].AudioCollisionCleanup == null
                         ? string.Empty
-                        : " audioTrashed=" + result.TrashedAudioCount
-                            + " audioTrashFailed=" + result.AudioTrashFailureCount
+                        : " audioDeleted=" + result.DeletedAudioCount
+                            + " audioDeleteFailed=" + result.AudioDeleteFailureCount
                             + " audioMs=" + states[index].AudioCleanupMilliseconds));
             }
         }
 
-        /// <summary>統合元一件の準備結果です。統合の入力に使う譜面は、ごみ箱へ送れた譜面を除いて更新します。</summary>
+        /// <summary>統合元一件の準備結果です。統合の入力に使う譜面は、削除できた譜面を除いて更新します。</summary>
         private sealed class PreparedSource(string sourceDirectory, LibraryPackageReferenceFacts packageReferenceFacts, List<ChartFile> charts)
         {
             internal string SourceDirectory { get; } = sourceDirectory;
@@ -871,7 +872,7 @@ internal sealed partial class LibraryMutationOwner
 
             internal bool OverlapsOtherGroup { get; set; }
 
-            /// <summary>物理処理（統合またはごみ箱への削除）を試みる段階に入ったかどうかです。</summary>
+            /// <summary>物理処理（統合または重複譜面の削除）を試みる段階に入ったかどうかです。</summary>
             internal bool Attempted { get; set; }
 
             /// <summary>処理中の移動元です。予期しない失敗が起きた位置の記録に使います。</summary>
@@ -887,15 +888,15 @@ internal sealed partial class LibraryMutationOwner
 
             internal List<DuplicateBatchOrganizeRetainedSource> Retained { get; } = [];
 
-            internal int TrashedChartCount { get; set; }
+            internal int DeletedChartCount { get; set; }
 
-            internal int TrashFailureCount { get; set; }
+            internal int DeleteFailureCount { get; set; }
 
-            /// <summary>衝突整理でごみ箱へ送れた音源の数です。</summary>
-            internal int TrashedAudioCount { get; set; }
+            /// <summary>衝突整理で削除できた音源の数です。</summary>
+            internal int DeletedAudioCount { get; set; }
 
-            /// <summary>衝突整理でごみ箱へ送れなかった音源の数です。</summary>
-            internal int AudioTrashFailureCount { get; set; }
+            /// <summary>衝突整理で削除できなかった音源の数です。</summary>
+            internal int AudioDeleteFailureCount { get; set; }
 
             /// <summary>衝突整理に要した時間（ミリ秒）です。診断のログだけに使います。</summary>
             internal long AudioCleanupMilliseconds { get; set; }
@@ -915,7 +916,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 Status = Merged.Count == 0
                     ? DuplicateBatchOrganizeGroupStatus.Failed
-                    : Retained.Count == 0 && TrashFailureCount == 0 && AudioTrashFailureCount == 0
+                    : Retained.Count == 0 && DeleteFailureCount == 0 && AudioDeleteFailureCount == 0
                         ? DuplicateBatchOrganizeGroupStatus.Completed
                         : DuplicateBatchOrganizeGroupStatus.PartiallyCompleted;
             }
@@ -932,7 +933,7 @@ internal sealed partial class LibraryMutationOwner
                 }
                 if (Group.IsSingleFolder)
                 {
-                    Status = TrashedChartCount > 0
+                    Status = DeletedChartCount > 0
                         ? DuplicateBatchOrganizeGroupStatus.PartiallyCompleted
                         : DuplicateBatchOrganizeGroupStatus.Failed;
                     return;
@@ -967,8 +968,8 @@ internal sealed partial class LibraryMutationOwner
             }
 
             /// <summary>
-            /// 結果の値を固定します。確定に失敗した操作では、物理的に成功していたグループ（統合した移動元またはごみ箱へ送った譜面があるもの）を失敗とし、
-            /// 統合した移動元は確定していないものとして残した側へ移します。ごみ箱へ送った数は実数のまま保ちます。
+            /// 結果の値を固定します。確定に失敗した操作では、物理的に成功していたグループ（統合した移動元または削除した譜面があるもの）を失敗とし、
+            /// 統合した移動元は確定していないものとして残した側へ移します。削除した数は実数のまま保ちます。
             /// </summary>
             internal DuplicateBatchOrganizeGroupResult ToResult(bool commitFailed)
             {
@@ -977,7 +978,7 @@ internal sealed partial class LibraryMutationOwner
                 List<DuplicateBatchOrganizeRetainedSource> retained = Retained;
                 if (commitFailed
                     && status is DuplicateBatchOrganizeGroupStatus.Completed or DuplicateBatchOrganizeGroupStatus.PartiallyCompleted or DuplicateBatchOrganizeGroupStatus.Failed
-                    && (Merged.Count > 0 || TrashedChartCount > 0))
+                    && (Merged.Count > 0 || DeletedChartCount > 0))
                 {
                     status = DuplicateBatchOrganizeGroupStatus.Failed;
                     merged = [];
@@ -991,10 +992,10 @@ internal sealed partial class LibraryMutationOwner
                     SkipPath,
                     merged,
                     retained,
-                    TrashedChartCount,
-                    TrashFailureCount,
-                    TrashedAudioCount,
-                    AudioTrashFailureCount);
+                    DeletedChartCount,
+                    DeleteFailureCount,
+                    DeletedAudioCount,
+                    AudioDeleteFailureCount);
             }
         }
     }

@@ -6,17 +6,17 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>衝突整理の一フォルダ分の結果です。</summary>
-/// <param name="TrashedCount">ごみ箱へ送れた音源の数です。</param>
-/// <param name="FailedNames">送れなかった名前（実在を確認できなかった名前と、削除に失敗した名前）です。要求の順です。</param>
+/// <param name="DeletedCount">削除できた音源の数です。</param>
+/// <param name="FailedNames">削除できなかった名前（実在を確認できなかった名前と、削除に失敗した名前）です。要求の順です。</param>
 /// <param name="Milliseconds">要した時間（ミリ秒）です。診断のログだけに使います。</param>
-internal sealed record DuplicateAudioCollisionCleanupOutcome(int TrashedCount, IReadOnlyList<string> FailedNames, long Milliseconds)
+internal sealed record DuplicateAudioCollisionCleanupOutcome(int DeletedCount, IReadOnlyList<string> FailedNames, long Milliseconds)
 {
-    /// <summary>送れなかった音源の数です。</summary>
+    /// <summary>削除できなかった音源の数です。</summary>
     internal int FailureCount => FailedNames.Count;
 }
 
 /// <summary>
-/// 一つのフォルダで、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルをごみ箱へ送る部品です。
+/// 一つのフォルダで、同名の WAV と OGG が両方ともファイルとして実在する名前の、捨てる形式のファイルを、指定の削除方法で削除する部品です。
 /// 重複グループの一括整理の衝突整理と、重複音源の整理が共用し、観測の三分類・リンクの扱い・削除の窓口を一つに保ちます。
 /// 音源を復号・比較・読取りし直しません。
 /// </summary>
@@ -28,11 +28,12 @@ internal sealed record DuplicateAudioCollisionCleanupOutcome(int TrashedCount, I
 internal static class DuplicateAudioCollisionCleaner
 {
     /// <summary>
-    /// 指定の名前ごとに、残す形式、捨てる形式の順に実在を確かめ、両方がファイルとして実在する名前だけ、捨てる形式をごみ箱へ送ります。
-    /// ファイルは一件ずつ、譜面の削除と同じ窓口・設定で送ります。
+    /// 指定の名前ごとに、残す形式、捨てる形式の順に実在を確かめ、両方がファイルとして実在する名前だけ、捨てる形式を削除します。
+    /// ファイルは一件ずつ、譜面の削除と同じ窓口・設定で、<paramref name="deleteMethod"/> の指定により削除します。
     /// </summary>
     /// <param name="folder">名前の基準になるフォルダ。</param>
     /// <param name="cleanup">捨てる形式と対象の名前。</param>
+    /// <param name="deleteMethod">削除方法。ごみ箱へ移動するか、ごみ箱を経由せず完全に削除するかを、窓口の <see cref="Microsoft.VisualBasic.FileIO.RecycleOption"/> で指定します。</param>
     /// <param name="fileMutationService">削除の窓口。</param>
     /// <param name="fileMutationOptions">削除の設定。</param>
     /// <param name="logWarning">名前ごとの失敗を記録する処理。診断の失敗は握りつぶします。</param>
@@ -40,6 +41,7 @@ internal static class DuplicateAudioCollisionCleaner
     internal static DuplicateAudioCollisionCleanupOutcome Cleanup(
         string folder,
         DuplicateBatchAudioCollisionCleanup cleanup,
+        DuplicateOrganizeDeleteMethod deleteMethod,
         IFileMutationService fileMutationService,
         FileMutationOptions fileMutationOptions,
         Action<Exception, string> logWarning,
@@ -47,7 +49,7 @@ internal static class DuplicateAudioCollisionCleaner
     {
         ArgumentNullException.ThrowIfNull(cleanup);
         var stopwatch = Stopwatch.StartNew();
-        int trashed = 0;
+        int deleted = 0;
         List<string> failed = [];
         foreach (string name in cleanup.Names)
         {
@@ -64,9 +66,9 @@ internal static class DuplicateAudioCollisionCleaner
                 fileMutationService.DeleteFileShell(
                     discardPath,
                     Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
+                    deleteMethod.ToRecycleOption(),
                     fileMutationOptions);
-                trashed++;
+                deleted++;
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
@@ -75,7 +77,7 @@ internal static class DuplicateAudioCollisionCleaner
                 catch (Exception) { /* 診断の失敗は握りつぶします。 */ }
             }
         }
-        return new DuplicateAudioCollisionCleanupOutcome(trashed, failed, stopwatch.ElapsedMilliseconds);
+        return new DuplicateAudioCollisionCleanupOutcome(deleted, failed, stopwatch.ElapsedMilliseconds);
     }
 
     /// <summary>

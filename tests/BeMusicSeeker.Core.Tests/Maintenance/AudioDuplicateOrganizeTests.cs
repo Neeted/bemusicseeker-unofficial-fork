@@ -112,8 +112,13 @@ public sealed class AudioDuplicateOrganizeTests
 
         /// <summary>要求を作ります。フォルダは Root からの相対パスで指定します。</summary>
         internal AudioDuplicateOrganizeRequest Request(params (string Folder, string Discard, string[] Names)[] folders)
+            => RequestWith(DuplicateOrganizeDeleteMethod.MoveToRecycleBin, folders);
+
+        /// <summary>削除方法を指定して要求を作ります。フォルダは Root からの相対パスで指定します。</summary>
+        internal AudioDuplicateOrganizeRequest RequestWith(DuplicateOrganizeDeleteMethod deleteMethod, params (string Folder, string Discard, string[] Names)[] folders)
             => new(folders.Select(folder => new AudioDuplicateOrganizeFolder(
-                folder.Folder.Length == 0 || Path.IsPathRooted(folder.Folder) ? folder.Folder : At(folder.Folder), folder.Discard, folder.Names)));
+                folder.Folder.Length == 0 || Path.IsPathRooted(folder.Folder) ? folder.Folder : At(folder.Folder), folder.Discard, folder.Names)),
+                deleteMethod);
 
         internal List<KeyValuePair<string, string>> SongRows()
         {
@@ -154,13 +159,20 @@ public sealed class AudioDuplicateOrganizeTests
     /// <summary>
     /// 保証：両方の形式がファイルとして実在する名前だけ、捨てる形式をごみ箱へ送る（<c>.wav</c> を捨てる場合と <c>.ogg</c> を捨てる場合。拡張子の大文字、下位フォルダの名前を含む）。
     /// 残す形式または捨てる形式がない名前、存在しない名前は変えず数えず、要求にない名前の音源も変えない。完了で、送れなかった名前は空。
-    /// 検出する誤り：実在を確かめずに送る（残す形式がない音源を失う）、要求にない名前を送る、拡張子の大文字の見落とし、変更しない名前を失敗に数える。
+    /// 削除方法は、ごみ箱へ移動と完全に削除のどちらでも、削除の窓口へ渡る全呼出しの指定がその方法と一致し、削除するファイル・残るファイル・数・状態は同じ。
+    /// 検出する誤り：実在を確かめずに送る（残す形式がない音源を失う）、要求にない名前を送る、拡張子の大文字の見落とし、変更しない名前を失敗に数える、
+    /// 削除方法を窓口へ渡さない・一部の削除だけ別の指定になる、削除方法によって削除の対象や結果が変わる。
     /// </summary>
     [TestMethod]
-    [DataRow(".wav", DisplayName = "OGGを残す")]
-    [DataRow(".ogg", DisplayName = "WAVを残す")]
-    public void Organize_TrashesDiscardFormatOnlyWhereBothFormsExist(string discard)
+    [DataRow(".wav", DuplicateOrganizeDeleteMethod.MoveToRecycleBin, DisplayName = "OGGを残す・ごみ箱へ移動")]
+    [DataRow(".ogg", DuplicateOrganizeDeleteMethod.MoveToRecycleBin, DisplayName = "WAVを残す・ごみ箱へ移動")]
+    [DataRow(".wav", DuplicateOrganizeDeleteMethod.DeletePermanently, DisplayName = "OGGを残す・完全に削除")]
+    [DataRow(".ogg", DuplicateOrganizeDeleteMethod.DeletePermanently, DisplayName = "WAVを残す・完全に削除")]
+    public void Organize_DeletesDiscardFormatOnlyWhereBothFormsExist(string discard, DuplicateOrganizeDeleteMethod method)
     {
+        Microsoft.VisualBasic.FileIO.RecycleOption expectedOption = method == DuplicateOrganizeDeleteMethod.DeletePermanently
+            ? Microsoft.VisualBasic.FileIO.RecycleOption.DeletePermanently
+            : Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin;
         string keep = discard == ".wav" ? ".ogg" : ".wav";
         Run(rig =>
         {
@@ -176,16 +188,18 @@ public sealed class AudioDuplicateOrganizeTests
         }, rig =>
         {
             AudioDuplicateOrganizeResult result = rig.Organize(
-                rig.Request(("K", discard, ["a", "sub\\s", "onlydiscard", "onlykeep", "missing"])));
+                rig.RequestWith(method, ("K", discard, ["a", "sub\\s", "onlydiscard", "onlykeep", "missing"])));
 
             Assert.IsTrue(result.Admitted);
             Assert.IsFalse(result.Canceled);
             AudioDuplicateOrganizeFolderResult folder = result.Folders.Single();
             Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, folder.Status);
-            Assert.AreEqual(2, folder.TrashedCount);
-            Assert.AreEqual(0, folder.UnsentNames.Count);
+            Assert.AreEqual(2, folder.DeletedCount);
+            Assert.AreEqual(0, folder.FailedNames.Count);
             CollectionAssert.AreEqual(
                 new[] { "k\\a" + discard, "k\\sub\\s" + discard }.Order(StringComparer.Ordinal).ToArray(), rig.ShellDeletedAudio());
+            Assert.AreEqual(2, rig.Mutations.ShellDeleteFileCalls.Count);
+            Assert.IsTrue(rig.Mutations.ShellDeleteFileCalls.All(call => call.RecycleOption == expectedOption), "削除の指定が、選んだ削除方法と一致しません。");
             Assert.IsFalse(File.Exists(rig.At("K\\a" + discard)) || File.Exists(rig.At("K\\sub\\s" + discard)));
             Assert.AreEqual("a-keep", File.ReadAllText(rig.At("K\\a" + keep)));
             Assert.AreEqual("s-keep", File.ReadAllText(rig.At("K\\sub\\s" + keep)));
@@ -225,15 +239,15 @@ public sealed class AudioDuplicateOrganizeTests
 
             AudioDuplicateOrganizeFolderResult first = result.Folders[0], second = result.Folders[1];
             Assert.AreEqual(AudioDuplicateOrganizeStatus.PartiallyCompleted, first.Status);
-            Assert.AreEqual(1, first.TrashedCount);
+            Assert.AreEqual(1, first.DeletedCount);
             Assert.AreEqual(2, first.FailureCount);
-            CollectionAssert.AreEqual(new[] { "bad\0name", "y" }, first.UnsentNames.ToArray());
+            CollectionAssert.AreEqual(new[] { "bad\0name", "y" }, first.FailedNames.ToArray());
             Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")));
             Assert.IsTrue(File.Exists(rig.At("K1\\y.wav")), "削除に失敗したファイルは残します。");
             // 作業領域のパスは無作為な名前を含むため、作業領域からの相対パス（対象フォルダ K1 の下の名前）で判定する。
             Assert.IsFalse(rig.ShellDeletedAudio().Any(relative => relative.StartsWith("k1\\bad", StringComparison.Ordinal)), "観測できなかった名前の削除を試みてはいけません。");
             Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, second.Status);
-            Assert.AreEqual(2, second.TrashedCount);
+            Assert.AreEqual(2, second.DeletedCount);
             Assert.IsFalse(File.Exists(rig.At("K2\\x.wav")) || File.Exists(rig.At("K2\\y.wav")));
         });
     }
@@ -261,9 +275,9 @@ public sealed class AudioDuplicateOrganizeTests
             Assert.AreEqual(missing, result.Folders[0].SkipPath);
             Assert.AreEqual(AudioDuplicateOrganizeStatus.Skipped, result.Folders[1].Status);
             Assert.AreEqual(DuplicateBatchOrganizeSkipReason.InvalidPath, result.Folders[1].SkipReason);
-            Assert.IsTrue(result.Folders.Take(2).All(folder => folder.TrashedCount == 0 && folder.UnsentNames.Count == 0));
+            Assert.IsTrue(result.Folders.Take(2).All(folder => folder.DeletedCount == 0 && folder.FailedNames.Count == 0));
             Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, result.Folders[2].Status);
-            Assert.AreEqual(1, result.Folders[2].TrashedCount);
+            Assert.AreEqual(1, result.Folders[2].DeletedCount);
             Assert.IsFalse(Directory.Exists(missing), "存在しないフォルダを作りません。");
         });
     }
@@ -297,7 +311,7 @@ public sealed class AudioDuplicateOrganizeTests
             AudioDuplicateOrganizeResult result = rig.Organize(rig.Request(("K", ".wav", ["x"]), ("L", ".ogg", ["x"])), notices: notices);
 
             Assert.IsTrue(result.Admitted);
-            Assert.AreEqual(2, result.Folders.Sum(folder => folder.TrashedCount));
+            Assert.AreEqual(2, result.Folders.Sum(folder => folder.DeletedCount));
             Assert.IsFalse(File.Exists(rig.At("K\\x.wav")) || File.Exists(rig.At("L\\x.ogg")));
             Assert.AreEqual(revision, rig.Library.CatalogRevision);
             Assert.AreEqual(generation, LibraryResourceIndexTestSupport.GetOwner(rig.Library).CaptureSnapshot().Generation);
@@ -390,7 +404,7 @@ public sealed class AudioDuplicateOrganizeTests
         Assert.IsFalse(result.Admitted);
         Assert.IsFalse(result.Canceled);
         Assert.IsTrue(result.Folders.All(folder => folder.Status == AudioDuplicateOrganizeStatus.Unprocessed
-            && folder.TrashedCount == 0 && folder.UnsentNames.Count == 0));
+            && folder.DeletedCount == 0 && folder.FailedNames.Count == 0));
         Assert.AreEqual(0, progress.Count);
     }
 
@@ -430,7 +444,7 @@ public sealed class AudioDuplicateOrganizeTests
                     progress);
                 Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, result.Folders[0].Status);
                 Assert.AreEqual(AudioDuplicateOrganizeStatus.Completed, result.Folders[1].Status);
-                Assert.AreEqual(1, result.Folders[1].TrashedCount, "処理中のフォルダは取消の後も最後まで整理します。");
+                Assert.AreEqual(1, result.Folders[1].DeletedCount, "処理中のフォルダは取消の後も最後まで整理します。");
                 Assert.AreEqual(AudioDuplicateOrganizeStatus.Unprocessed, result.Folders[2].Status);
                 Assert.IsTrue(File.Exists(rig.At("K3\\x.wav")) && File.Exists(rig.At("K3\\x.ogg")));
             }
@@ -473,7 +487,7 @@ public sealed class AudioDuplicateOrganizeTests
             });
 
             Assert.IsTrue(locksFree, "進捗の受け手を、モデルのロックを保持したまま呼びました。");
-            Assert.IsTrue(result.Folders.All(folder => folder.Status == AudioDuplicateOrganizeStatus.Completed && folder.TrashedCount == 1));
+            Assert.IsTrue(result.Folders.All(folder => folder.Status == AudioDuplicateOrganizeStatus.Completed && folder.DeletedCount == 1));
             Assert.IsFalse(File.Exists(rig.At("K1\\x.wav")) || File.Exists(rig.At("K2\\x.wav")));
         });
     }
@@ -520,7 +534,7 @@ public sealed class AudioDuplicateOrganizeTests
 
                 Assert.IsFalse(result.Admitted);
                 Assert.IsFalse(result.Canceled);
-                Assert.IsTrue(result.Folders.All(item => item.Status == AudioDuplicateOrganizeStatus.Unprocessed && item.TrashedCount == 0));
+                Assert.IsTrue(result.Folders.All(item => item.Status == AudioDuplicateOrganizeStatus.Unprocessed && item.DeletedCount == 0));
                 Assert.AreEqual(0, progress.Count);
                 Assert.AreEqual(1, notices.Snapshot().Count, "既存の案内の件数が一致しません。");
                 Assert.AreEqual("wav", File.ReadAllText(wav));
@@ -652,7 +666,7 @@ public sealed class AudioDuplicateOrganizeTests
 
             AudioDuplicateOrganizeResult none = rig.Organize(rig.Request(("B", ".wav", ["p"])));
 
-            Assert.AreEqual(1, none.Folders[0].TrashedCount);
+            Assert.AreEqual(1, none.Folders[0].DeletedCount);
             Assert.IsNull(rig.Library.AudioDuplicateFolders);
             Assert.AreEqual(0, changes.Count);
 
@@ -664,7 +678,7 @@ public sealed class AudioDuplicateOrganizeTests
 
             AudioDuplicateOrganizeResult stale = rig.Organize(rig.Request(("C", ".wav", ["q"])));
 
-            Assert.AreEqual(1, stale.Folders[0].TrashedCount);
+            Assert.AreEqual(1, stale.Folders[0].DeletedCount);
             Assert.AreSame(searched, rig.Library.AudioDuplicateFolders, "世代が違う結果は更新しない。");
             Assert.AreEqual(0, changes.Count);
         });

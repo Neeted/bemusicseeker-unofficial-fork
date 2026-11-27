@@ -149,11 +149,11 @@ public sealed class AudioDuplicateOrganizeWorkflowOwnerTests
             finally { library.RequestShutdown("audio-duplicate-organize-workflow"); }
         });
 
-    private static AudioDuplicateOrganizeResult Result(Fixture fixture, bool canceled, bool admitted, params (int Index, AudioDuplicateOrganizeStatus Status, int Trashed)[] items)
+    private static AudioDuplicateOrganizeResult Result(Fixture fixture, bool canceled, bool admitted, params (int Index, AudioDuplicateOrganizeStatus Status, int Deleted)[] items)
         => new(
             items.Select(item => new AudioDuplicateOrganizeFolderResult(
                 fixture.Folders[item.Index].Folder, item.Status, item.Status == AudioDuplicateOrganizeStatus.Skipped ? DuplicateBatchOrganizeSkipReason.FolderMissing : DuplicateBatchOrganizeSkipReason.None,
-                null, item.Trashed, item.Status == AudioDuplicateOrganizeStatus.PartiallyCompleted ? ["x"] : [])),
+                null, item.Deleted, item.Status == AudioDuplicateOrganizeStatus.PartiallyCompleted ? ["x"] : [])),
             canceled, admitted);
 
     /// <summary>
@@ -266,6 +266,67 @@ public sealed class AudioDuplicateOrganizeWorkflowOwnerTests
     }
 
     /// <summary>
+    /// 保証：「削除」が完全に削除のとき、要求の削除方法は完全に削除になり、確認文の残す形式の行は「完全に削除します」の文言（OGGを残す・WAVを残す）になる。
+    /// 警告用の本文は先頭に「元に戻せない」旨の行を置き、要注意があるときはその後に従来の二行が続く。他の警告がなくても警告用の本文が出て、アイコンは常に警告。
+    /// OKとキャンセルで既定はキャンセル。続行のチェックは要注意があるときだけで、完全に削除だけでは求めない。
+    /// 確認の表示中に一覧の値をごみ箱へ移動へ変えても、要求と結果の案内は捕捉時点の完全に削除のまま。結果の案内の音源の行は「完全に削除しました」の文言。
+    /// 検出する誤り：削除方法を要求へ渡さない、ごみ箱用の文言との取り違え、警告の先頭行の欠落・位置の誤り、アイコンの取り違え、完全に削除だけでチェックを求める、
+    /// 確認の後に一覧の値を読み直す。
+    /// </summary>
+    [TestMethod]
+    [DataRow(AudioDuplicateCollisionCleanupMode.KeepOgg, false, DisplayName = "OGGを残す・他の警告なし")]
+    [DataRow(AudioDuplicateCollisionCleanupMode.KeepWav, false, DisplayName = "WAVを残す・他の警告なし")]
+    [DataRow(AudioDuplicateCollisionCleanupMode.KeepOgg, true, DisplayName = "OGGを残す・要注意あり")]
+    [DataRow(AudioDuplicateCollisionCleanupMode.KeepWav, true, DisplayName = "WAVを残す・要注意あり")]
+    public void Organize_PermanentDeleteUsesPermanentWordingWarningAndTheCapturedRequest(AudioDuplicateCollisionCleanupMode mode, bool caution)
+    {
+        Run(async fixture =>
+        {
+            fixture.VerifyAndSelect(0, Inspection(AudioDuplicateInspectionStage.Safe, ["x", "y"]));
+            fixture.VerifyAndSelect(1, caution ? Inspection(AudioDuplicateInspectionStage.Caution, ["z"], []) : Inspection(AudioDuplicateInspectionStage.Safe, ["z"]));
+            fixture.Ui(() =>
+            {
+                fixture.Owner.CollisionCleanupMode = mode;
+                fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.DeletePermanently;
+            });
+            // 確認の表示中に、一覧の値をごみ箱へ移動へ変えます（その整理には影響しません）。
+            fixture.Dialogs.ConfirmHandler = () =>
+            {
+                fixture.Owner.DeleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin;
+                return Task.FromResult(UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
+            };
+
+            AudioDuplicateOrganizeRunResult result = await fixture.Organize();
+
+            Assert.AreEqual(AudioDuplicateOrganizeRunStatus.Completed, result.Status);
+            UiConfirmationRequest request = fixture.Dialogs.ConfirmRequest!;
+            Assert.AreEqual(
+                string.Join(
+                    Environment.NewLine,
+                    string.Format(Resources.Audio_duplicate_organize_confirm_pairs_format, 2, 3),
+                    mode == AudioDuplicateCollisionCleanupMode.KeepOgg
+                        ? Resources.Audio_duplicate_organize_confirm_keep_ogg_permanent
+                        : Resources.Audio_duplicate_organize_confirm_keep_wav_permanent),
+                request.MessageBoxText);
+            Assert.AreNotEqual(Resources.Audio_duplicate_organize_confirm_keep_ogg, Resources.Audio_duplicate_organize_confirm_keep_ogg_permanent);
+            string[] expectedWarning = caution
+                ? [Resources.Duplicate_batch_organize_confirm_permanent_warning,
+                    string.Format(Resources.Audio_duplicate_organize_confirm_caution_format, 1),
+                    string.Format(Resources.Audio_duplicate_organize_confirm_non_equivalent_format, 1)]
+                : [Resources.Duplicate_batch_organize_confirm_permanent_warning];
+            Assert.AreEqual(string.Join(Environment.NewLine, expectedWarning), request.WarningMessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Warning, request.Icon, "他の警告がなくても警告のアイコン");
+            Assert.AreEqual(caution ? Resources.Audio_duplicate_organize_acknowledgment : null, request.AcknowledgmentText, "続行のチェックは要注意があるときだけ");
+            Assert.AreEqual(System.Windows.MessageBoxButton.OKCancel, request.Button);
+            Assert.AreEqual(System.Windows.MessageBoxResult.Cancel, request.DefaultResult);
+            Assert.AreEqual(DuplicateOrganizeDeleteMethod.DeletePermanently, fixture.Store.Requests.Single().DeleteMethod, "確認の表示中の変更は影響しない");
+            StringAssert.Contains(fixture.Dialogs.Messages.Single().MessageBoxText, string.Format(Resources.Audio_duplicate_organize_result_deleted_format, 2));
+            Assert.AreEqual(-1, fixture.Dialogs.Messages.Single().MessageBoxText.IndexOf(
+                string.Format(Resources.Audio_duplicate_organize_result_trashed_format, 2), StringComparison.Ordinal), "ごみ箱用の文言は使わない");
+        }, Folder(@"C:\S\a", "x", "y"), Folder(@"C:\S\b", "z"));
+    }
+
+    /// <summary>
     /// 保証：承認後は、モーダルの進捗（取消ボタンつき）の内側で、再生の停止、モデルの呼出し（UIの文脈の外）の順に進み、要求は表示順のフォルダごとに捨てる形式（OGGを残すなら.wav）と
     /// 確認が確定した衝突名のすべて（同等でない名前を含む）を持つ。受付はモデルの終端まで保持し（モデルへは受付の権限を渡す）、結果の案内の前に解放する。
     /// 受理された結果では「未処理」以外のSELECTがオフになり、結果の案内は一回だけ（全区分の件数、音源の合計行、完了以外のフォルダの行）になる。
@@ -324,8 +385,8 @@ public sealed class AudioDuplicateOrganizeWorkflowOwnerTests
                 @"C:\S\f" + index, AudioDuplicateOrganizeStatus.Skipped, DuplicateBatchOrganizeSkipReason.LinkFound, null, 0, [])),
             canceled: false, admitted: true);
 
-        string twenty = AudioDuplicateOrganizePresentation.CreateResultMessage(Build(20), out bool allCompleted20);
-        string twentyOne = AudioDuplicateOrganizePresentation.CreateResultMessage(Build(21), out _);
+        string twenty = AudioDuplicateOrganizePresentation.CreateResultMessage(Build(20), DuplicateOrganizeDeleteMethod.MoveToRecycleBin, out bool allCompleted20);
+        string twentyOne = AudioDuplicateOrganizePresentation.CreateResultMessage(Build(21), DuplicateOrganizeDeleteMethod.MoveToRecycleBin, out _);
 
         Assert.IsFalse(allCompleted20);
         Assert.AreEqual(20, Enumerable.Range(0, 20).Count(index => twenty.Contains(@"C:\S\f" + index + "：", StringComparison.Ordinal)));

@@ -4264,6 +4264,18 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_collision_cleanup_keep_wav" xml:space="preserve">
     <value>WAVを残す</value>
   </data>
+  <data name="Duplicate_merge_candidate_delete_method" xml:space="preserve">
+    <value>削除</value>
+  </data>
+  <data name="Duplicate_merge_candidate_delete_method_tooltip" xml:space="preserve">
+    <value>整理で削除するファイルを、ごみ箱へ移動するか完全に削除するかを選びます。完全に削除したファイルは元に戻せません。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_delete_method_recycle_bin" xml:space="preserve">
+    <value>ごみ箱へ移動</value>
+  </data>
+  <data name="Duplicate_merge_candidate_delete_method_permanent" xml:space="preserve">
+    <value>完全に削除</value>
+  </data>
   <data name="Duplicate_merge_candidate_status_caution" xml:space="preserve">
     <value>要注意</value>
   </data>
@@ -4436,14 +4448,26 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_batch_organize_confirm_trash" xml:space="preserve">
     <value>同じフォルダにある重複した譜面は、一つを残してごみ箱へ送ります。</value>
   </data>
+  <data name="Duplicate_batch_organize_confirm_permanent" xml:space="preserve">
+    <value>同じフォルダにある重複した譜面は、一つを残して完全に削除します。</value>
+  </data>
   <data name="Duplicate_batch_organize_confirm_audio_keep_ogg_format" xml:space="preserve">
     <value>同名のWAVとOGGが衝突する{0}グループは、OGGを残し、WAVをごみ箱へ送ります。</value>
   </data>
   <data name="Duplicate_batch_organize_confirm_audio_keep_wav_format" xml:space="preserve">
     <value>同名のWAVとOGGが衝突する{0}グループは、WAVを残し、OGGをごみ箱へ送ります。</value>
   </data>
+  <data name="Duplicate_batch_organize_confirm_audio_keep_ogg_permanent_format" xml:space="preserve">
+    <value>同名のWAVとOGGが衝突する{0}グループは、OGGを残し、WAVを完全に削除します。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_audio_keep_wav_permanent_format" xml:space="preserve">
+    <value>同名のWAVとOGGが衝突する{0}グループは、WAVを残し、OGGを完全に削除します。</value>
+  </data>
   <data name="Duplicate_batch_organize_confirm_audio_unequal_format" xml:space="preserve">
     <value>{0}グループは、同等と判定されていない同名のWAVとOGGも、一方だけを残します。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_permanent_warning" xml:space="preserve">
+    <value>完全に削除したファイルは、ごみ箱に入らず、元に戻せません。</value>
   </data>
   <data name="Duplicate_batch_organize_confirm_unverified_caution_format" xml:space="preserve">
     <value>未確認 {0}グループ／要注意 {1}グループを含みます。</value>
@@ -4474,6 +4498,12 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Duplicate_batch_organize_result_trashed_audio_format" xml:space="preserve">
     <value>衝突したWAV・OGGの音源 {0}件をごみ箱へ送りました。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_deleted_format" xml:space="preserve">
+    <value>重複した譜面 {0}件を完全に削除しました。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_deleted_audio_format" xml:space="preserve">
+    <value>衝突したWAV・OGGの音源 {0}件を完全に削除しました。</value>
   </data>
   <data name="Duplicate_batch_organize_result_canceled" xml:space="preserve">
     <value>取り消されました。</value>
@@ -4667,6 +4697,12 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Audio_duplicate_organize_confirm_keep_wav" xml:space="preserve">
     <value>WAVを残し、OGGをごみ箱へ送ります。</value>
   </data>
+  <data name="Audio_duplicate_organize_confirm_keep_ogg_permanent" xml:space="preserve">
+    <value>OGGを残し、WAVを完全に削除します。</value>
+  </data>
+  <data name="Audio_duplicate_organize_confirm_keep_wav_permanent" xml:space="preserve">
+    <value>WAVを残し、OGGを完全に削除します。</value>
+  </data>
   <data name="Audio_duplicate_organize_confirm_caution_format" xml:space="preserve">
     <value>要注意 {0}フォルダを含みます。</value>
   </data>
@@ -4681,6 +4717,9 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Audio_duplicate_organize_result_trashed_format" xml:space="preserve">
     <value>WAV・OGGの音源 {0}件をごみ箱へ送りました。</value>
+  </data>
+  <data name="Audio_duplicate_organize_result_deleted_format" xml:space="preserve">
+    <value>WAV・OGGの音源 {0}件を完全に削除しました。</value>
   </data>
   <data name="Audio_duplicate_organize_result_more_format" xml:space="preserve">
     <value>ほか{0}フォルダはログを確認してください。</value>

@@ -228,7 +228,8 @@ internal sealed class AudioDuplicateOrganizeWorkflowOwner
 
     /// <summary>
     /// 整理の確認を表示します。確認を表示しない設定（<c>ShowDuplicateFileCheckConfirmMsg</c>）でも、常に一度表示します。
-    /// OKとキャンセルがあり、既定はキャンセルです。要注意のフォルダを含むときだけ、警告アイコンと警告用の本文を表示し、続行のチェックを入れるまでOKを無効にします。
+    /// OKとキャンセルがあり、既定はキャンセルです。要注意のフォルダを含むときだけ、続行のチェックを入れるまでOKを無効にします。警告アイコンと警告用の本文は、
+    /// 要注意のフォルダを含むとき、または削除方法が完全に削除のとき（先頭に元に戻せない旨の行）に表示します。
     /// </summary>
     /// <returns>承認は true、キャンセル・閉じるは false、表示の失敗は null（失敗は <paramref name="failed"/> へ渡します）。</returns>
     private async Task<bool?> ConfirmAsync(IReadOnlyList<AudioDuplicateCandidateTarget> targets, Action<Exception> failed)
@@ -236,12 +237,14 @@ internal sealed class AudioDuplicateOrganizeWorkflowOwner
         try
         {
             string message = AudioDuplicateOrganizePresentation.CreateConfirmationMessage(targets, out bool hasWarning, out string warningMessage);
+            // 完全に削除は元に戻せないため、他の警告がなくてもアイコンを警告にします。続行のチェックは従来の条件（要注意）のままです。
+            bool permanentDelete = AudioDuplicateOrganizePresentation.GetDeleteMethod(targets) == DuplicateOrganizeDeleteMethod.DeletePermanently;
             UiDialogResult result = await dialogs.ConfirmAsync(
                 new UiConfirmationRequest(
                     message,
                     Resources.Confirm,
                     MessageBoxButton.OKCancel,
-                    hasWarning ? MessageBoxImage.Warning : MessageBoxImage.Question,
+                    hasWarning || permanentDelete ? MessageBoxImage.Warning : MessageBoxImage.Question,
                     MessageBoxResult.Cancel,
                     warningMessageBoxText: warningMessage)
                 {
@@ -421,7 +424,7 @@ internal sealed class AudioDuplicateOrganizeWorkflowOwner
             return new AudioDuplicateOrganizeRunResult(AudioDuplicateOrganizeRunStatus.NotAdmitted, model, failure);
         }
         ConsumeSelectOfProcessedFolders(run, model);
-        await ShowResultAsync(model);
+        await ShowResultAsync(model, run.Request.DeleteMethod);
         return new AudioDuplicateOrganizeRunResult(AudioDuplicateOrganizeRunStatus.Completed, model, failure);
     }
 
@@ -443,11 +446,11 @@ internal sealed class AudioDuplicateOrganizeWorkflowOwner
     }
 
     /// <summary>結果を一度だけ案内します。表示の失敗は診断へ残すだけで、整理の結果を変えません。</summary>
-    private async Task ShowResultAsync(AudioDuplicateOrganizeResult model)
+    private async Task ShowResultAsync(AudioDuplicateOrganizeResult model, DuplicateOrganizeDeleteMethod deleteMethod)
     {
         try
         {
-            string message = AudioDuplicateOrganizePresentation.CreateResultMessage(model, out bool allCompleted);
+            string message = AudioDuplicateOrganizePresentation.CreateResultMessage(model, deleteMethod, out bool allCompleted);
             UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateInformation(
                 message, Resources.Audio_duplicate_organize_title, completedSuccessfully: allCompleted));
             UiDialogRoute.ThrowIfNotShown(result, "Audio duplicate organize result notification");
@@ -470,15 +473,22 @@ internal static class AudioDuplicateOrganizePresentation
     /// <summary>結果の詳細に出す、完了以外のフォルダの最大件数です。超える分は「ほか{n}フォルダ…」に省略します。</summary>
     internal const int MaxDetailFolders = 20;
 
-    /// <summary>捕捉した対象から、モデルの要求を作ります。順は渡された順（一覧の表示順）で、各フォルダは捨てる形式と、確認が確定した衝突名のすべてを持ちます。</summary>
+    /// <summary>
+    /// 捕捉した対象から、モデルの要求を作ります。順は渡された順（一覧の表示順）で、各フォルダは捨てる形式と、確認が確定した衝突名のすべてを持ちます。
+    /// 削除方法は、全対象で捕捉時点の同じ値を、操作全体で一つ持ちます。
+    /// </summary>
     internal static AudioDuplicateOrganizeRequest CreateRequest(IReadOnlyList<AudioDuplicateCandidateTarget> targets)
     {
         ArgumentNullException.ThrowIfNull(targets);
         return new AudioDuplicateOrganizeRequest(targets.Select(target => new AudioDuplicateOrganizeFolder(
             target.Folder,
             target.CollisionCleanup == AudioDuplicateCollisionCleanupMode.KeepOgg ? ".wav" : ".ogg",
-            target.Inspection?.CollisionNames ?? [])));
+            target.Inspection?.CollisionNames ?? [])), GetDeleteMethod(targets));
     }
+
+    /// <summary>捕捉した対象の削除方法です。「削除」の値は全対象で捕捉時点の同じ値のため、先頭の対象から読みます。対象がなければ、既定のごみ箱へ移動です。</summary>
+    internal static DuplicateOrganizeDeleteMethod GetDeleteMethod(IReadOnlyList<AudioDuplicateCandidateTarget> targets)
+        => targets.Count == 0 ? DuplicateOrganizeDeleteMethod.MoveToRecycleBin : targets[0].DeleteMethod;
 
     /// <summary>進捗の「何番目／総数」とフォルダ名の文言です。</summary>
     internal static string CreateProgressMessage(AudioDuplicateOrganizeProgress progress)
@@ -489,10 +499,11 @@ internal static class AudioDuplicateOrganizePresentation
             DuplicateBatchOrganizePresentation.GetRepresentativeFolderName(progress.Folder));
 
     /// <summary>
-    /// 確認文を作ります。通常の本文は、フォルダ数と対象の衝突名の合計の行と、残す形式の行です。
-    /// 警告用の本文（警告色で表示する部分）は、要注意のフォルダがあるときだけ、その件数の行と、同等と判定されていない組も一方だけが残る行です（このとき警告のアイコン）。
+    /// 確認文を作ります。通常の本文は、フォルダ数と対象の衝突名の合計の行と、残す形式の行です。残す形式の行は、削除方法がごみ箱へ移動なら「ごみ箱へ送ります」、完全に削除なら「完全に削除します」の文言です。
+    /// 警告用の本文（警告色で表示する部分）は、削除方法が完全に削除のときだけ先頭に元に戻せない旨の行、
+    /// 続いて、要注意のフォルダがあるときだけ、その件数の行と、同等と判定されていない組も一方だけが残る行です（このとき警告のアイコン）。
     /// </summary>
-    /// <param name="hasWarning">要注意のフォルダを含む（確認ダイアログのアイコンを警告にする）場合はtrueです。</param>
+    /// <param name="hasWarning">要注意のフォルダを含む（続行のチェックを求める）場合はtrueです。完全に削除だけを理由にはtrueにしません（そのときのアイコンは呼出し側が警告にします）。</param>
     /// <param name="warningMessage">警告用の本文です。該当する行がなければnullです。</param>
     internal static string CreateConfirmationMessage(
         IReadOnlyList<AudioDuplicateCandidateTarget> targets, out bool hasWarning, out string warningMessage)
@@ -500,27 +511,37 @@ internal static class AudioDuplicateOrganizePresentation
         ArgumentNullException.ThrowIfNull(targets);
         int pairs = targets.Sum(target => target.Inspection?.CollisionNames.Count ?? 0);
         bool keepOgg = targets.Count == 0 || targets[0].CollisionCleanup == AudioDuplicateCollisionCleanupMode.KeepOgg;
+        bool permanent = GetDeleteMethod(targets) == DuplicateOrganizeDeleteMethod.DeletePermanently;
         string message = string.Join(
             Environment.NewLine,
             string.Format(Resources.Audio_duplicate_organize_confirm_pairs_format, targets.Count, pairs),
-            keepOgg ? Resources.Audio_duplicate_organize_confirm_keep_ogg : Resources.Audio_duplicate_organize_confirm_keep_wav);
+            (keepOgg, permanent) switch
+            {
+                (true, false) => Resources.Audio_duplicate_organize_confirm_keep_ogg,
+                (false, false) => Resources.Audio_duplicate_organize_confirm_keep_wav,
+                (true, true) => Resources.Audio_duplicate_organize_confirm_keep_ogg_permanent,
+                (false, true) => Resources.Audio_duplicate_organize_confirm_keep_wav_permanent
+            });
         int caution = targets.Count(target => target.Inspection is { Stage: AudioDuplicateInspectionStage.Caution });
         hasWarning = caution > 0;
-        warningMessage = hasWarning
-            ? string.Join(
-                Environment.NewLine,
-                string.Format(Resources.Audio_duplicate_organize_confirm_caution_format, caution),
-                string.Format(Resources.Audio_duplicate_organize_confirm_non_equivalent_format, caution))
-            : null;
+        var warnings = new List<string>();
+        if (permanent) { warnings.Add(Resources.Duplicate_batch_organize_confirm_permanent_warning); }
+        if (hasWarning)
+        {
+            warnings.Add(string.Format(Resources.Audio_duplicate_organize_confirm_caution_format, caution));
+            warnings.Add(string.Format(Resources.Audio_duplicate_organize_confirm_non_equivalent_format, caution));
+        }
+        warningMessage = warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings);
         return message;
     }
 
     /// <summary>
-    /// 結果の案内を作ります。見出しは四区分（0件の区分も含む）の件数、ごみ箱へ送った音源の合計が一件以上ならその行、取消されていれば取消の行を続け、
+    /// 結果の案内を作ります。見出しは四区分（0件の区分も含む）の件数、削除した音源の合計が一件以上ならその行（文言は要求の削除方法に従い、ごみ箱へ送った／完全に削除した）、取消されていれば取消の行を続け、
     /// 完了以外のフォルダを要求順に最大 <see cref="MaxDetailFolders"/> 件まで「フォルダのパス：状態（理由）」で並べます。
     /// </summary>
+    /// <param name="deleteMethod">整理の要求の削除方法です。削除の行の文言を決めます。</param>
     /// <param name="allCompleted">全フォルダが完了で、取消もない場合はtrueです。案内のアイコンの選択に使います。</param>
-    internal static string CreateResultMessage(AudioDuplicateOrganizeResult result, out bool allCompleted)
+    internal static string CreateResultMessage(AudioDuplicateOrganizeResult result, DuplicateOrganizeDeleteMethod deleteMethod, out bool allCompleted)
     {
         ArgumentNullException.ThrowIfNull(result);
         IReadOnlyList<AudioDuplicateOrganizeFolderResult> folders = result.Folders;
@@ -535,8 +556,15 @@ internal static class AudioDuplicateOrganizePresentation
                 Count(AudioDuplicateOrganizeStatus.Skipped),
                 Count(AudioDuplicateOrganizeStatus.Unprocessed))
         };
-        int trashed = folders.Sum(folder => folder.TrashedCount);
-        if (trashed > 0) { lines.Add(string.Format(Resources.Audio_duplicate_organize_result_trashed_format, trashed)); }
+        int deleted = folders.Sum(folder => folder.DeletedCount);
+        if (deleted > 0)
+        {
+            lines.Add(string.Format(
+                deleteMethod == DuplicateOrganizeDeleteMethod.DeletePermanently
+                    ? Resources.Audio_duplicate_organize_result_deleted_format
+                    : Resources.Audio_duplicate_organize_result_trashed_format,
+                deleted));
+        }
         if (result.Canceled) { lines.Add(Resources.Duplicate_batch_organize_result_canceled); }
 
         AudioDuplicateOrganizeFolderResult[] incomplete = [.. folders.Where(folder => folder.Status != AudioDuplicateOrganizeStatus.Completed)];

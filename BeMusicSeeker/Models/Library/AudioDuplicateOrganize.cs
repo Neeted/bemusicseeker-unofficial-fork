@@ -32,8 +32,11 @@ internal sealed class AudioDuplicateOrganizeRequest
 {
     /// <summary>要求を固定します。入力列はコピーします。</summary>
     /// <param name="folders">処理するフォルダ。</param>
-    internal AudioDuplicateOrganizeRequest(IEnumerable<AudioDuplicateOrganizeFolder> folders)
+    /// <param name="deleteMethod">捨てる形式の音源の削除方法。操作全体で一つで、省略時はごみ箱へ移動します。</param>
+    internal AudioDuplicateOrganizeRequest(
+        IEnumerable<AudioDuplicateOrganizeFolder> folders, DuplicateOrganizeDeleteMethod deleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin)
     {
+        DeleteMethod = deleteMethod;
         Folders = Array.AsReadOnly((folders ?? throw new ArgumentNullException(nameof(folders)))
             .Select(folder => folder ?? throw new ArgumentException("A folder must not be null.", nameof(folders)))
             .ToArray());
@@ -41,6 +44,9 @@ internal sealed class AudioDuplicateOrganizeRequest
 
     /// <summary>処理するフォルダです。</summary>
     internal IReadOnlyList<AudioDuplicateOrganizeFolder> Folders { get; }
+
+    /// <summary>捨てる形式の音源の削除方法です。全フォルダで共通です。</summary>
+    internal DuplicateOrganizeDeleteMethod DeleteMethod { get; }
 }
 
 /// <summary>フォルダの開始を受け手へ知らせる進捗です。取消の確認の後、フォルダの開始ごとに一回渡します。</summary>
@@ -52,10 +58,10 @@ internal readonly record struct AudioDuplicateOrganizeProgress(int Number, int T
 /// <summary>重複音源の整理の、フォルダごとの状態です。</summary>
 internal enum AudioDuplicateOrganizeStatus
 {
-    /// <summary>送れなかった音源（削除の失敗と、実在を確認できなかった名前）がありません。送った数が0件でも完了です。</summary>
+    /// <summary>削除できなかった音源（削除の失敗と、実在を確認できなかった名前）がありません。削除した数が0件でも完了です。</summary>
     Completed,
 
-    /// <summary>送れなかった音源が一件以上あります。</summary>
+    /// <summary>削除できなかった音源が一件以上あります。</summary>
     PartiallyCompleted,
 
     /// <summary>書込み前に拒否し、ファイルを変えませんでした。理由は <see cref="AudioDuplicateOrganizeFolderResult.SkipReason"/> です。</summary>
@@ -73,18 +79,18 @@ internal enum AudioDuplicateOrganizeStatus
 /// 存在しないときは <see cref="DuplicateBatchOrganizeSkipReason.FolderMissing"/>、パスが空・正規化できないときは <see cref="DuplicateBatchOrganizeSkipReason.InvalidPath"/> です。それ以外は <see cref="DuplicateBatchOrganizeSkipReason.None"/> です。
 /// </param>
 /// <param name="SkipPath">拒否の原因になったパス（リンクの位置など）。ないときは null です。</param>
-/// <param name="TrashedCount">ごみ箱へ送れた音源の数。</param>
-/// <param name="UnsentNames">送れなかった名前（実在を確認できなかった名前と、削除に失敗した名前）。要求の順で、その形式のファイルは残っています。</param>
+/// <param name="DeletedCount">削除できた音源の数。</param>
+/// <param name="FailedNames">削除できなかった名前（実在を確認できなかった名前と、削除に失敗した名前）。要求の順で、その形式のファイルは残っています。</param>
 internal sealed record AudioDuplicateOrganizeFolderResult(
     string Folder,
     AudioDuplicateOrganizeStatus Status,
     DuplicateBatchOrganizeSkipReason SkipReason,
     string SkipPath,
-    int TrashedCount,
-    IReadOnlyList<string> UnsentNames)
+    int DeletedCount,
+    IReadOnlyList<string> FailedNames)
 {
-    /// <summary>送れなかった音源の数。</summary>
-    internal int FailureCount => UnsentNames.Count;
+    /// <summary>削除できなかった音源の数。</summary>
+    internal int FailureCount => FailedNames.Count;
 
     /// <summary>開始しなかったフォルダの結果を作ります。</summary>
     internal static AudioDuplicateOrganizeFolderResult CreateUnprocessed(string folder)

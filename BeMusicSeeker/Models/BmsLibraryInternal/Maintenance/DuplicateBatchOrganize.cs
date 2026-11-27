@@ -41,7 +41,7 @@ internal sealed class DuplicateBatchOrganizeGroup
 
 /// <summary>
 /// グループごとの、WAV・OGG の衝突整理の指定です。KEEP で同名の WAV と OGG が両方とも実在する名前について、
-/// 捨てる形式のファイルだけをごみ箱へ送ります。音源の復号・比較は行いません。対象の名前は同等と判定したものに限らず、
+/// 捨てる形式のファイルだけを、要求の削除方法（<see cref="DuplicateOrganizeDeleteMethod"/>）で削除します。音源の復号・比較は行いません。対象の名前は同等と判定したものに限らず、
 /// 利用者が確認文で、同等と判定されていない名前も一方だけが残ることを承認した前提です。
 /// </summary>
 internal sealed class DuplicateBatchAudioCollisionCleanup
@@ -105,8 +105,11 @@ internal sealed class DuplicateBatchOrganizeRequest
 {
     /// <summary>要求を固定します。</summary>
     /// <param name="groups">処理するグループ。入力列はコピーします。</param>
-    internal DuplicateBatchOrganizeRequest(IEnumerable<DuplicateBatchOrganizeGroup> groups)
+    /// <param name="deleteMethod">削除するファイル（重複整理の譜面と衝突整理の音源）の削除方法。操作全体で一つで、省略時はごみ箱へ移動します。</param>
+    internal DuplicateBatchOrganizeRequest(
+        IEnumerable<DuplicateBatchOrganizeGroup> groups, DuplicateOrganizeDeleteMethod deleteMethod = DuplicateOrganizeDeleteMethod.MoveToRecycleBin)
     {
+        DeleteMethod = deleteMethod;
         Groups = Array.AsReadOnly((groups ?? throw new ArgumentNullException(nameof(groups)))
             .Select(group => group ?? throw new ArgumentException("A group must not be null.", nameof(groups)))
             .ToArray());
@@ -114,6 +117,12 @@ internal sealed class DuplicateBatchOrganizeRequest
 
     /// <summary>処理するグループです。</summary>
     internal IReadOnlyList<DuplicateBatchOrganizeGroup> Groups { get; }
+
+    /// <summary>
+    /// 削除するファイル（移動元直下・KEEP 直下・一フォルダのグループの重複譜面と、衝突整理の音源）の削除方法です。操作全体で一つです。
+    /// フォルダ統合のファイル移動と入力元の後片付けには影響しません。
+    /// </summary>
+    internal DuplicateOrganizeDeleteMethod DeleteMethod { get; }
 }
 
 /// <summary>進捗の種類です。</summary>
@@ -156,7 +165,7 @@ internal enum DuplicateBatchOrganizeGroupStatus
     Skipped,
 
     /// <summary>
-    /// 二フォルダ以上のグループで、移動元を一つも統合できませんでした。ごみ箱へ送った数は別に報告します。
+    /// 二フォルダ以上のグループで、移動元を一つも統合できませんでした。削除した数は別に報告します。
     /// 確定に失敗した操作では、物理的に成功していたグループも失敗です。
     /// 一フォルダのグループも、予期しない物理失敗で止まり、何も削除できなかった場合は失敗です。
     /// </summary>
@@ -245,10 +254,10 @@ internal sealed class DuplicateBatchOrganizeGroupResult
         string skipPath,
         IEnumerable<string> mergedSources,
         IEnumerable<DuplicateBatchOrganizeRetainedSource> retainedSources,
-        int trashedChartCount,
-        int trashFailureCount,
-        int trashedAudioCount = 0,
-        int audioTrashFailureCount = 0)
+        int deletedChartCount,
+        int deleteFailureCount,
+        int deletedAudioCount = 0,
+        int audioDeleteFailureCount = 0)
     {
         KeepDirectory = keepDirectory;
         IsSingleFolder = isSingleFolder;
@@ -257,10 +266,10 @@ internal sealed class DuplicateBatchOrganizeGroupResult
         SkipPath = skipPath;
         MergedSources = Array.AsReadOnly((mergedSources ?? []).ToArray());
         RetainedSources = Array.AsReadOnly((retainedSources ?? []).ToArray());
-        TrashedChartCount = trashedChartCount;
-        TrashFailureCount = trashFailureCount;
-        TrashedAudioCount = trashedAudioCount;
-        AudioTrashFailureCount = audioTrashFailureCount;
+        DeletedChartCount = deletedChartCount;
+        DeleteFailureCount = deleteFailureCount;
+        DeletedAudioCount = deletedAudioCount;
+        AudioDeleteFailureCount = audioDeleteFailureCount;
     }
 
     /// <summary>残すフォルダ。一フォルダのグループでは、整理したフォルダです。</summary>
@@ -284,17 +293,17 @@ internal sealed class DuplicateBatchOrganizeGroupResult
     /// <summary>統合せずに残した移動元とその理由です。</summary>
     internal IReadOnlyList<DuplicateBatchOrganizeRetainedSource> RetainedSources { get; }
 
-    /// <summary>重複整理でごみ箱へ送れた譜面の数です。削除の成功を確認した実数で、確定に失敗しても変わりません。</summary>
-    internal int TrashedChartCount { get; }
+    /// <summary>重複整理で削除できた譜面の数です。削除の成功を確認した実数で、確定に失敗しても変わりません。</summary>
+    internal int DeletedChartCount { get; }
 
-    /// <summary>重複整理でごみ箱へ送れなかった譜面の数です。送れなかった譜面は残します。</summary>
-    internal int TrashFailureCount { get; }
+    /// <summary>重複整理で削除できなかった譜面の数です。削除できなかった譜面は残します。</summary>
+    internal int DeleteFailureCount { get; }
 
-    /// <summary>衝突整理でごみ箱へ送れた音源の数です。削除の成功を確認した実数で、確定に失敗しても変わりません。</summary>
-    internal int TrashedAudioCount { get; }
+    /// <summary>衝突整理で削除できた音源の数です。削除の成功を確認した実数で、確定に失敗しても変わりません。</summary>
+    internal int DeletedAudioCount { get; }
 
-    /// <summary>衝突整理でごみ箱へ送れなかった音源の数です。送れなかった音源は残します。</summary>
-    internal int AudioTrashFailureCount { get; }
+    /// <summary>衝突整理で削除できなかった音源の数です。削除できなかった音源は残します。</summary>
+    internal int AudioDeleteFailureCount { get; }
 }
 
 /// <summary>重複グループの一括整理の結果です。</summary>
