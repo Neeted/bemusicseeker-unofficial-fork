@@ -94,7 +94,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                         + " elapsedMs=" + baseCandidateWatch.ElapsedMilliseconds);
                     if (baseCandidates == BaseCandidateIndexPrepareResult.Installed)
                     {
-                        // 設置して排他を解放した後に、画面へ再評価を依頼する。結果の待機は準備の完了に含めない。
+                        // 設置して排他を解放した後に、画面へ再評価を依頼する。本番の配送（ApplyMainChartListPresentationActionAsync）は
+                        // UIスレッドで通知を同期的に実行し、完了済みのTaskを返す（UIの停止中は失敗のTaskを返す）ため、準備の仕事はUIでの通知の完了まで待つ。
+                        // 返されたTaskは待たず、失敗の観測だけを行う。
                         playlistRestoreUiApplyScheduler(NotifyBaseCandidatesChanged).ObserveFault("playlist_base_candidates_redraw");
                     }
                     return snapshot;

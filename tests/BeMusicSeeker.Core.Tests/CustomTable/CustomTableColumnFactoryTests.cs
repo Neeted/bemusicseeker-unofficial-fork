@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Xml.Linq;
 using System.Xml.Serialization;
 using BeMusicSeeker.Models;
@@ -760,15 +761,25 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(highlighted.HasBaseCandidateUrl1Highlight);
         Assert.IsFalse(plain.HasBaseCandidateUrl1Highlight);
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
-        Assert.AreNotSame(CustomTablePalette.Current.DefaultForeground, CustomTablePalette.Current.BaseCandidateForeground);
+        // パレットは並列のテストやテーマ変更で作り直されうるため、ブラシの参照ではなく色の値で比べる。
+        Color baseCandidateColor = ColorOf(CustomTablePalette.Current.BaseCandidateForeground);
+        Color defaultColor = ColorOf(CustomTablePalette.Current.DefaultForeground);
+        Assert.AreNotEqual(defaultColor, baseCandidateColor);
 
         foreach (int width in new[] { 40, 41, 260, 40 })
         {
             columns["Url1"].Layout.Width = width;
-            Assert.AreSame(CustomTablePalette.Current.BaseCandidateForeground, columns["Url1"].GetForeground(highlighted), "幅" + width);
-            Assert.AreSame(CustomTablePalette.Current.DefaultForeground, columns["Url1"].GetForeground(plain), "幅" + width);
-            Assert.AreSame(CustomTablePalette.Current.DefaultForeground, columns["Url2"].GetForeground(highlighted), "URL2列の色は変えない。");
+            Assert.AreEqual(baseCandidateColor, ColorOf(columns["Url1"].GetForeground(highlighted)), "幅" + width);
+            Assert.AreEqual(defaultColor, ColorOf(columns["Url1"].GetForeground(plain)), "幅" + width);
+            Assert.AreEqual(defaultColor, ColorOf(columns["Url2"].GetForeground(highlighted)), "URL2列の色は変えない。");
         }
+    }
+
+    /// <summary>単色のブラシの色を返します。単色でなければ失敗にします。</summary>
+    private static Color ColorOf(Brush brush)
+    {
+        Assert.IsInstanceOfType<SolidColorBrush>(brush);
+        return ((SolidColorBrush)brush).Color;
     }
 
     /// <summary>一度生成した両URL列を40→41→広幅→40へ変え、空値も含め種別・配置・再クリック・tooltipが現在幅に追随し、編集・セルコピー・TSVは元URLを保つことを確認します。</summary>

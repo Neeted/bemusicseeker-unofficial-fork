@@ -8,8 +8,10 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Tests;
@@ -1323,6 +1325,96 @@ public sealed class CustomTableRenderingTests
     private sealed class IndexedRow(int index)
     {
         internal int Index { get; } = index;
+    }
+
+    /// <summary>
+    /// プレイリストの本体候補ありの未所持行（URL1あり・URL2が絶対URL・候補1件以上）のURL1は、未選択・行の選択・現在セルのどれでも専用色で描かれ、
+    /// 背景は行の背景・選択行の背景・現在セルの背景の規則のままです。候補なしの行のURL1は従来どおり（現在セルは現在セルの文字色、選択だけなら選択時の文字色）で、
+    /// 候補あり行のURL2の文字色も従来どおりです。URL1が40のアイコン表示でも200の文字表示でも同じです。
+    /// 期待結果は、未選択（候補あり行URL1は専用色・行背景、候補なし行URL1と候補あり行URL2は通常色）、候補あり行を選択して現在セルがURL2
+    /// （URL1は専用色・選択行背景、URL2は現在セルの文字色・現在セルの背景）、現在セルがURL1（URL1は専用色・現在セルの背景、URL2は選択時の文字色）、
+    /// 候補なし行を選択して現在セルがURL1（現在セルの文字色・現在セルの背景）またはURL2（URL1は選択時の文字色・選択行背景）です。
+    /// </summary>
+    /// <remarks>
+    /// アイコン表示だけ・文字表示だけが選択色へ戻る誤り、選択では保つが現在セルでは保たない誤り、判定によらず全て専用色にする誤り、
+    /// 指定色の有無によらず全セルが自身の前景を保つ誤り（URL2や候補なし行が選択色にならない）、背景を変える誤り、何も描かない誤りを検出します。
+    /// Lightでは選択時の文字色と通常色が同じ色のため、選択状態の候補なし行は一部を区別できず、現在セルの観測で検出します。
+    /// 判定の真偽はCore、再描画の時機は行通知の検証が受け持ち、ここでは扱いません。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(40)]
+    [DataRow(200)]
+    public void PlaylistUrl1BaseCandidateColor_IsKeptOverSelectionAndCurrentCell(int url1Width)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTablePalette palette = CustomTablePalette.Current;
+            Color candidateColor = Solid(palette.BaseCandidateForeground), defaultColor = Solid(palette.DefaultForeground);
+            Color selectedColor = Solid(palette.SelectedForeground), currentColor = Solid(palette.CurrentCellForeground);
+            Assert.AreNotEqual(selectedColor, candidateColor, "前提: 専用色と選択時の文字色は異なります。");
+            Assert.AreNotEqual(currentColor, candidateColor, "前提: 専用色と現在セルの文字色は異なります。");
+            Assert.AreNotEqual(defaultColor, candidateColor, "前提: 専用色と通常色は異なります。");
+            Assert.AreNotEqual(defaultColor, currentColor, "前提: 現在セルの文字色と通常色は異なります。");
+
+            var settings = new CustomTableColumnSettings();
+            settings.Url1.Visibility = Visibility.Visible;
+            settings.Url2.Visibility = Visibility.Visible;
+            CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => column.Id is "Url1" or "Url2")];
+            Assert.AreEqual(2, columns.Length);
+            foreach (CustomTableColumn column in columns) { column.Layout.Width = url1Width; }
+            PlaylistDetailRow CreateRow(bool hasCandidate)
+            {
+                var entry = new BMSTableEntry { title = "Song", artist = "abc", Url = new Uri("https://example.test/main"), Url_diff = new Uri("https://example.test/diff") };
+                PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+                row.SetBaseCandidateProvider((_, _) => hasCandidate ? [new BaseCandidate(@"C:\Lib", 1)] : []);
+                return row;
+            }
+            PlaylistDetailRow[] rows = [CreateRow(true), CreateRow(false)];
+            Assert.IsTrue(rows[0].HasBaseCandidateUrl1Highlight);
+            Assert.IsFalse(rows[1].HasBaseCandidateUrl1Highlight);
+
+            const double dpi = 2d;
+            CustomTableView table = CreateTable(columns, rows, url1Width * 2d, 20d + 19d * 2d, dpi);
+            try
+            {
+                int headerPx = table.RowGeometry.HeaderHeightPx, rowPx = table.RowGeometry.RowHeightPx, columnPx = Px(url1Width, dpi);
+                double RowCenterY(int row) => table.HeaderHeight + (row + 0.5d) * table.RowHeight;
+                double ColumnCenterX(int column) => (column + 0.5d) * url1Width;
+
+                void AssertCell(SurfacePixels pixels, int row, int column, Color foreground, Brush background, string label)
+                {
+                    var area = new Int32Rect(column * columnPx + 1, headerPx + row * rowPx + 1, columnPx - 3, rowPx - 3);
+                    Color expectedBackground = Solid(background);
+                    Assert.AreEqual(expectedBackground, pixels.GetColor(area.X, area.Y), label + " 背景");
+                    Assert.IsNotNull(pixels.FindInkBounds(area, expectedBackground), label + " は何か描かれます。");
+                    Assert.AreEqual(foreground, pixels.DominantInkColor(area, expectedBackground), label + " 前景");
+                }
+
+                SurfacePixels shown = CustomTableRenderProbe.Redraw(table);
+                AssertCell(shown, 0, 0, candidateColor, palette.RowBackground, "未選択 候補あり URL1");
+                AssertCell(shown, 1, 0, defaultColor, palette.AlternatingRowBackground, "未選択 候補なし URL1");
+                AssertCell(shown, 0, 1, defaultColor, palette.RowBackground, "未選択 候補あり URL2");
+
+                PressAt(table, ColumnCenterX(1), RowCenterY(0));
+                SurfacePixels url2Current = CustomTableRenderProbe.Redraw(table);
+                AssertCell(url2Current, 0, 0, candidateColor, palette.SelectedRowBackground, "候補あり行選択・現在セルURL2 URL1");
+                AssertCell(url2Current, 0, 1, currentColor, palette.CurrentCellBackground, "候補あり行選択・現在セルURL2 URL2");
+
+                PressAt(table, ColumnCenterX(0), RowCenterY(0));
+                SurfacePixels url1Current = CustomTableRenderProbe.Redraw(table);
+                AssertCell(url1Current, 0, 0, candidateColor, palette.CurrentCellBackground, "候補あり行選択・現在セルURL1 URL1");
+                AssertCell(url1Current, 0, 1, selectedColor, palette.SelectedRowBackground, "候補あり行選択・現在セルURL1 URL2");
+
+                PressAt(table, ColumnCenterX(0), RowCenterY(1));
+                SurfacePixels plainCurrent = CustomTableRenderProbe.Redraw(table);
+                AssertCell(plainCurrent, 1, 0, currentColor, palette.CurrentCellBackground, "候補なし行選択・現在セルURL1");
+
+                PressAt(table, ColumnCenterX(1), RowCenterY(1));
+                SurfacePixels plainSelected = CustomTableRenderProbe.Redraw(table);
+                AssertCell(plainSelected, 1, 0, selectedColor, palette.SelectedRowBackground, "候補なし行選択・現在セルURL2 URL1");
+            }
+            finally { Release(table); }
+        });
     }
 
     /// <summary>警告の強調を持つ行です。</summary>

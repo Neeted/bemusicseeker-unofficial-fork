@@ -518,8 +518,8 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             {
                 renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
             }
-            // 結合セルの文字は、塗りの上で読めるよう、結合セルを塗る状態の文字色にする。色付きの区間は自身の色を使う。
-            Brush foreground = cellValue.TextRuns.Count > 0
+            // 結合セルの文字は、塗りの上で読めるよう、結合セルを塗る状態の文字色にする。自身の色を持つセルは自身の色を使う。
+            Brush foreground = cellValue.KeepsOwnForeground
                 ? cellValue.Foreground
                 : currentCell
                     ? palette.CurrentCellForeground
@@ -592,8 +592,8 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             {
                 FillRect(visibleLeft, interior.Top, visibleRight, interior.Bottom, palette.CurrentCellBackground);
             }
-            bool hasTextRuns = cellValue.TextRuns.Count > 0;
-            Brush foreground = hasTextRuns
+            // 色付きの文字区間や既定色でない色のアイコンを持つセルは、選択・現在セルでも自身の色で描く。
+            Brush foreground = cellValue.KeepsOwnForeground
                 ? cellValue.Foreground
                 : currentCell
                     ? palette.CurrentCellForeground

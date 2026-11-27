@@ -39,9 +39,6 @@ internal interface IPlaylistDetailDataSource
     /// <summary>未所持行の本体候補の索引を、構築済みでなければ一度だけ構築して設置します。取消されたら未構築のまま例外で終わります。</summary>
     BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken);
 
-    /// <summary>項目の題名・作者の比較キーから、本体候補の所持フォルダを現在の索引で引きます。未構築なら空で、構築しません。</summary>
-    IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey);
-
     BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5);
 
     /// <summary>同じentry/currentと捕捉済み参照入力から一行を投影します。参照入力はgetterの可変モデル読取りへ置き換えません。</summary>
@@ -122,9 +119,6 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public BaseCandidateIndexPrepareResult PrepareBaseCandidateIndex(CancellationToken cancellationToken)
         => library.PrepareBaseCandidateIndex(cancellationToken);
-
-    public IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
-        => library.FindBaseCandidates(titleKey, artistKey);
 
     public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {

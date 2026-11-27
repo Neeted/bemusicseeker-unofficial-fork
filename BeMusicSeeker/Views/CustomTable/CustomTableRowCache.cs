@@ -96,7 +96,7 @@ internal readonly struct CustomTableTextRunStyle
 
 internal readonly struct CustomTableCellValue
 {
-    private CustomTableCellValue(string text, Brush foreground, Brush background, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked, bool isEnabled = true)
+    private CustomTableCellValue(string text, Brush foreground, Brush background, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked, bool keepsOwnForeground, bool isEnabled = true)
     {
         Text = text ?? string.Empty;
         Foreground = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
@@ -107,9 +107,10 @@ internal readonly struct CustomTableCellValue
         Alignment = alignment;
         IsChecked = isChecked;
         IsEnabled = isEnabled;
+        KeepsOwnForeground = keepsOwnForeground;
     }
 
-    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, [], CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null);
+    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, [], CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null, false);
 
     internal string Text { get; }
 
@@ -132,6 +133,12 @@ internal readonly struct CustomTableCellValue
     /// <summary>チェックボックス・ラジオボタンを操作できるかです。falseなら無効色で描き、操作を受け付けません。</summary>
     internal bool IsEnabled { get; }
 
+    /// <summary>
+    /// 行の選択や現在セルの強調によらず、セル自身の文字色で描くかです。色付きの文字区間を持つセルと、
+    /// 既定色でない色を持つアイコン（取得・状態）のセルが該当し、既定色の文字・アイコンと、チェックボックス・ラジオボタンの印は該当しません。
+    /// </summary>
+    internal bool KeepsOwnForeground { get; }
+
     internal static CustomTableCellValue Create(object row, CustomTableColumn column)
     {
         string text = column.GetText(row);
@@ -146,6 +153,7 @@ internal readonly struct CustomTableCellValue
             column.TextStyle,
             column.Alignment,
             column.GetChecked(row),
+            textRuns.Count > 0 || (UsesForegroundForIcon(column.CellKind) && !IsDefaultForeground(foreground)),
             column.GetEnabled(row));
     }
 
@@ -176,6 +184,11 @@ internal readonly struct CustomTableCellValue
             && defaultForeground is SolidColorBrush defaultBrush
             && foregroundBrush.Color == defaultBrush.Color
             && foregroundBrush.Opacity == defaultBrush.Opacity;
+    }
+
+    private static bool UsesForegroundForIcon(CustomTableCellKind cellKind)
+    {
+        return cellKind == CustomTableCellKind.DownloadIcon || cellKind == CustomTableCellKind.StatusIcon;
     }
 
     private static bool UsesTextRunsForSelection(CustomTableCellKind cellKind)

@@ -33,11 +33,6 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal BaseCandidateIndexPrepareResult BaseCandidatePrepareResult { get; set; } = BaseCandidateIndexPrepareResult.Cached;
 
-    internal CancellationToken LastBaseCandidateCancellationToken { get; private set; }
-
-    /// <summary>本体候補の問合せの結果です。未指定なら常に空です。</summary>
-    internal Func<string, string, IReadOnlyList<BaseCandidate>>? BaseCandidateLookup { get; set; }
-
     internal CancellationToken LastResolveIndexCancellationToken { get; private set; }
 
     internal int CurrentChartInfoIndexVersion { get; set; } = 1;
@@ -99,14 +94,10 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
     {
         BaseCandidatePrepareCallCount++;
         PrepareCallOrder.Add("base_candidates");
-        LastBaseCandidateCancellationToken = cancellationToken;
         PrepareBaseCandidateAction?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         return BaseCandidatePrepareResult;
     }
-
-    public IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
-        => BaseCandidateLookup?.Invoke(titleKey, artistKey) ?? [];
 
     public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {

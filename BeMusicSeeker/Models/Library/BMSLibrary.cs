@@ -7315,13 +7315,6 @@ public partial class BMSLibrary : ObservableObject
     internal IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
         => catalogOwnedCollectionOwner.FindBaseCandidates(titleKey, artistKey);
 
-    /// <summary>本体候補の索引の実処理を観測する内部 hook です。通常運用では未設定で、テストだけが使います。</summary>
-    internal Action<string> BaseCandidateIndexWorkObserver
-    {
-        get => catalogOwnedCollectionOwner.BaseCandidateIndexWorkObserver;
-        set => catalogOwnedCollectionOwner.BaseCandidateIndexWorkObserver = value;
-    }
-
     private List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshot()
     {
 

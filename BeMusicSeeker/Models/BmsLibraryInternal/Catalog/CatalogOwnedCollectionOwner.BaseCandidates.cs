@@ -29,16 +29,14 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
     /// <summary>
     /// 本体候補の索引の実処理を観測します。callbackはownerへ再入しません。
-    /// "base_candidate_delta_apply"（反映した所属数の組）と "base_candidate_normalize"（確定時に正規化した譜面）は集合排他の中で、
+    /// "base_candidate_delta_apply"（反映した所属数の組）と "base_candidate_normalize"（確定時に、譜面一件のために題名または作者の正規化を実際に行ったこと。
+    /// 同じ確定の中で入力が同じなら再利用し、呼びません）は集合排他の中で、
     /// "base_candidate_install_pending"（取込み後・設置前）は排他の外で呼ばれます。
     /// </summary>
     internal Action<string> BaseCandidateIndexWorkObserver { get; set; }
 
     /// <summary>構築済みの索引です。未構築（全置換の直後を含む）では null で、読取りは構築を起こしません。</summary>
     internal CatalogBaseCandidateIndex BaseCandidateIndex => Volatile.Read(ref baseCandidateIndex);
-
-    /// <summary>索引が構築済みかを返します。</summary>
-    internal bool IsBaseCandidateIndexWarm => Volatile.Read(ref baseCandidateIndex) != null;
 
     /// <summary>
     /// 現在の索引から、項目の比較キーに合う所持フォルダを返します。未構築なら空です。排他を取りません。
@@ -47,22 +45,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <param name="artistKey">項目の作者の比較キー。</param>
     internal IReadOnlyList<BaseCandidate> FindBaseCandidates(string titleKey, string artistKey)
         => Volatile.Read(ref baseCandidateIndex)?.Find(titleKey, artistKey) ?? [];
-
-    /// <summary>
-    /// 譜面一件の照合キーを作ります。原題と、BMSは元の作者・bmsonは現在の作者を導入先推定と同じ射影で使い、
-    /// 題名キーが空の譜面や親フォルダを作れない譜面は対象外（false）です。
-    /// </summary>
-    internal static bool TryBuildBaseCandidateKey(ChartFile chart, out BaseCandidateKey key)
-    {
-        key = default;
-        if (chart == null) { return false; }
-        (string title, string artist, string path) = PackageInstallEstimationSnapshotBuilder.ProjectMetadataRecord(chart);
-        string titleKey = InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak(title);
-        string folder = titleKey.Length == 0 ? null : CatalogMetadataDependency.TryBuildParentFolderKey(path);
-        if (folder == null) { return false; }
-        key = new BaseCandidateKey(titleKey, InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak(artist), folder);
-        return true;
-    }
 
     /// <summary>
     /// 確定区間の内部から、この確定の変更を索引へ反映します。全置換では索引を破棄します。
@@ -80,11 +62,13 @@ internal sealed partial class CatalogOwnedCollectionOwner
             CatalogBaseCandidateIndex index = baseCandidateIndex;
             if (index == null && activeBaseCandidateBuilds.Count == 0) { return; }
             var deltas = new List<BaseCandidateDelta>();
+            // 正規化の結果はこの確定の中だけで共有します。パスだけの変更は題名・作者の入力が前後で同じなので、同じキーを使います。
+            var normalizer = new BaseCandidateKeyNormalizer(BaseCandidateIndexWorkObserver);
             foreach (CatalogChartChange change in changes)
             {
                 if (!CatalogMetadataDependency.Affects(change)) { continue; }
-                AddDelta(deltas, change.Before, -1);
-                AddDelta(deltas, change.After, 1);
+                AddDelta(deltas, normalizer, change.Before, -1);
+                AddDelta(deltas, normalizer, change.After, 1);
             }
             if (deltas.Count == 0) { return; }
             if (index != null)
@@ -102,11 +86,9 @@ internal sealed partial class CatalogOwnedCollectionOwner
         }
     }
 
-    private void AddDelta(List<BaseCandidateDelta> deltas, ChartFile chart, int count)
+    private static void AddDelta(List<BaseCandidateDelta> deltas, BaseCandidateKeyNormalizer normalizer, ChartFile chart, int count)
     {
-        if (chart == null) { return; }
-        BaseCandidateIndexWorkObserver?.Invoke("base_candidate_normalize");
-        if (TryBuildBaseCandidateKey(chart, out BaseCandidateKey key)) { deltas.Add(new BaseCandidateDelta(key, count)); }
+        if (chart != null && normalizer.TryBuildKey(chart, out BaseCandidateKey key)) { deltas.Add(new BaseCandidateDelta(key, count)); }
     }
 
     /// <summary>集合排他の内側で、索引を未構築へ戻し、進行中の構築結果を無効にします。</summary>
@@ -183,6 +165,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
         Parallel.For(0, titleKeys.Length, options, i => titleKeys[i] = InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak(uniqueTitles[i]));
         Parallel.For(0, artistKeys.Length, options, i => artistKeys[i] = InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak(uniqueArtists[i]));
         var builder = new CatalogBaseCandidateIndex.Builder();
+        // 同じ親フォルダの文字列は一つのインスタンスへ集約し、譜面ごとや（題名, 作者, フォルダ）の組ごとに別の文字列を残さない。
+        var folderPool = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int i = 0; i < charts.Length; i++)
         {
             if ((i & 1023) == 0) { cancellationToken.ThrowIfCancellationRequested(); }
@@ -190,9 +174,47 @@ internal sealed partial class CatalogOwnedCollectionOwner
             if (titleKey.Length == 0) { continue; }
             string folder = CatalogMetadataDependency.TryBuildParentFolderKey(charts[i].Path);
             if (folder == null) { continue; }
+            if (!folderPool.TryGetValue(folder, out string pooled)) { folderPool.Add(folder, pooled = folder); }
+            folder = pooled;
             builder.Add(new BaseCandidateKey(titleKey, artistKeys[artistOf[i]], folder));
         }
         return builder.ToIndex();
+    }
+
+    /// <summary>
+    /// 一回の確定の中だけで使う、譜面一件の照合キーの作成器です。題名・作者の生文字列ごとに正規化の結果を保持して同じ入力の再計算を避け、
+    /// 確定をまたいで保持しません。題名キーが空の譜面や親フォルダを作れない譜面は対象外（false）です。
+    /// </summary>
+    private sealed class BaseCandidateKeyNormalizer(Action<string> observer)
+    {
+        private readonly Dictionary<string, string> titleKeys = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> artistKeys = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 原題と、BMSは元の作者・bmsonは現在の作者を導入先推定と同じ射影で使ってキーを作ります。
+        /// </summary>
+        internal bool TryBuildKey(ChartFile chart, out BaseCandidateKey key)
+        {
+            key = default;
+            (string title, string artist, string path) = PackageInstallEstimationSnapshotBuilder.ProjectMetadataRecord(chart);
+            bool normalized = false;
+            if (!titleKeys.TryGetValue(title, out string titleKey))
+            {
+                titleKeys.Add(title, titleKey = InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak(title));
+                normalized = true;
+            }
+            string folder = titleKey.Length == 0 ? null : CatalogMetadataDependency.TryBuildParentFolderKey(path);
+            string artistKey = null;
+            if (folder != null && !artistKeys.TryGetValue(artist, out artistKey))
+            {
+                artistKeys.Add(artist, artistKey = InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak(artist));
+                normalized = true;
+            }
+            if (normalized) { observer?.Invoke("base_candidate_normalize"); }
+            if (folder == null) { return false; }
+            key = new BaseCandidateKey(titleKey, artistKey, folder);
+            return true;
+        }
     }
 
     /// <summary>構築中に確定した変更を設置まで受け取る、一回の構築の記録です。集合排他の下でだけ触れます。</summary>

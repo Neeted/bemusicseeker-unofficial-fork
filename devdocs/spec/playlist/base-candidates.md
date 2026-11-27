@@ -45,6 +45,7 @@
 - 親フォルダのキーは、保存パスを物理パスへ正規化した直接の親ディレクトリから、末尾の区切りを除いたものです。作り方は、導入先の推定が使うディレクトリ別のプロフィールの失効と共通の補助にまとめます。
 - 差分を反映する条件は、そのプロフィールの失効条件と同じ一つの述語です。追加・削除と、パス・原題・作者（BMSは元の作者、bmsonは現在の作者）の変更が該当します。スコア・健康度・文字コード・ハッシュだけの変更、BMSの表示用の作者だけの変更、bmsonの元の作者だけの変更では内容が変わりません。
 - 差分は、確定区間の中で、確定結果を登録する前に反映します。途中で例外になったときは、索引を破棄して未構築へ戻してから、既存の流れで再送出します。確定結果の登録後に索引を触りません。変更なしの早期終了では更新しません。
+- 差分の作成では、題名・作者の正規化の結果を、その確定の中だけの対応表（生文字列から比較キー）で共有します。変更前後で題名・作者の入力が同じ譜面（パスだけの変更）は、前後で同じキーを使い、同じ生文字列を繰り返し正規化しません。対応表は確定をまたいで保持せず、索引にも持たせません。
 - 差分を反映した内容は、変更後の所持譜面から全構築した内容と一致します。最後の一致譜面が消えたら、フォルダ・作者・題名の空の入れ物を残しません。
 - 全置換では、索引を破棄し、無効化の版を進めます。未構築の索引は、変更のためだけには構築しません。
 
@@ -54,7 +55,7 @@
 
 1. 集合排他の一回の保持で、所持譜面のビューと無効化の版を同時に捕捉し、構築中の確定の受取りを始めます。
 2. 排他の外で、生の題名と生の作者を別々に重複除去し、並列に正規化します。出力は添字付きの配列へ書き、辞書は並列の処理の後に単一のスレッドで作ります。並列度は CPU数−1（最小1）で、取消を接続します。
-3. 排他の外で、譜面ごとに集計します。
+3. 排他の外で、譜面ごとに集計します。同じ親フォルダを表す文字列は、この構築の中で一つのインスタンスへ集約し、譜面ごと・（題名, 作者, フォルダ）の組ごとに別の文字列を残しません。
 4. 設置時に無効化の版を照合し、違えば結果を破棄します。構築中に局所の確定があれば、受け取った差分を設置前に反映し、設置される内容を設置時点の所持譜面からの全構築と一致させます。
 5. 設置して排他を解放した後に、画面へ再評価を依頼します。
 
@@ -65,7 +66,7 @@
 ### 画面
 
 - 行の判定 `PlaylistDetailRow.HasBaseCandidateUrl1Highlight` は、未所持で、URL2が絶対URIで、候補が1件以上のときだけ真です。URL2は実行時のURL補完を反映した実効値で、URL2列の取得アイコン表示と同じ値です。安い判定を先に行い、候補は現在の索引へ問い合わせます。行には項目側の比較キーだけを保持し、候補の結果は保持しません。
-- URL1列は、判定が真のときだけテーマの `Table.BaseCandidateTextBrush` の色で描き、それ以外は従来の色です。列幅が40のアイコン表示でも41以上の文字表示でも同じです。
+- URL1列は、判定が真のときだけテーマの `Table.BaseCandidateTextBrush` の色で描き、それ以外は従来の色です。列幅が40のアイコン表示でも41以上の文字表示でも同じです。判定が真のURL1は、行が選択されていても、そのセルが現在セルでも、専用色で描きます（選択時・現在セルの文字色へ置き換えません）。背景は行の選択・現在セルの規則のままです。判定が偽のURL1と他の列の色は従来どおりです（[文字色の規則](../ui/table-view.md)）。
 - 再評価のきっかけは二つです。一つは、ライブラリ変更の適用の最後に、その変更に差分の反映の条件へ該当するものがあるとき。もう一つは、索引の設置の完了を画面へ渡したときです。どちらも、現在のビューの実体化済みの未所持行へ変更通知を出すだけです。元の行・依存・確定結果・要求の識別には何も加えません。行ごとの厳密な時機は保証しません。
 - 未所持行の右クリックメニューに「本体候補」のサブメニューを置きます。メニューを開いた行の候補（最大5件）を並べ、見出しはフォルダのフルパスです。`_` をアクセスキーにせずそのまま表示します（[メニューの見出し](../ui/table-view.md#見出しとメニュー)）。URL2の有無によらず、候補が0件（未構築を含む）なら表示しません。
 - 項目を選ぶと、そのフォルダをエクスプローラーで開きます。ライブラリのフォルダツリーの「エクスプローラーで開く」と同じく、構成が注入するフォルダの存在確認と起動の関数を使います。呼出し前に存在を確認し、なければ何もせず、起動結果は破棄します。
@@ -80,7 +81,7 @@
 | 全置換と未構築、構築中の確定・全置換・取消 | 同上 | `FullReplacement_DiscardsAndNextPrepareRebuilds`、`ColdIndex_LocalCommitDoesNotBuild`、`CommitDuringBuild_InstalledContentMatchesCurrentFullBuild`、`FullReplacementDuringBuild_DiscardsResult`、`CancelledBuild_RemainsCold`、`ParallelAndSequentialBuilds_AreEqual`、`SingleChange_WorkDoesNotScaleWithBackground`（背景16件・128件）。 |
 | 索引準備の仕事の中での構築と取消 | [`PlaylistWorkspaceViewModel.LibraryIndexPrewarm`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.LibraryIndexPrewarm.cs) | [`PlaylistWorkspaceDetailRefreshTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs) の `PlaylistLibraryIndexPrewarm_BuildsBaseCandidatesAfterResolveIndexInSameWork` と `PlaylistLibraryIndexPrewarm_CancelledWorkDoesNotBuildBaseCandidates`。 |
 | 行の判定、メニューの候補、確定後の収束 | [`PlaylistDetailRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailRow.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs)、[`PlaylistWorkspaceViewModel.DetailChanges`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailChanges.cs) | [`PlaylistDetailBaseCandidateTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistDetailBaseCandidateTests.cs) の `Url1Highlight_RequiresUnownedAbsoluteUrl2AndCandidate`、`MenuCandidates_UseContextRowIndependentOfUrl2`、`CatalogCommits_ConvergeRealizedUnownedRows`（背景16件・128件）。 |
-| URL1列の文字色 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs)、[`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs) | [`CustomTableColumnFactoryTests`](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `CreateMainColumns_Url1ForegroundFollowsBaseCandidateHighlight` は、幅40・41以上で判定の真偽に従う色を確認する。変更通知による行の再描画は、既存の行の通知の検証が分担する。 |
+| URL1列の文字色 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs)、[`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs) | [`CustomTableColumnFactoryTests`](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `CreateMainColumns_Url1ForegroundFollowsBaseCandidateHighlight` は、幅40・41以上で判定の真偽に従う色を色の値で確認する。[`CustomTableRenderingTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) の `PlaylistUrl1BaseCandidateColor_IsKeptOverSelectionAndCurrentCell` は、幅40・200で、未選択・行の選択・現在セルが各セルのとき、候補あり行のURL1が専用色と規則どおりの背景で描かれ、候補なし行のURL1とURL2が従来の色であることを物理画素で確認する。変更通知による行の再描画は、既存の行の通知の検証が分担する。 |
 | サブメニューの表示と、候補のフォルダを開く操作 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`MainWindowPlaylistBaseCandidateTerminal`](../../../BeMusicSeeker/Views/MainWindow/MainWindowPlaylistWorkspaceTerminals.cs) | [`MainWindowSelectedChartContextMenuWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `MissingPlaylistBaseCandidateSubmenu_ListsCandidatesAndOpensClickedFolder`（`_` を含むパス）と `MissingPlaylistBaseCandidateSubmenu_HiddenWithoutCandidates`。 |
 | 表示文言の6言語の整合 | `Playlist_base_candidates`（[`Resources.resx`](../../../BeMusicSeeker/Properties/Resources.resx)と `lang/`） | 既存の `LocalizationResourceParityTests`。 |
 
