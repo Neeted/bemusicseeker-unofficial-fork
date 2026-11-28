@@ -809,6 +809,10 @@ title:alpha|beta
 <td style="text-align: left;">BP</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>wav</code> / <code>bga</code> / <code>movie</code></td>
+<td style="text-align: left;">WAV・BGA・MOVIE列（使用ファイルの存在率）。100%は <code>1</code> と入力します。<code>defined</code> / <code>undefined</code> も利用できます</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>memo</code></td>
 <td style="text-align: left;">メモ（プレイリスト詳細のみ）</td>
 </tr>
@@ -819,6 +823,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p><code>RATE</code> の表示は百分率ですが、数値条件と正規表現は0～1の尺度を使います。<code>rate:&gt;=0.8</code> は80%以上、<code>rate:re:^0[.]8$</code> は80%に一致します。正規表現でも小数点は <code>.</code> を使います。</p>
+<p><code>WAV</code>・<code>BGA</code>・<code>MOVIE</code> も同じく0～1の尺度を使います。<code>wav:&lt;1</code> は音源が不足している譜面、<code>wav:1</code> はすべてそろっている譜面に一致します。列が <code>-</code> の譜面は <code>bga:undefined</code>、値が表示されている譜面は <code>bga:defined</code> で探せます。</p>
 <p>検索対象を指定しない場合、メインの譜面一覧では TITLE、ARTIST、GENRE、TAG、PATH、プレイリストの表示記号、MD5、SHA256 を検索します。プレイリスト詳細では、さらにメモとコメントも検索します。</p>
 <h3 id="プレイリスト一覧">プレイリスト一覧</h3>
 <div class="table-scroll"><table>

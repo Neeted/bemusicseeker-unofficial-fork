@@ -664,6 +664,110 @@ public sealed class GridKeywordSearchQueryTests
         finally { CultureInfo.CurrentCulture = previous; }
     }
 
+    /// <summary>
+    /// 通常一覧の二入口と表詳細で、WAV・BGA・MOVIEの存在率を表示の百分率を100で割った0～1の値として検索することを確認します。
+    /// 値のない行は未定義で数値条件に一致せず、正規表現では空欄として評価します。百分率のままの比較、乗算による小数誤差、
+    /// 未定義と0%の混同、3項目の取り違え、項目指定のない語への混入、文化圏依存の小数カンマを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    public void ResourceHealthSearch_FractionDefinedRegexAndFieldIndependenceAcrossRowSources(string cultureName)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
+            ChartFile[] files =
+            [
+                CreateFile() with { WAVHealth = 100, BGAHealth = 57, MovieHealth = null },
+                CreateFile() with { WAVHealth = 0, BGAHealth = null, MovieHealth = 87 },
+                CreateFile() with { WAVHealth = null, BGAHealth = null, MovieHealth = null }
+            ];
+            (string Text, bool[] Expected)[] cases =
+            [
+                ("wav:1", [true, false, false]),
+                ("wav:100", [false, false, false]),
+                ("wav:0", [false, true, false]),
+                ("wav:<1", [false, true, false]),
+                ("wav:>=0", [true, true, false]),
+                ("wav:defined", [true, true, false]),
+                ("wav:undefined", [false, false, true]),
+                ("wav:undef", [false, false, true]),
+                ("wav:null", [false, false, true]),
+                ("bga:0.57", [true, false, false]),
+                ("bga:>=0.5", [true, false, false]),
+                ("bga:0.5..0.57", [true, false, false]),
+                ("bga:57", [false, false, false]),
+                ("bga:undefined", [false, true, true]),
+                ("movie:0.87", [false, true, false]),
+                ("movie:0.5..0.9", [false, true, false]),
+                ("movie:87", [false, false, false]),
+                ("movie:defined", [false, true, false]),
+                ("wav:re:^1$", [true, false, false]),
+                ("bga:re:^0[.]57$", [true, false, false]),
+                ("movie:re:^0[.]87$", [false, true, false]),
+                ("movie:re:^0,87$", [false, false, false]),
+                ("wav:re:^100", [false, false, false]),
+                ("wav:re:^$", [false, false, true]),
+                ("movie:re:^$", [true, false, true]),
+                ("bga:1", [false, false, false]),
+                ("bga:0", [false, false, false]),
+                ("wav:0.87", [false, false, false]),
+                ("movie:0.57", [false, false, false]),
+                ("0.87", [false, false, false]),
+                ("0.57", [false, false, false]),
+                ("re:^0[.]87$", [false, false, false]),
+                ("wav:1|undefined", [true, false, true]),
+                ("-wav:1", [false, true, true])
+            ];
+            for (int index = 0; index < files.Length; index++)
+            {
+                var library = LibraryChartRow.FromChartFile(files[index]);
+                ChartListSourceRow source = CreateSourceRow(files[index]);
+                var detail = new PlaylistDetailSourceRow(new BMSTableEntry(files[index]), files[index]);
+                foreach ((string text, bool[] expected) in cases)
+                {
+                    var query = GridKeywordSearchQuery.Parse(text);
+                    string label = text + " row" + (index + 1);
+                    Assert.AreEqual(expected[index], query.MatchesLibraryChartRow(library), label + " library");
+                    Assert.AreEqual(expected[index], query.MatchesChartListSourceRow(source), label + " source");
+                    Assert.AreEqual(expected[index], query.MatchesPlaylistDetail(detail), label + " detail");
+                }
+            }
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
+    /// <summary>
+    /// プレイ履歴・プレイリスト一覧・統合候補一覧では wav / bga / movie が未対応項目で、否定でも不一致となり項目ごとに未知の項目の診断を出すことと、
+    /// 通常一覧と表詳細では診断を出さないことを確認します。対応画面の項目一覧を他の画面へ広げる誤りと、対応画面で警告を出す誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void ResourceHealthFields_UnsupportedContextsMismatchAndReportUnknownField()
+    {
+        PlayHistoryRow history = CreatePlayHistoryRow(finalized: true);
+        var summary = new PlaylistSummaryRow { Name = "Alpha" };
+        foreach (string text in new[] { "wav:undefined", "-wav:1", "bga:undefined", "-movie:1" })
+        {
+            var query = GridKeywordSearchQuery.Parse(text);
+            Assert.IsFalse(query.MatchesPlayHistoryRow(history), text + " history");
+            Assert.IsFalse(query.MatchesPlaylistSummary(summary), text + " summary");
+            Assert.IsFalse(query.MatchesDuplicateMergeCandidate(@"C:\Songs\Alpha", "Alpha", "Alpha Title", "ArtistX", "status"), text + " candidate");
+        }
+
+        var fields = GridKeywordSearchQuery.Parse("wav:1 bga:defined movie:re:^$");
+        foreach (GridKeywordSearchContext context in new[] { GridKeywordSearchContext.PlayHistory, GridKeywordSearchContext.PlaylistSummary, GridKeywordSearchContext.DuplicateMergeCandidate })
+        {
+            CollectionAssert.AreEquivalent(
+                new[] { "wav", "bga", "movie" },
+                fields.GetDiagnostics(context).Where(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.UnknownField).Select(diagnostic => diagnostic.Value).ToArray(),
+                context.ToString());
+        }
+        Assert.AreEqual(0, fields.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
+        Assert.AreEqual(0, fields.GetDiagnostics(GridKeywordSearchContext.PlaylistDetail).Count);
+    }
+
     /// <summary>未登録成績のランク・スコア・率・コンボ・BPは欠損別名に一致し、クリアの既定状態は定義済みとなることを確認し、成績項目の欠損区分を一律にする誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportUndefinedTerms()
@@ -1299,7 +1403,7 @@ public sealed class GridKeywordSearchQueryTests
             AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
             AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
         }
-        foreach (string field in new[] { "rate", "score", "combo", "bp" })
+        foreach (string field in new[] { "rate", "score", "combo", "bp", "wav", "bga", "movie" })
         {
             AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
             AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));

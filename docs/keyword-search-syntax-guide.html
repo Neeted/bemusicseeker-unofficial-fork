@@ -808,6 +808,10 @@ title:alpha|beta
 <td style="text-align: left;">BP</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>wav</code> / <code>bga</code> / <code>movie</code></td>
+<td style="text-align: left;">WAV, BGA, and MOVIE columns (share of used files that exist). Enter <code>1</code> for 100%. Also accepts <code>defined</code> / <code>undefined</code></td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>memo</code></td>
 <td style="text-align: left;">Memo; Playlist detail only</td>
 </tr>
@@ -818,6 +822,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p><code>RATE</code> is displayed as a percentage, but numeric conditions and regular expressions use a value from 0 to 1. <code>rate:&gt;=0.8</code> matches 80% or higher; <code>rate:re:^0[.]8$</code> matches 80%. Regular expressions also use <code>.</code> as the decimal separator.</p>
+<p><code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code> use the same 0 to 1 scale. <code>wav:&lt;1</code> matches charts with missing audio files, and <code>wav:1</code> matches charts with all of them. Use <code>bga:undefined</code> for charts whose column shows <code>-</code>, and <code>bga:defined</code> for charts that show a value.</p>
 <p>Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.</p>
 <h3 id="playlist-list">Playlist List</h3>
 <div class="table-scroll"><table>

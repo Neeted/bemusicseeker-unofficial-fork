@@ -222,10 +222,13 @@ title:alpha|beta
 | `score` | SCORE |
 | `combo` | COMBO |
 | `bp` | BP |
+| `wav` / `bga` / `movie` | WAV, BGA, and MOVIE columns (share of used files that exist). Enter `1` for 100%. Also accepts `defined` / `undefined` |
 | `memo` | Memo; Playlist detail only |
 | `comment` | Comment; Playlist detail only |
 
 `RATE` is displayed as a percentage, but numeric conditions and regular expressions use a value from 0 to 1. `rate:>=0.8` matches 80% or higher; `rate:re:^0[.]8$` matches 80%. Regular expressions also use `.` as the decimal separator.
+
+`WAV`, `BGA`, and `MOVIE` use the same 0 to 1 scale. `wav:<1` matches charts with missing audio files, and `wav:1` matches charts with all of them. Use `bga:undefined` for charts whose column shows `-`, and `bga:defined` for charts that show a value.
 
 Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.
 

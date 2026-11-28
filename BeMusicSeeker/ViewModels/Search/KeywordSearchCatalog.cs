@@ -132,7 +132,7 @@ internal static class KeywordSearchCatalog
                 or "long" or "ln" or "scratch" or "total" or "tn" or "t/n" or "density"
                 or "peak" or "peakdensity" or "end" or "enddensity" or "soflan"
                 => context == GridKeywordSearchContext.PlaylistSummary || context == GridKeywordSearchContext.PlayHistory ? [] : DefinedValues,
-            "rate" or "score" or "combo" or "bp"
+            "rate" or "score" or "combo" or "bp" or "wav" or "bga" or "movie"
                 => context == GridKeywordSearchContext.PlaylistSummary || context == GridKeywordSearchContext.PlayHistory ? [] : DefinedValues,
             "finalized" => context == GridKeywordSearchContext.PlayHistory ? BooleanValues : [],
             "month" => context == GridKeywordSearchContext.PlayHistory ? MonthValues : [],
@@ -164,7 +164,7 @@ internal static class KeywordSearchCatalog
             or "judge" or "judge%" or "judgepct" or "feature" or "level" or "mainbpm" or "maxbpm"
             or "minbpm" or "duration" or "length" or "notes" or "long" or "ln" or "scratch" or "total"
             or "tn" or "t/n" or "density" or "peak" or "peakdensity" or "end" or "enddensity" or "soflan"
-            or "rate" or "score" or "combo" or "bp" or "finalized" or "month" or "type" or "kind"
+            or "rate" or "score" or "combo" or "bp" or "wav" or "bga" or "movie" or "finalized" or "month" or "type" or "kind"
             or "playlist" or "ref" or "table";
     }
 

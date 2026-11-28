@@ -68,9 +68,12 @@ internal sealed class GridKeywordSearchQuery
         "clear", "rank", "djlevel", "dj", "rate", "score", "combo", "bp"
     ];
 
-    private static readonly string[] ChartListFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", .. BaseChartFields, .. ScoreFields];
+    /// <summary>WAV・BGA・MOVIE列のリソース存在率を検索する項目です。項目を指定しない語の対象には含めません。</summary>
+    private static readonly string[] ResourceHealthFields = ["wav", "bga", "movie"];
 
-    private static readonly string[] PlaylistDetailFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment", .. BaseChartFields, .. ScoreFields];
+    private static readonly string[] ChartListFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", .. BaseChartFields, .. ScoreFields, .. ResourceHealthFields];
+
+    private static readonly string[] PlaylistDetailFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment", .. BaseChartFields, .. ScoreFields, .. ResourceHealthFields];
 
     private static readonly string[] PlaylistSummaryFields = ["id", "output", "name", "folder", "foldername", "prefix", "symbol", "header", "data"];
 
@@ -451,7 +454,9 @@ internal sealed class GridKeywordSearchQuery
             ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
                 ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
-                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
+                : IsResourceHealthField(condition.Field) && !condition.IsRegex
+                    ? MatchesResourceHealthCondition(condition, GetResourceHealthFraction(condition.Field, row))
+                    : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -465,7 +470,9 @@ internal sealed class GridKeywordSearchQuery
             ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
                 ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.Clear, row.Rank, row.RateDouble, row.Score, row.MaxCombo, row.MinBp))
-                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetChartListSourceRowValues(row, condition.Field)));
+                : IsResourceHealthField(condition.Field) && !condition.IsRegex
+                    ? MatchesResourceHealthCondition(condition, GetResourceHealthFraction(condition.Field, row))
+                    : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetChartListSourceRowValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -479,7 +486,9 @@ internal sealed class GridKeywordSearchQuery
             ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
                 ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
-                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
+                : IsResourceHealthField(condition.Field) && !condition.IsRegex
+                    ? MatchesResourceHealthCondition(condition, GetResourceHealthFraction(condition.Field, row))
+                    : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -570,6 +579,74 @@ internal sealed class GridKeywordSearchQuery
         return field != null && ScoreFields.Contains(field);
     }
 
+    private static bool IsResourceHealthField(string field)
+    {
+        return field != null && ResourceHealthFields.Contains(field);
+    }
+
+    /// <summary>
+    /// リソース存在率の数値条件と <c>defined</c> / <c>undefined</c> を評価します。
+    /// 値のない行（列の「-」）は未定義で、数値条件には一致しません。
+    /// </summary>
+    private static bool MatchesResourceHealthCondition(SearchCondition condition, double? fraction)
+    {
+        foreach (SearchAlternative alternative in condition.Alternatives)
+        {
+            if (alternative.IsInvalid || alternative.IsEmpty)
+            {
+                continue;
+            }
+            if (MatchesNumericOrDefinedTerm(fraction, alternative.Term?.Trim() ?? string.Empty))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static double? GetResourceHealthFraction(string field, LibraryChartRow row)
+    {
+        return ToResourceHealthFraction(field switch
+        {
+            "wav" => row.WAVHealth,
+            "bga" => row.BGAHealth,
+            "movie" => row.MovieHealth,
+            _ => null,
+        });
+    }
+
+    private static double? GetResourceHealthFraction(string field, ChartListSourceRow row)
+    {
+        // 元行の存在率は読むたびに譜面の投影を作るため、条件の項目だけを読みます。
+        return ToResourceHealthFraction(field switch
+        {
+            "wav" => row.WAVHealth,
+            "bga" => row.BGAHealth,
+            "movie" => row.MovieHealth,
+            _ => null,
+        });
+    }
+
+    private static double? GetResourceHealthFraction(string field, PlaylistDetailSourceRow row)
+    {
+        return ToResourceHealthFraction(field switch
+        {
+            "wav" => row.WAVHealth,
+            "bga" => row.BGAHealth,
+            "movie" => row.MovieHealth,
+            _ => null,
+        });
+    }
+
+    /// <summary>
+    /// 列に表示する整数の百分率を、検索で使う0～1の値へ変換します。
+    /// 0.01の乗算は57%を0.5700000000000001にするため、表示と同じ小数表記になる除算を使います。
+    /// </summary>
+    private static double? ToResourceHealthFraction(int? percent)
+    {
+        return percent.HasValue ? percent.Value / 100.0 : null;
+    }
+
     private static IEnumerable<string> GetLibraryChartRowValues(LibraryChartRow row, string field)
     {
         switch (field)
@@ -633,6 +710,11 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "bp":
                 yield return FormatNullableIntInvariant(row.minbp);
+                break;
+            case "wav":
+            case "bga":
+            case "movie":
+                yield return FormatNullableDoubleInvariant(GetResourceHealthFraction(field, row));
                 break;
             default:
                 foreach (string value in GetChartInfoValues(row.ChartInfo, field))
@@ -706,6 +788,11 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "bp":
                 yield return FormatNullableIntInvariant(row.MinBp);
+                break;
+            case "wav":
+            case "bga":
+            case "movie":
+                yield return FormatNullableDoubleInvariant(GetResourceHealthFraction(field, row));
                 break;
             default:
                 foreach (string value in GetChartInfoValues(row.ChartInfo, field))
@@ -788,6 +875,11 @@ internal sealed class GridKeywordSearchQuery
             case "bp":
                 yield return FormatNullableIntInvariant(row.minbp);
                 break;
+            case "wav":
+            case "bga":
+            case "movie":
+                yield return FormatNullableDoubleInvariant(GetResourceHealthFraction(field, row));
+                break;
             default:
                 foreach (string value in GetChartInfoValues(row.ChartInfo, field))
                 {
@@ -828,10 +920,15 @@ internal sealed class GridKeywordSearchQuery
             }
             return TryParseRankTerm(term, out RankType expectedRank) && rank == expectedRank;
         }
-        double? value = GetScoreNumericValue(field, rate, score, combo, bp);
-        if (IsDefinedTerm(term, out bool numericDefined))
+        return MatchesNumericOrDefinedTerm(GetScoreNumericValue(field, rate, score, combo, bp), term);
+    }
+
+    /// <summary>値の有無だけで定義済みかを決める数値項目の、<c>defined</c> / <c>undefined</c> と数値条件を評価します。</summary>
+    private static bool MatchesNumericOrDefinedTerm(double? value, string term)
+    {
+        if (IsDefinedTerm(term, out bool defined))
         {
-            return value.HasValue == numericDefined;
+            return value.HasValue == defined;
         }
         return MatchesNumericTerm(value, term);
     }

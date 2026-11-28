@@ -732,7 +732,7 @@ rate:>=0.8
 playlist:"Satellite Sub"
 ```
 
-`RATE` is displayed as a percentage. Numeric searches and regular expressions in the chart list and playlist detail use 0 to 1: `rate:>=0.8` matches 80% or higher, and `rate:re:^0[.]8$` matches 80%.
+`RATE` is displayed as a percentage. Numeric searches and regular expressions in the chart list and playlist detail use 0 to 1: `rate:>=0.8` matches 80% or higher, and `rate:re:^0[.]8$` matches 80%. The `WAV`, `BGA`, and `MOVIE` columns can be searched the same way with `wav:` / `bga:` / `movie:` on the 0 to 1 scale: `wav:<1` matches charts with missing audio files, and `bga:undefined` matches charts whose column shows `-`.
 
 ### Completion, History, and Favorites
 

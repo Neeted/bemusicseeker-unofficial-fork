@@ -141,6 +141,37 @@ public sealed class KeywordSearchPresentationTests
         StringAssert.Contains(summaryHelp, "symbol");
         StringAssert.Contains(playHistoryHelp, "finalized");
         StringAssert.Contains(playHistoryHelp, "date");
+        foreach (string field in new[] { "wav", "bga", "movie" })
+        {
+            StringAssert.Contains(chartListHelp, field);
+            StringAssert.Contains(playlistDetailHelp, field);
+        }
+    }
+
+    /// <summary>
+    /// wav / bga / movie の項目名と値の候補が通常一覧と表詳細だけに出て、プレイ履歴とプレイリスト一覧には出ないことを確認します。
+    /// 項目一覧と値の補完対象の登録漏れ、未対応画面への候補の混入を検出します。値の正確な集合はカタログのテストが分担します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(GridKeywordSearchContext.ChartList, true)]
+    [DataRow(GridKeywordSearchContext.PlaylistDetail, true)]
+    [DataRow(GridKeywordSearchContext.PlayHistory, false)]
+    [DataRow(GridKeywordSearchContext.PlaylistSummary, false)]
+    public void KsaResourceHealthFields_CandidatesOnlyInChartListAndPlaylistDetail(GridKeywordSearchContext context, bool supported)
+    {
+        KeywordSearchAssistanceOwner assistance = new(null, context, KeywordSearchCatalogSnapshot.Empty);
+
+        string[] fields = assistance.Focus(string.Empty, 0).VisibleItems.Select(item => item.DisplayText).ToArray();
+        foreach (string field in new[] { "wav:", "bga:", "movie:" })
+        {
+            Assert.AreEqual(supported, fields.Contains(field), field);
+
+            KeywordSearchPresentationState values = assistance.Refresh(field, field.Length);
+            Assert.AreEqual(
+                supported,
+                values.Sections.Any(section => section.Kind == KeywordSearchPresentationSectionKind.Values),
+                field + " values");
+        }
     }
 
     /// <summary>空入力ではお気に入り・履歴・項目を順に表示し、重複履歴と非対応memoを隠して表示先変更で戻すことを確認し、保存式の投影や行操作の可否の誤りを検出します。</summary>
