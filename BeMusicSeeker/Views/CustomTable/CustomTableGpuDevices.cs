@@ -9,7 +9,7 @@ using Dxgi = Vortice.DXGI;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// GPU経路が使う、プロセスで一組のデバイスです。Direct3D 11のデバイスとコンテキスト、Direct2Dのデバイス、Direct3D 9Exの本体とデバイスを、
+/// GPU経路が使う、プロセスで一組のデバイスです。Direct3D 11のデバイスとコンテキスト、Direct2Dのデバイス、Direct3D 9Exの本体とデバイス、
 /// 反映で描画の完了を確認するイベントクエリ（デバイスと一組）を、最初に必要になったときに作り、プロセスの終了まで保ちます（終了専用の解放は持ちません）。表ごとに持つのは、寸法に依存する面だけです。
 /// 消失を検出した表が <see cref="Discard"/> で旧いデバイスを手放して <see cref="Generation"/> を進め、面を持つほかの表は
 /// <see cref="GenerationChanged"/> で再描画を要求され、次の描画の開始時に世代の不一致から自分の面を作り直します。UIスレッドだけで使います。

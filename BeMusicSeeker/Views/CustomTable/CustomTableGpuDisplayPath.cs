@@ -17,7 +17,8 @@ namespace BeMusicSeeker.Views;
 /// Direct3D 9Exの面、<see cref="D3DImage"/> を表ごとに持ち、Direct2Dで描いた内容をWPFが一枚の画像として合成します。窓は作りません。
 /// <see cref="D3DImage"/> の裏面は「ソフトウェアの代替を有効」で設定します。リモート接続などWPFがソフトウェアで合成する場面と、
 /// 実際に描かれた画像の読取りのためです。動作する組合せはDirect3D 11の <c>B8G8R8A8_UNorm</c> とDirect3D 9の <c>A8R8G8B8</c> だけで、
-/// 全面を不透明で描く限りアルファは255になり、ClearTypeも効きます。解放では共有のデバイスを手放しません。UIスレッドだけで使います。
+/// 全面を不透明で描く限りアルファは255になり、ClearTypeも効きます。共有面への書込みは、描画の試行ごとに <see cref="D3DImage"/> のロックの中で行います
+/// （<see cref="BeginFrame"/> で取り、<see cref="Present"/> か <see cref="AbortFrame"/> で解放します）。解放では共有のデバイスを手放しません。UIスレッドだけで使います。
 /// </summary>
 internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
 {
@@ -35,6 +36,7 @@ internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
     private D3D9.IDirect3DSurface9 surface9;
     private D3DImage image;
     private bool backBufferStale;
+    private D3DImage lockedImage;
 
     /// <param name="getFaults">故障注入の設定を返す関数。設定がなければnullを返します。</param>
     /// <param name="requestRedraw">前面バッファーが使えるようになったとき、共有のデバイスの世代が進んだときに、再描画を一回要求する処理。</param>
@@ -80,49 +82,94 @@ internal sealed class CustomTableGpuDisplayPath : CustomTableDisplayPath
     }
 
     /// <summary>
-    /// Direct3D 11側の描画の完了を確認してから、<see cref="D3DImage"/> の更新領域を通知します。完了は、共有のイベントクエリを描画の後に終端し、
-    /// 結果が <see cref="CompletionWaitLimitMilliseconds"/> ミリ秒以内に返るまで待って確認します。命令の送り出し（<c>Flush</c>）だけでは、
-    /// WPFが別のデバイスで行う複写が描画を追い越し、古い内容が前面バッファーへ入るためです。上限を超えたときは待つのをやめて通知し、
-    /// <see cref="LastPresentTimedOut"/> をtrueにします。<c>Lock</c> と <c>Unlock</c> は、通知が失敗しても必ず対にします。
-    /// 終端と結果の取得の失敗は例外として呼び出し側へ伝えます。
+    /// 共有面へ最初に書く前に <see cref="D3DImage"/> のロックを取ります。WPFは <c>Unlock</c> の後に裏面を前面バッファーへ複写し、<c>Lock</c> はその複写の完了まで待つため、
+    /// 複写の最中に次の内容を共有面へ書き始めません。前面バッファーが使えるようになった通知の後の最初の試行では、WPFが裏面との結び付きを失っている場合に備え、
+    /// 最初の書込みの前に、ロックの中で裏面を結び直します。ロックは <see cref="Present"/> または <see cref="AbortFrame"/> が一度だけ解放します。
+    /// 取得か結び直しが失敗したときは、取ったロックを解放してから例外を出します。
     /// </summary>
-    internal override void Present()
+    internal override void BeginFrame()
     {
-        D3D11.ID3D11DeviceContext context = CustomTableGpuDevices.Context11;
-        D3D11.ID3D11Query query = CustomTableGpuDevices.CompletionQuery;
-        LastPresentTimedOut = false;
-        context.End(query);
-        CustomTableDisplayFaults faults = getFaults?.Invoke();
-        if (faults != null && faults.TryConsumePresentCompletionTimeout())
-        {
-            // 待たずに上限超過として扱う。描画の命令だけは送り出す。
-            context.Flush();
-            LastPresentTimedOut = true;
-        }
-        else
-        {
-            LastPresentTimedOut = !WaitForCompletion(context, query);
-        }
-        image.Lock();
+        D3DImage locked = image;
+        locked.Lock();
+        lockedImage = locked;
         try
         {
             if (backBufferStale)
             {
-                // 前面バッファーが使えなくなった間に、WPFが裏面との結び付きを失っている場合に備えて結び直す。
-                image.SetBackBuffer(D3DResourceType.IDirect3DSurface9, surface9.NativePointer, true);
+                locked.SetBackBuffer(D3DResourceType.IDirect3DSurface9, surface9.NativePointer, true);
                 backBufferStale = false;
             }
-            image.AddDirtyRect(new Int32Rect(0, 0, PixelWidth, PixelHeight));
         }
-        finally
+        catch
         {
-            image.Unlock();
+            AbortFrame();
+            throw;
         }
     }
 
     /// <summary>
+    /// 取っているロックを、取った画像に対して解放します。取っていなければ何もしません。呼び出しは失敗の経路で、元の失敗を隠さないよう、
+    /// <c>Unlock</c> の失敗は伝えません。面の解放より先に呼びます。
+    /// </summary>
+    internal override void AbortFrame()
+    {
+        D3DImage locked = lockedImage;
+        lockedImage = null;
+        if (locked == null)
+        {
+            return;
+        }
+        try
+        {
+            locked.Unlock();
+        }
+        catch
+        {
+            // 先にある失敗を優先する。
+        }
+    }
+
+    /// <summary>
+    /// <see cref="BeginFrame"/> で取ったロックの中で、Direct3D 11側の描画の完了を確認してから、<see cref="D3DImage"/> の更新領域を通知し、ロックを解放します。
+    /// 完了は、共有のイベントクエリを描画の後に終端し、結果が <see cref="CompletionWaitLimitMilliseconds"/> ミリ秒以内に返るまで待って確認します。
+    /// 命令の送り出し（<c>Flush</c>）だけでは、WPFが別のデバイスで行う複写が描画を追い越し、古い内容が前面バッファーへ入るためです。
+    /// 上限を超えたときは待つのをやめて通知し、<see cref="LastPresentTimedOut"/> をtrueにします。
+    /// 終端・結果の取得・通知の失敗は、ロックを解放してから例外として呼び出し側へ伝えます。通知が成功した後の <c>Unlock</c> の失敗も例外です。
+    /// </summary>
+    internal override void Present()
+    {
+        D3DImage locked = lockedImage ?? throw new InvalidOperationException("The display frame is not locked.");
+        try
+        {
+            D3D11.ID3D11DeviceContext context = CustomTableGpuDevices.Context11;
+            D3D11.ID3D11Query query = CustomTableGpuDevices.CompletionQuery;
+            LastPresentTimedOut = false;
+            context.End(query);
+            CustomTableDisplayFaults faults = getFaults?.Invoke();
+            if (faults != null && faults.TryConsumePresentCompletionTimeout())
+            {
+                // 待たずに上限超過として扱う。描画の命令だけは送り出す。
+                context.Flush();
+                LastPresentTimedOut = true;
+            }
+            else
+            {
+                LastPresentTimedOut = !WaitForCompletion(context, query);
+            }
+            locked.AddDirtyRect(new Int32Rect(0, 0, PixelWidth, PixelHeight));
+        }
+        catch
+        {
+            AbortFrame();
+            throw;
+        }
+        lockedImage = null;
+        locked.Unlock();
+    }
+
+    /// <summary>
     /// 終端したイベントクエリの完了を、上限まで待ちます。結果の取得は命令の送り出しを兼ねます。未完了（<c>S_FALSE</c>）は成功扱いの結果コードのため、
-    /// 完了は <c>S_OK</c> の場合だけとみなします。待つ間はUIスレッドを譲りながら回転します。
+    /// 完了は <c>S_OK</c> の場合だけとみなします。待つ間は、メッセージ処理は行わず、スレッドの時間枠を譲りながら回転します。
     /// </summary>
     /// <returns>上限までに完了を確認できたときtrue。</returns>
     private static bool WaitForCompletion(D3D11.ID3D11DeviceContext context, D3D11.ID3D11Query query)

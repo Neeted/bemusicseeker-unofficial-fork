@@ -217,8 +217,10 @@ internal sealed partial class CustomTableSurface : FrameworkElement
     }
 
     /// <summary>
-    /// 描画の試行を一回行います。表示経路を用意して全面を描き、終端が成功すれば画素をWPFへ反映してtrueを返します。
-    /// 描画先の作り直しの要求かデバイスの消失で終端が失敗し、表示経路が復旧の準備を終えたときはfalseを返し、呼び出し側が描き直します。
+    /// 描画の試行を一回行います。表示経路を用意し、共有面へ最初に書く前に表示経路のロックを取って全面を描き、終端が成功すれば画素をWPFへ反映してtrueを返します。
+    /// ロックは試行の終わりに一度だけ解放し、描画の例外・終端の失敗・反映の失敗のどれでも、面の解放・復旧・切替えより先に解放します。
+    /// ロックの取得の失敗と反映の失敗は、表示経路がCPU経路へ切り替えてfalseを返し、呼び出し側が描き直します。
+    /// 描画先の作り直しの要求かデバイスの消失で終端が失敗し、表示経路が復旧の準備を終えたときもfalseを返します。
     /// それ以外の失敗は、資源を解放して例外を再送出します。
     /// </summary>
     private bool TryDrawFrame(CustomTableColumnLayoutSnapshot layout, int width, int height, double ppd, bool swapPending, out int visibleRowCount)
@@ -226,42 +228,70 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         visibleRowCount = 0;
         display.Prepare(width, height, ppd, this);
         display.TrimBrushes();
-        target = display.Target;
-        bool completed = false;
-        SharpGen.Runtime.Result endResult;
-        target.BeginDraw();
+        if (!display.TryBeginFrame())
+        {
+            return false;
+        }
+        // ロックを取った表示経路。途中で面を解放しても、ここから解放できる。
+        CustomTableDisplaySurface frame = display;
         try
         {
-            DrawBackground();
-            DrawHeader(layout);
-            if (!swapPending)
+            target = display.Target;
+            bool completed = false;
+            bool drawing = false;
+            SharpGen.Runtime.Result endResult = default;
+            try
             {
-                visibleRowCount = DrawRows(layout);
-                DrawRowDropInsertPreview();
+                target.BeginDraw();
+                drawing = true;
+                DrawBackground();
+                DrawHeader(layout);
+                if (!swapPending)
+                {
+                    visibleRowCount = DrawRows(layout);
+                    DrawRowDropInsertPreview();
+                }
+                completed = true;
             }
-            completed = true;
+            finally
+            {
+                try
+                {
+                    if (drawing)
+                    {
+                        endResult = display.EndDraw();
+                    }
+                }
+                finally
+                {
+                    if (!completed)
+                    {
+                        // 描画の途中で失敗した資源は、ロックを解放してから解放し、次の描画で作り直す。
+                        frame.AbortFrame();
+                        ReleaseDrawingResources();
+                    }
+                }
+            }
+            if (endResult.Failure)
+            {
+                // 復旧・解放の前に、ロックを解放する。
+                frame.AbortFrame();
+                if (display.TryRecover(endResult))
+                {
+                    target = null;
+                    return false;
+                }
+                // 復旧できない終端の失敗は、資源を再利用せず、次の描画で作り直す。
+                ReleaseDrawingResources();
+                endResult.CheckError();
+            }
+            return display.TryPresent();
         }
         finally
         {
-            endResult = display.EndDraw();
-            if (!completed)
-            {
-                // 描画の途中で失敗した資源は再利用せず、次の描画で作り直す。
-                ReleaseDrawingResources();
-            }
+            // 上のどの経路でも解放済みのはずだが、予期しない例外でロックを残さない。
+            frame.AbortFrame();
         }
-        if (endResult.Failure)
-        {
-            if (display.TryRecover(endResult))
-            {
-                target = null;
-                return false;
-            }
-            // 復旧できない終端の失敗は、資源を再利用せず、次の描画で作り直す。
-            ReleaseDrawingResources();
-            endResult.CheckError();
-        }
-        return display.TryPresent();
     }
 
     private static long StopwatchTicksToMilliseconds(long ticks)

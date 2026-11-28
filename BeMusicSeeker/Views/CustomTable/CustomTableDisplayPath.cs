@@ -46,10 +46,29 @@ internal abstract class CustomTableDisplayPath : IDisposable
     /// <param name="pixelsPerDip">表示倍率。</param>
     internal abstract void Prepare(int pixelWidth, int pixelHeight, double pixelsPerDip);
 
+    /// <summary>
+    /// 描画の試行の始めに、<see cref="Prepare"/> の後、描画先へ最初に書く前に呼びます。共有面への書込みに排他が要る経路は、ここで取得し、
+    /// <see cref="Present"/> または <see cref="AbortFrame"/> まで保ちます。既定では何もしません。失敗したときは、取得したものを解放してから例外を出します。
+    /// </summary>
+    internal virtual void BeginFrame()
+    {
+    }
+
+    /// <summary>
+    /// 描画の試行を、反映せずに終えます。<see cref="BeginFrame"/> で取得したものが残っていれば解放し、なければ何もしません。
+    /// 失敗の経路で呼ぶため、解放の失敗は例外にしません。既定では何もしません。
+    /// </summary>
+    internal virtual void AbortFrame()
+    {
+    }
+
     /// <summary>描画を終えます。<see cref="D2D.ID2D1RenderTarget.EndDraw()"/> の結果、または故障注入で置き換えた結果を返します。</summary>
     internal abstract SharpGen.Runtime.Result EndDraw();
 
-    /// <summary>描き終えた画素をWPFが読める状態にします。<see cref="EndDraw"/> が成功した後に呼びます。</summary>
+    /// <summary>
+    /// 描き終えた画素をWPFが読める状態にし、<see cref="BeginFrame"/> で取得したものを解放します。<see cref="EndDraw"/> が成功した後に呼びます。
+    /// 失敗したときも、取得したものを解放してから例外を出します。
+    /// </summary>
     internal abstract void Present();
 
     /// <summary>描画先、画像、ブラシなど、この経路が持つ面をすべて解放します。GPU経路の共有のデバイスは解放しません。</summary>

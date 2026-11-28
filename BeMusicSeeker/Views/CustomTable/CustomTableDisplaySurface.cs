@@ -16,6 +16,8 @@ namespace BeMusicSeeker.Views;
 /// WPFがソフトウェアで描画している環境ではCPU経路、それ以外ではGPU経路を使い、GPU経路を作れない・復旧できない表は、
 /// 資源が解放されるまでCPU経路を保ちます（再表示で改めてGPU経路を試します）。
 /// 描画先の作り直しの要求とデバイスの消失は、この表の面を解放して共有のデバイスを作り直し、同じ描画要求の中で一回だけ描き直させます。
+/// 描画の試行のロックの取得（<see cref="TryBeginFrame"/>）と反映の失敗は、その表の面を解放してCPU経路へ切り替えます。
+/// 反映で描画の完了を上限まで確認できなかったときは、その警告を診断ログへ一度だけ記録します。
 /// UIスレッドだけで使い、<see cref="Dispose"/> で、文字のレイアウトを除く表示経路の資源をすべて解放します。
 /// </summary>
 internal sealed class CustomTableDisplaySurface : IDisposable
@@ -81,6 +83,38 @@ internal sealed class CustomTableDisplaySurface : IDisposable
         }
     }
 
+    /// <summary>
+    /// 描画の試行の始めに、共有面への最初の書込みの前に呼び、GPU経路のロックを取ります（CPU経路は何もしません）。
+    /// GPU経路で取得か裏面の結び直しが失敗したときは、反映の失敗と同じく、その表の面を解放してCPU経路へ切り替え、
+    /// 理由を診断ログへ記録してfalseを返します（呼び出し側が同じ描画要求の中でCPU経路で描き直します）。取ったロックは解放済みです。
+    /// trueのときは、<see cref="TryPresent"/> か <see cref="AbortFrame"/> が解放します。
+    /// </summary>
+    internal bool TryBeginFrame()
+    {
+        CustomTableDisplayPath current = path;
+        try
+        {
+            current.BeginFrame();
+            return true;
+        }
+        catch (Exception exception) when (current is CustomTableGpuDisplayPath && exception is not OutOfMemoryException)
+        {
+            DisposePath();
+            DiscardDevicesIfLost(exception);
+            SwitchToCpu("locking the surface failed", exception);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 描画の試行を、反映せずに終えます。取っているロックがあれば解放し、なければ何もしません。解放の失敗は伝えません。
+    /// 面の解放・復旧・切替えの前に呼びます。
+    /// </summary>
+    internal void AbortFrame()
+    {
+        path?.AbortFrame();
+    }
+
     /// <summary>描画の開始前に、色の対応表が上限を超えていれば破棄します。</summary>
     internal void TrimBrushes()
     {
@@ -106,7 +140,8 @@ internal sealed class CustomTableDisplaySurface : IDisposable
     }
 
     /// <summary>
-    /// 描いた画素を、WPFが合成する画像へ反映します。GPU経路の反映が失敗したときは、その表の面を解放してCPU経路へ切り替え、
+    /// 描いた画素を、WPFが合成する画像へ反映し、試行のロックを解放します。成功でも失敗でも、解放してから戻ります。
+    /// GPU経路の反映（<c>Unlock</c> の失敗を含む）が失敗したときは、その表の面を解放してCPU経路へ切り替え、
     /// 理由を診断ログへ記録してfalseを返します（呼び出し側が同じ描画要求の中でCPU経路で描き直します）。CPU経路の失敗は例外にします。
     /// </summary>
     internal bool TryPresent()
